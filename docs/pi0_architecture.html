@@ -1,0 +1,1911 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pi0 模型架构梳理</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #f7f5ef;
+        --ink: #172026;
+        --muted: #58646b;
+        --panel: #ffffff;
+        --line: #d7d2c6;
+        --soft: #ebe6dc;
+        --vision: #0f766e;
+        --language: #7c3aed;
+        --action: #b45309;
+        --core: #1f5f9d;
+        --loss: #be123c;
+        --tactile: #0891b2;
+        --green-soft: #e3f4ee;
+        --purple-soft: #ede9fe;
+        --amber-soft: #fbefd7;
+        --blue-soft: #e4eef8;
+        --rose-soft: #fde5ea;
+        --tactile-soft: #e0f2fe;
+        --shadow: 0 18px 45px rgba(33, 38, 43, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        line-height: 1.55;
+        color: var(--ink);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(247, 245, 239, 0.9) 220px),
+          var(--page);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .shell {
+        width: min(1180px, calc(100vw - 36px));
+        margin: 0 auto;
+      }
+
+      header {
+        padding: 34px 0 24px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 14px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--vision);
+        box-shadow:
+          14px 0 0 var(--language),
+          28px 0 0 var(--action);
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 900px;
+        font-size: clamp(34px, 5vw, 58px);
+        line-height: 1.03;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        max-width: 900px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: rgba(247, 245, 239, 0.92);
+        backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--line);
+      }
+
+      nav .shell {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding: 10px 0;
+      }
+
+      nav a {
+        flex: 0 0 auto;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 700;
+        color: #334149;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.65);
+        padding: 7px 11px;
+        border-radius: 8px;
+      }
+
+      section {
+        padding: 34px 0;
+      }
+
+      h2 {
+        margin: 0 0 16px;
+        font-size: 25px;
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        margin: 0 0 10px;
+        font-size: 18px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0 0 12px;
+      }
+
+      code {
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 0.92em;
+        background: rgba(23, 32, 38, 0.07);
+        padding: 0.12em 0.32em;
+        border-radius: 5px;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .metric {
+        min-height: 118px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 8px 25px rgba(33, 38, 43, 0.06);
+      }
+
+      .metric strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .metric span {
+        display: block;
+        font-size: 20px;
+        font-weight: 800;
+      }
+
+      .metric small {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+      }
+
+      .diagram-wrap {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .diagram-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fffaf0;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 16px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .swatch {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        display: inline-block;
+      }
+
+      .svg-holder {
+        width: 100%;
+        overflow-x: auto;
+        padding: 16px;
+      }
+
+      svg {
+        display: block;
+        min-width: 980px;
+        width: 100%;
+        height: auto;
+      }
+
+      .node rect,
+      .small-node rect {
+        rx: 8;
+        ry: 8;
+        stroke-width: 1.5;
+      }
+
+      .node-title {
+        font-size: 16px;
+        font-weight: 800;
+        fill: var(--ink);
+      }
+
+      .node-sub {
+        font-size: 12.5px;
+        fill: #52606a;
+      }
+
+      .lane-label {
+        font-size: 13px;
+        font-weight: 800;
+        fill: #59636b;
+      }
+
+      .arrow {
+        fill: none;
+        stroke: #51606a;
+        stroke-width: 2.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .arrow.vision {
+        stroke: var(--vision);
+      }
+
+      .arrow.language {
+        stroke: var(--language);
+      }
+
+      .arrow.action {
+        stroke: var(--action);
+      }
+
+      .arrow.core {
+        stroke: var(--core);
+      }
+
+      .arrow.tactile {
+        stroke: var(--tactile);
+      }
+
+      .arrow.loss {
+        stroke: var(--loss);
+      }
+
+      .arrow.rose {
+        stroke: var(--loss);
+      }
+
+      .arrow-label {
+        font-size: 12px;
+        font-weight: 700;
+        fill: #39464e;
+      }
+
+      .flow-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .flow-card,
+      .note-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 8px 24px rgba(33, 38, 43, 0.06);
+      }
+
+      .flow-card ol,
+      .flow-card ul,
+      .note-card ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      .flow-card li,
+      .note-card li {
+        margin: 7px 0;
+      }
+
+      .flow-card .tag {
+        display: inline-block;
+        margin-bottom: 10px;
+        padding: 4px 8px;
+        border-radius: 7px;
+        font-size: 12px;
+        font-weight: 800;
+        color: #26313a;
+        background: var(--soft);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 760px;
+      }
+
+      th,
+      td {
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #fffaf0;
+        font-size: 13px;
+        color: #404b53;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .callout {
+        margin-top: 14px;
+        padding: 14px 16px;
+        border-left: 4px solid var(--core);
+        border-radius: 8px;
+        background: #edf4fb;
+        color: #27343d;
+      }
+
+      .source-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .source-list a {
+        display: block;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        text-decoration: none;
+        color: #2d3a43;
+      }
+
+      .source-list a strong {
+        display: block;
+      }
+
+      .source-list a span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      footer {
+        padding: 24px 0 40px;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+      }
+
+      @media (max-width: 900px) {
+        .summary-grid,
+        .flow-grid,
+        .source-list {
+          grid-template-columns: 1fr;
+        }
+
+        .diagram-toolbar {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="shell">
+        <div class="eyebrow"><span class="dot" aria-hidden="true"></span>src/openpi/models/pi0.py</div>
+        <h1>Pi0 模型架构与数据流</h1>
+        <p class="lead">
+          本页按源码中的 <code>Pi0.__init__</code>、<code>embed_prefix</code>、<code>embed_suffix</code>、
+          <code>compute_loss</code> 和 <code>sample_actions</code> 梳理模型。核心思路是：视觉和语言形成
+          prefix token，状态、噪声动作和时间形成 suffix token，二者进入同一个 Gemma 双专家
+          transformer：<code>paligemma</code> 处理 prefix，<code>action_expert</code> 处理 suffix，
+          最后由 action head 预测 flow matching 速度场 <code>v_t</code>。
+        </p>
+        <div class="summary-grid" aria-label="Pi0 默认配置摘要">
+          <div class="metric">
+            <strong>视觉输入</strong>
+            <span>3 路 RGB</span>
+            <small><code>base</code>、左腕、右腕，默认 224x224。</small>
+          </div>
+          <div class="metric">
+            <strong>语言输入</strong>
+            <span>Prompt tokens</span>
+            <small>Pi0 默认 <code>max_token_len=48</code>，Pi05 默认 200。</small>
+          </div>
+          <div class="metric">
+            <strong>动作输出</strong>
+            <span>50 x 32</span>
+            <small>默认 <code>action_horizon=50</code>，<code>action_dim=32</code>。</small>
+          </div>
+          <div class="metric">
+            <strong>Transformer</strong>
+            <span>双专家 Gemma</span>
+            <small>prefix 用 PaliGemma/Gemma，suffix 用 action expert。</small>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <nav aria-label="页面导航">
+      <div class="shell">
+        <a href="#overview">总览图</a>
+        <a href="#overview-tactile">FastViT 触觉图</a>
+        <a href="#overview-pi05">Pi05 架构图</a>
+        <a href="#pi05-llm-forward">Pi05 LLM前向</a>
+        <a href="#overview-pi05-tactile">Pi05+触觉图</a>
+        <a href="#prefix">Prefix</a>
+        <a href="#suffix">Suffix</a>
+        <a href="#train">训练流</a>
+        <a href="#infer">推理流</a>
+        <a href="#pi05">Pi0/Pi05</a>
+        <a href="#rtc">RTC 推理图</a>
+        <a href="#sources">源码定位</a>
+      </div>
+    </nav>
+
+    <main>
+      <section id="overview">
+        <div class="shell">
+          <h2>原始总体架构图</h2>
+          <p class="lead" style="margin-top: 0; font-size: 16px;">
+            这张图保持 <code>src/openpi/models/pi0.py</code> 的原始 Pi0 结构不变，作为对照基线。
+          </p>
+          <div class="diagram-wrap">
+            <div class="diagram-toolbar">
+              <h3>从 Observation 到 action chunk</h3>
+              <div class="legend" aria-label="图例">
+                <span class="legend-item"><span class="swatch" style="background: var(--green-soft); border: 1px solid var(--vision)"></span>视觉</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--purple-soft); border: 1px solid var(--language)"></span>语言</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--amber-soft); border: 1px solid var(--action)"></span>动作/状态/时间</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--core)"></span>Transformer 核心</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--rose-soft); border: 1px solid var(--loss)"></span>训练目标</span>
+              </div>
+            </div>
+            <div class="svg-holder">
+              <svg viewBox="0 0 1240 820" role="img" aria-labelledby="overview-title overview-desc">
+                <title id="overview-title">Pi0 总体架构图</title>
+                <desc id="overview-desc">视觉、语言、状态、动作和时间信号经 prefix/suffix 编码后进入 paligemma 与 action_expert 双专家 Gemma，输出速度场与动作。</desc>
+                <defs>
+                  <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#51606a" />
+                  </marker>
+                  <marker id="arrowVision" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#0f766e" />
+                  </marker>
+                  <marker id="arrowLang" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#7c3aed" />
+                  </marker>
+                  <marker id="arrowAction" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#b45309" />
+                  </marker>
+                  <marker id="arrowCore" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#1f5f9d" />
+                  </marker>
+                  <marker id="arrowLoss" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#be123c" />
+                  </marker>
+                </defs>
+
+                <text x="42" y="48" class="lane-label">输入</text>
+                <text x="304" y="48" class="lane-label">Prefix token 化</text>
+                <text x="304" y="452" class="lane-label">Suffix token 化</text>
+                <text x="668" y="48" class="lane-label">共享 Transformer</text>
+                <text x="990" y="48" class="lane-label">输出/训练目标</text>
+
+                <g class="node">
+                  <rect x="40" y="72" width="210" height="116" fill="#e3f4ee" stroke="#0f766e" />
+                  <text x="62" y="105" class="node-title">Images</text>
+                  <text x="62" y="130" class="node-sub">3 camera views</text>
+                  <text x="62" y="152" class="node-sub">B x 224 x 224 x 3</text>
+                  <text x="62" y="174" class="node-sub">image_masks: B</text>
+                </g>
+                <g class="node">
+                  <rect x="40" y="218" width="210" height="104" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="62" y="251" class="node-title">Tokenized prompt</text>
+                  <text x="62" y="276" class="node-sub">B x max_token_len</text>
+                  <text x="62" y="298" class="node-sub">prompt mask</text>
+                </g>
+                <g class="node">
+                  <rect x="40" y="480" width="210" height="104" fill="#fbefd7" stroke="#b45309" />
+                  <text x="62" y="513" class="node-title">Robot state</text>
+                  <text x="62" y="538" class="node-sub">B x action_dim</text>
+                  <text x="62" y="560" class="node-sub">Pi0: suffix state token</text>
+                </g>
+                <g class="node">
+                  <rect x="40" y="616" width="210" height="126" fill="#fbefd7" stroke="#b45309" />
+                  <text x="62" y="650" class="node-title">Actions + timestep</text>
+                  <text x="62" y="675" class="node-sub">train: x_t from action/noise</text>
+                  <text x="62" y="697" class="node-sub">infer: x_t starts as noise</text>
+                  <text x="62" y="719" class="node-sub">t in [1 -> 0]</text>
+                </g>
+
+                <g class="node">
+                  <rect x="314" y="72" width="250" height="116" fill="#e3f4ee" stroke="#0f766e" />
+                  <text x="338" y="105" class="node-title">SigLIP image encoder</text>
+                  <text x="338" y="130" class="node-sub">So400m/14, pool_type=none</text>
+                  <text x="338" y="152" class="node-sub">about 256 tokens / view</text>
+                  <text x="338" y="174" class="node-sub">projected to PaliGemma width</text>
+                </g>
+                <g class="node">
+                  <rect x="314" y="218" width="250" height="104" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="338" y="251" class="node-title">LLM token embedder</text>
+                  <text x="338" y="276" class="node-sub">PaliGemma vocabulary embed</text>
+                  <text x="338" y="298" class="node-sub">same width as prefix expert</text>
+                </g>
+                <g class="node">
+                  <rect x="314" y="350" width="250" height="104" fill="#f7f2e8" stroke="#a69d8f" />
+                  <text x="338" y="383" class="node-title">Concat prefix</text>
+                  <text x="338" y="408" class="node-sub">image tokens + prompt tokens</text>
+                  <text x="338" y="430" class="node-sub">ar_mask all False, full attention</text>
+                </g>
+
+                <g class="node">
+                  <rect x="314" y="480" width="250" height="104" fill="#fbefd7" stroke="#b45309" />
+                  <text x="338" y="513" class="node-title">State projection</text>
+                  <text x="338" y="538" class="node-sub">Pi0 only</text>
+                  <text x="338" y="560" class="node-sub">Linear: action_dim -> expert width</text>
+                </g>
+                <g class="node">
+                  <rect x="314" y="616" width="250" height="126" fill="#fbefd7" stroke="#b45309" />
+                  <text x="338" y="650" class="node-title">Action/time projection</text>
+                  <text x="338" y="675" class="node-sub">action_in_proj(x_t)</text>
+                  <text x="338" y="697" class="node-sub">posemb_sincos(t)</text>
+                  <text x="338" y="719" class="node-sub">Pi0: concat + MLP, Pi05: adaRMS</text>
+                </g>
+
+                <g class="node">
+                  <rect x="650" y="132" width="274" height="488" fill="#f8fbff" stroke="#1f5f9d" />
+                  <text x="676" y="168" class="node-title">Gemma dual expert</text>
+                  <text x="676" y="196" class="node-sub">Module configs=[paligemma, action_expert]</text>
+                  <text x="676" y="224" class="node-sub">shared layers, separate expert weights</text>
+                  <text x="676" y="252" class="node-sub">mask / positions / optional KV cache</text>
+
+                  <rect x="674" y="286" width="226" height="116" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="696" y="320" class="node-title">paligemma</text>
+                  <text x="696" y="346" class="node-sub">prefix expert</text>
+                  <text x="696" y="370" class="node-sub">image tokens + prompt tokens</text>
+
+                  <rect x="674" y="442" width="226" height="116" fill="#fbefd7" stroke="#b45309" />
+                  <text x="696" y="476" class="node-title">action_expert</text>
+                  <text x="696" y="502" class="node-sub">suffix expert</text>
+                  <text x="696" y="526" class="node-sub">state / action / time tokens</text>
+
+                  <path class="arrow core" marker-end="url(#arrowCore)" d="M787 402 L787 442" />
+                  <text x="805" y="428" class="arrow-label">cross-token attention</text>
+
+                  <text x="676" y="596" class="node-sub">outputs: prefix_out, suffix_out</text>
+                </g>
+
+                <g class="node">
+                  <rect x="990" y="176" width="210" height="112" fill="#fff" stroke="#1f5f9d" />
+                  <text x="1012" y="210" class="node-title">Action head</text>
+                  <text x="1012" y="235" class="node-sub">action_out_proj</text>
+                  <text x="1012" y="257" class="node-sub">expert width -> action_dim</text>
+                </g>
+                <g class="node">
+                  <rect x="990" y="328" width="210" height="112" fill="#fde5ea" stroke="#be123c" />
+                  <text x="1012" y="362" class="node-title">Training loss</text>
+                  <text x="1012" y="387" class="node-sub">v_t predicts u_t = noise - action</text>
+                  <text x="1012" y="409" class="node-sub">MSE over action_dim</text>
+                </g>
+                <g class="node">
+                  <rect x="990" y="480" width="210" height="112" fill="#f7f2e8" stroke="#a69d8f" />
+                  <text x="1012" y="514" class="node-title">Inference update</text>
+                  <text x="1012" y="539" class="node-sub">x_t = x_t + dt * v_t</text>
+                  <text x="1012" y="561" class="node-sub">repeat until t reaches 0</text>
+                </g>
+
+                <path class="arrow vision" marker-end="url(#arrowVision)" d="M250 130 C278 130 284 130 314 130" />
+                <path class="arrow language" marker-end="url(#arrowLang)" d="M250 270 C278 270 284 270 314 270" />
+                <path class="arrow" marker-end="url(#arrow)" d="M439 188 L439 218" />
+                <path class="arrow" marker-end="url(#arrow)" d="M439 322 L439 350" />
+                <path class="arrow core" marker-end="url(#arrowCore)" d="M564 402 C610 402 620 344 674 344" />
+
+                <path class="arrow action" marker-end="url(#arrowAction)" d="M250 532 C278 532 284 532 314 532" />
+                <path class="arrow action" marker-end="url(#arrowAction)" d="M250 680 C278 680 284 680 314 680" />
+                <path class="arrow action" marker-end="url(#arrowAction)" d="M564 532 C612 532 620 500 674 500" />
+                <path class="arrow action" marker-end="url(#arrowAction)" d="M564 680 C620 680 620 526 674 526" />
+
+                <path class="arrow core" marker-end="url(#arrowCore)" d="M900 500 C944 500 946 232 990 232" />
+                <path class="arrow loss" marker-end="url(#arrowLoss)" d="M1095 288 L1095 328" />
+                <path class="arrow core" marker-end="url(#arrowCore)" d="M1095 288 C1145 318 1145 448 1095 480" />
+
+                <text x="585" y="348" class="arrow-label">prefix</text>
+                <text x="585" y="510" class="arrow-label">suffix</text>
+                <text x="930" y="214" class="arrow-label">v_t</text>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="overview-tactile">
+        <div class="shell">
+          <h2>新增总体架构图：FastViT 触觉后融合方案</h2>
+          <p class="lead" style="margin-top: 0; font-size: 16px;">
+            设计思路是保留原来的视觉 / 语言 / 动作主干，把触觉图像单独送入 FastViT 编码，再在 LLM 之后和
+            <code>suffix_out</code> 做后融合。这样对原始 Pi0 干扰最小，也更容易复用已有权重。
+            这里画的是你要的新增方案图，不是仓库当前 `pi0_tactile.py` 的既有实现。
+          </p>
+          <div class="diagram-wrap">
+            <div class="diagram-toolbar">
+              <h3>视觉走 prefix，触觉走 post-LLM</h3>
+              <div class="legend" aria-label="图例">
+                <span class="legend-item"><span class="swatch" style="background: var(--green-soft); border: 1px solid var(--vision)"></span>视觉</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--tactile-soft); border: 1px solid var(--tactile)"></span>触觉</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--purple-soft); border: 1px solid var(--language)"></span>语言</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--amber-soft); border: 1px solid var(--action)"></span>动作/状态/时间</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--core)"></span>LLM 与融合</span>
+              </div>
+            </div>
+            <div class="svg-holder">
+              <svg viewBox="0 0 1280 760" role="img" aria-labelledby="tactile-title tactile-desc">
+                <title id="tactile-title">Pi0 FastViT 触觉后融合总体架构图</title>
+                <desc id="tactile-desc">触觉图像先经过 FastViT 编码，再在 LLM 之后与 suffix_out 做后融合，然后进入 action head。</desc>
+                <defs>
+                  <marker id="tactileArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#0891b2" />
+                  </marker>
+                  <marker id="fusionArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#1f5f9d" />
+                  </marker>
+                  <marker id="actionArrow2" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#b45309" />
+                  </marker>
+                </defs>
+
+                <text x="40" y="46" class="lane-label">输入</text>
+                <text x="284" y="46" class="lane-label">双编码分支</text>
+                <text x="602" y="46" class="lane-label">原始 Pi0 主干</text>
+                <text x="944" y="46" class="lane-label">后融合输出</text>
+
+                <g class="node">
+                  <rect x="40" y="72" width="216" height="110" fill="#e3f4ee" stroke="#0f766e" />
+                  <text x="62" y="105" class="node-title">Visual images</text>
+                  <text x="62" y="130" class="node-sub">3 RGB views</text>
+                  <text x="62" y="152" class="node-sub">base / left / right</text>
+                </g>
+                <g class="node">
+                  <rect x="40" y="214" width="216" height="110" fill="#e0f2fe" stroke="#0891b2" />
+                  <text x="62" y="247" class="node-title">Tactile images</text>
+                  <text x="62" y="272" class="node-sub">left_tactile / right_tactile</text>
+                  <text x="62" y="294" class="node-sub">separate FastViT branch</text>
+                </g>
+                <g class="node">
+                  <rect x="40" y="366" width="216" height="102" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="62" y="399" class="node-title">Prompt tokens</text>
+                  <text x="62" y="424" class="node-sub">tokenized prompt</text>
+                  <text x="62" y="446" class="node-sub">prompt mask</text>
+                </g>
+                <g class="node">
+                  <rect x="40" y="500" width="216" height="102" fill="#fbefd7" stroke="#b45309" />
+                  <text x="62" y="533" class="node-title">State + actions + t</text>
+                  <text x="62" y="558" class="node-sub">state token / x_t / timestep</text>
+                  <text x="62" y="580" class="node-sub">suffix-side inputs</text>
+                </g>
+
+                <g class="node">
+                  <rect x="292" y="72" width="228" height="110" fill="#e3f4ee" stroke="#0f766e" />
+                  <text x="314" y="105" class="node-title">SigLIP encoder</text>
+                  <text x="314" y="130" class="node-sub">visual token stream</text>
+                  <text x="314" y="152" class="node-sub">same as original Pi0</text>
+                </g>
+                <g class="node">
+                  <rect x="292" y="214" width="228" height="110" fill="#e0f2fe" stroke="#0891b2" />
+                  <text x="314" y="247" class="node-title">FastViT encoder</text>
+                  <text x="314" y="272" class="node-sub">tactile token stream</text>
+                  <text x="314" y="294" class="node-sub">pooled to tactile_emb</text>
+                </g>
+                <g class="node">
+                  <rect x="292" y="366" width="228" height="102" fill="#f7f2e8" stroke="#a69d8f" />
+                  <text x="314" y="399" class="node-title">Prefix builder</text>
+                  <text x="314" y="424" class="node-sub">image tokens + prompt tokens</text>
+                  <text x="314" y="446" class="node-sub">full attention prefix</text>
+                </g>
+                <g class="node">
+                  <rect x="292" y="500" width="228" height="102" fill="#fbefd7" stroke="#b45309" />
+                  <text x="314" y="533" class="node-title">Suffix builder</text>
+                  <text x="314" y="558" class="node-sub">state + x_t + timestep</text>
+                  <text x="314" y="580" class="node-sub">action tokens</text>
+                </g>
+
+                <g class="node">
+                  <rect x="602" y="112" width="270" height="466" fill="#f8fbff" stroke="#1f5f9d" />
+                  <text x="626" y="148" class="node-title">Gemma dual expert</text>
+                  <text x="626" y="176" class="node-sub">preserve pretrained main path</text>
+                  <text x="626" y="204" class="node-sub">mask / positions / KV cache</text>
+
+                  <rect x="626" y="238" width="222" height="104" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="648" y="272" class="node-title">paligemma</text>
+                  <text x="648" y="298" class="node-sub">prefix expert</text>
+                  <text x="648" y="322" class="node-sub">visual + language context</text>
+
+                  <rect x="626" y="382" width="222" height="104" fill="#fbefd7" stroke="#b45309" />
+                  <text x="648" y="416" class="node-title">action_expert</text>
+                  <text x="648" y="442" class="node-sub">suffix expert</text>
+                  <text x="648" y="466" class="node-sub">action token reasoning</text>
+
+                  <path class="arrow core" marker-end="url(#fusionArrow)" d="M737 342 L737 382" />
+                  <text x="756" y="368" class="arrow-label">attention</text>
+
+                  <text x="626" y="548" class="node-sub">outputs: suffix_out</text>
+                </g>
+
+                <g class="node">
+                  <rect x="944" y="178" width="204" height="96" fill="#e0f2fe" stroke="#0891b2" />
+                  <text x="966" y="212" class="node-title">tactile_emb</text>
+                  <text x="966" y="237" class="node-sub">FastViT pooled embedding</text>
+                  <text x="966" y="259" class="node-sub">project to LLM width</text>
+                </g>
+                <g class="node">
+                  <rect x="944" y="324" width="204" height="128" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="966" y="358" class="node-title">Post-LLM fusion</text>
+                  <text x="966" y="383" class="node-sub">concat([suffix_out, tactile_emb])</text>
+                  <text x="966" y="405" class="node-sub">then fusion_proj</text>
+                  <text x="966" y="427" class="node-sub">gate only if added later</text>
+                </g>
+                <g class="node">
+                  <rect x="944" y="494" width="204" height="96" fill="#fff" stroke="#1f5f9d" />
+                  <text x="966" y="528" class="node-title">Action head</text>
+                  <text x="966" y="553" class="node-sub">action_out_proj</text>
+                  <text x="966" y="575" class="node-sub">outputs v_t</text>
+                </g>
+                <g class="node">
+                  <rect x="944" y="620" width="204" height="92" fill="#fde5ea" stroke="#be123c" />
+                  <text x="966" y="653" class="node-title">Training / inference</text>
+                  <text x="966" y="678" class="node-sub">loss or Euler update</text>
+                </g>
+
+                <path class="arrow vision" marker-end="url(#arrowVision)" d="M256 127 C270 127 276 127 292 127" />
+                <path class="arrow tactile" marker-end="url(#tactileArrow)" d="M256 269 C270 269 276 269 292 269" />
+                <path class="arrow language" marker-end="url(#arrowLang)" d="M256 417 C270 417 276 417 292 417" />
+                <path class="arrow action" marker-end="url(#arrowAction)" d="M256 551 C270 551 276 551 292 551" />
+
+                <path class="arrow core" marker-end="url(#fusionArrow)" d="M520 127 C550 127 566 290 626 290" />
+                <path class="arrow tactile" marker-end="url(#tactileArrow)" d="M520 269 C550 269 564 248 944 226" />
+                <path class="arrow core" marker-end="url(#fusionArrow)" d="M520 417 C550 417 566 322 626 322" />
+                <path class="arrow action" marker-end="url(#actionArrow2)" d="M520 551 C550 551 566 434 626 434" />
+
+                <path class="arrow tactile" marker-end="url(#tactileArrow)" d="M1046 274 L1046 324" />
+                <path class="arrow core" marker-end="url(#fusionArrow)" d="M848 434 C904 434 900 354 944 354" />
+                <path class="arrow core" marker-end="url(#fusionArrow)" d="M1046 452 L1046 494" />
+                <path class="arrow loss" marker-end="url(#actionArrow2)" d="M1148 542 C1188 542 1188 666 1148 666" />
+
+                <text x="614" y="142" class="arrow-label">prefix / suffix</text>
+                <text x="1080" y="308" class="arrow-label">fusion</text>
+              </svg>
+            </div>
+          </div>
+
+          <div class="flow-grid" style="margin-top: 14px">
+            <div class="flow-card">
+              <span class="tag" style="background: var(--green-soft)">1 保留主干</span>
+              <ol>
+                <li>视觉、语言、状态、动作这条原始 Pi0 链路保持不变。</li>
+                <li>这样可以最大限度复用已有的 prefix / suffix / action head 设计。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--tactile-soft)">2 FastViT 触觉分支</span>
+              <ol>
+                <li>左 / 右触觉图像单独进入 FastViT 编码器。</li>
+                <li>输出先池化成 <code>tactile_emb</code>，再用线性层对齐到 LLM 宽度。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--blue-soft)">3 LLM 后融合</span>
+              <ol>
+                <li>LLM 先只处理原始 prefix / suffix，不让触觉扰动注意力结构。</li>
+                <li><code>suffix_out</code> 和 <code>tactile_emb</code> 在后融合层合并，再进 <code>action_out_proj</code>。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="callout">
+            推荐的实现形态是 <code>FastViT -> tactile_emb -> concat([suffix_out, tactile_emb]) -> fusion_proj -> action_out_proj</code>。
+            门控可以作为后续增强，但主方案是先拼接再线性投影。这样触觉是“额外条件”，不是“改写主干”，调试和迁移都更稳。
+          </div>
+        </div>
+      </section>
+
+      <section id="overview-pi05">
+        <div class="shell">
+          <h2>Pi05 模型总体架构图</h2>
+          <p class="lead" style="margin-top: 0; font-size: 16px;">
+            Pi05 仍然复用 Pi0 的视觉 / 语言 prefix 与动作 expert，但有两个关键变化：状态不再经过
+            <code>state_proj</code> 变成连续 suffix token，而是离散化后并入语言 token；flow matching 的时间
+            <code>t</code> 不再和 action token 拼接，而是通过 <code>time_mlp</code> 生成 <code>adarms_cond</code>，
+            注入 action expert 的 adaRMSNorm。
+          </p>
+          <div class="diagram-wrap">
+            <div class="diagram-toolbar">
+              <h3>Pi05: discrete state + adaRMS time conditioning</h3>
+              <div class="legend" aria-label="图例">
+                <span class="legend-item"><span class="swatch" style="background: var(--green-soft); border: 1px solid var(--vision)"></span>视觉 prefix</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--purple-soft); border: 1px solid var(--language)"></span>语言/离散状态 prefix</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--amber-soft); border: 1px solid var(--action)"></span>动作 suffix</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--core)"></span>Gemma 双专家</span>
+              </div>
+            </div>
+            <div class="svg-holder">
+              <svg viewBox="0 0 1260 760" role="img" aria-labelledby="pi05-title pi05-desc">
+                <title id="pi05-title">Pi05 模型总体架构图</title>
+                <desc id="pi05-desc">Pi05 将离散状态放入语言 prefix，并用 adaRMS 条件把时间注入 action expert。</desc>
+                <defs>
+                  <marker id="pi05VisionArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#0f766e" />
+                  </marker>
+                  <marker id="pi05LangArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#7c3aed" />
+                  </marker>
+                  <marker id="pi05ActionArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#b45309" />
+                  </marker>
+                  <marker id="pi05CoreArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#1f5f9d" />
+                  </marker>
+                  <marker id="pi05LossArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#be123c" />
+                  </marker>
+                </defs>
+
+                <text x="42" y="46" class="lane-label">输入</text>
+                <text x="308" y="46" class="lane-label">Pi05 token 化</text>
+                <text x="650" y="46" class="lane-label">Gemma 双专家</text>
+                <text x="984" y="46" class="lane-label">输出</text>
+
+                <g class="node">
+                  <rect x="42" y="72" width="220" height="110" fill="#e3f4ee" stroke="#0f766e" />
+                  <text x="64" y="105" class="node-title">Images</text>
+                  <text x="64" y="130" class="node-sub">3 RGB camera views</text>
+                  <text x="64" y="152" class="node-sub">B x 224 x 224 x 3</text>
+                </g>
+                <g class="node">
+                  <rect x="42" y="214" width="220" height="126" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="64" y="247" class="node-title">Prompt + state ids</text>
+                  <text x="64" y="272" class="node-sub">tokenized_prompt</text>
+                  <text x="64" y="294" class="node-sub">discrete_state_input=True</text>
+                  <text x="64" y="316" class="node-sub">max_token_len default 200</text>
+                </g>
+                <g class="node">
+                  <rect x="42" y="486" width="220" height="126" fill="#fbefd7" stroke="#b45309" />
+                  <text x="64" y="520" class="node-title">x_t noisy actions</text>
+                  <text x="64" y="545" class="node-sub">B x action_horizon x action_dim</text>
+                  <text x="64" y="567" class="node-sub">no state token in suffix</text>
+                  <text x="64" y="589" class="node-sub">default 50 x 32</text>
+                </g>
+                <g class="node">
+                  <rect x="42" y="640" width="220" height="82" fill="#fbefd7" stroke="#b45309" />
+                  <text x="64" y="673" class="node-title">timestep t</text>
+                  <text x="64" y="698" class="node-sub">B or B x action_horizon</text>
+                </g>
+
+                <g class="node">
+                  <rect x="316" y="72" width="250" height="110" fill="#e3f4ee" stroke="#0f766e" />
+                  <text x="340" y="105" class="node-title">SigLIP image encoder</text>
+                  <text x="340" y="130" class="node-sub">So400m/14, pool_type=none</text>
+                  <text x="340" y="152" class="node-sub">image_tokens</text>
+                </g>
+                <g class="node">
+                  <rect x="316" y="214" width="250" height="126" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="340" y="247" class="node-title">Gemma embedder</text>
+                  <text x="340" y="272" class="node-sub">prompt tokens include state</text>
+                  <text x="340" y="294" class="node-sub">language/state embeddings</text>
+                  <text x="340" y="316" class="node-sub">prefix ar_mask all False</text>
+                </g>
+                <g class="node">
+                  <rect x="316" y="374" width="250" height="96" fill="#f7f2e8" stroke="#a69d8f" />
+                  <text x="340" y="408" class="node-title">Concat prefix</text>
+                  <text x="340" y="433" class="node-sub">image_tokens + prompt/state tokens</text>
+                  <text x="340" y="455" class="node-sub">full prefix attention</text>
+                </g>
+                <g class="node">
+                  <rect x="316" y="486" width="250" height="126" fill="#fbefd7" stroke="#b45309" />
+                  <text x="340" y="520" class="node-title">action_in_proj</text>
+                  <text x="340" y="545" class="node-sub">x_t -> action_tokens</text>
+                  <text x="340" y="567" class="node-sub">no concat with time</text>
+                  <text x="340" y="589" class="node-sub">suffix = action tokens only</text>
+                </g>
+                <g class="node">
+                  <rect x="316" y="640" width="250" height="82" fill="#fbefd7" stroke="#b45309" />
+                  <text x="340" y="673" class="node-title">time_mlp</text>
+                  <text x="340" y="698" class="node-sub">posemb_sincos(t) -> adarms_cond</text>
+                </g>
+
+                <g class="node">
+                  <rect x="650" y="104" width="286" height="548" fill="#f8fbff" stroke="#1f5f9d" />
+                  <text x="676" y="140" class="node-title">Gemma dual expert</text>
+                  <text x="676" y="168" class="node-sub">configs=[paligemma, action_expert]</text>
+                  <text x="676" y="196" class="node-sub">use_adarms=[False, True]</text>
+                  <text x="676" y="224" class="node-sub">inputs: [prefix_tokens, suffix_tokens]</text>
+                  <text x="676" y="252" class="node-sub">attention mask from input_mask/ar_mask</text>
+
+                  <rect x="674" y="286" width="238" height="112" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="696" y="320" class="node-title">paligemma</text>
+                  <text x="696" y="346" class="node-sub">prefix expert</text>
+                  <text x="696" y="370" class="node-sub">vision + prompt + discrete state</text>
+
+                  <rect x="674" y="438" width="238" height="136" fill="#fbefd7" stroke="#b45309" />
+                  <text x="696" y="472" class="node-title">action_expert</text>
+                  <text x="696" y="498" class="node-sub">suffix expert</text>
+                  <text x="696" y="522" class="node-sub">action tokens</text>
+                  <text x="696" y="546" class="node-sub">adaRMSNorm conditioned by t</text>
+
+                  <path class="arrow core" marker-end="url(#pi05CoreArrow)" d="M793 398 L793 438" />
+                  <text x="812" y="424" class="arrow-label">cross-token attention</text>
+
+                  <text x="676" y="624" class="node-sub">outputs: prefix_out, suffix_out</text>
+                </g>
+
+                <g class="node">
+                  <rect x="984" y="170" width="220" height="110" fill="#fff" stroke="#1f5f9d" />
+                  <text x="1006" y="204" class="node-title">Action head</text>
+                  <text x="1006" y="229" class="node-sub">suffix_out[:, -action_horizon:]</text>
+                  <text x="1006" y="251" class="node-sub">action_out_proj -> v_t</text>
+                </g>
+                <g class="node">
+                  <rect x="984" y="326" width="220" height="104" fill="#fde5ea" stroke="#be123c" />
+                  <text x="1006" y="360" class="node-title">Training</text>
+                  <text x="1006" y="385" class="node-sub">MSE(v_t, noise - actions)</text>
+                  <text x="1006" y="407" class="node-sub">RTC optionally masks prefix</text>
+                </g>
+                <g class="node">
+                  <rect x="984" y="478" width="220" height="104" fill="#f7f2e8" stroke="#a69d8f" />
+                  <text x="1006" y="512" class="node-title">Inference</text>
+                  <text x="1006" y="537" class="node-sub">x_t = x_t + dt * v_t</text>
+                  <text x="1006" y="559" class="node-sub">loop t: 1 -> 0</text>
+                </g>
+
+                <path class="arrow vision" marker-end="url(#pi05VisionArrow)" d="M262 127 C286 127 292 127 316 127" />
+                <path class="arrow language" marker-end="url(#pi05LangArrow)" d="M262 277 C286 277 292 277 316 277" />
+                <path class="arrow" marker-end="url(#pi05CoreArrow)" d="M441 182 L441 214" />
+                <path class="arrow" marker-end="url(#pi05CoreArrow)" d="M441 340 L441 374" />
+                <path class="arrow action" marker-end="url(#pi05ActionArrow)" d="M262 549 C286 549 292 549 316 549" />
+                <path class="arrow action" marker-end="url(#pi05ActionArrow)" d="M262 681 C286 681 292 681 316 681" />
+
+                <path class="arrow core" marker-end="url(#pi05CoreArrow)" d="M566 422 C604 422 618 342 674 342" />
+                <path class="arrow action" marker-end="url(#pi05ActionArrow)" d="M566 549 C604 549 616 506 674 506" />
+                <path class="arrow action" marker-end="url(#pi05ActionArrow)" d="M566 681 C620 681 620 546 674 546" />
+
+                <path class="arrow core" marker-end="url(#pi05CoreArrow)" d="M912 506 C952 506 952 225 984 225" />
+                <path class="arrow loss" marker-end="url(#pi05LossArrow)" d="M1094 280 L1094 326" />
+                <path class="arrow core" marker-end="url(#pi05CoreArrow)" d="M1094 280 C1150 318 1150 442 1094 478" />
+
+                <text x="588" y="240" class="arrow-label">prefix tokens</text>
+                <text x="586" y="512" class="arrow-label">suffix action tokens</text>
+                <text x="578" y="656" class="arrow-label">adarms_cond</text>
+              </svg>
+            </div>
+          </div>
+
+          <div class="flow-grid" style="margin-top: 14px">
+            <div class="flow-card">
+              <span class="tag" style="background: var(--purple-soft)">状态在 prefix</span>
+              <ol>
+                <li><code>discrete_state_input=True</code>，状态由数据 transform 编进 prompt token。</li>
+                <li><code>embed_suffix</code> 不再创建 <code>state_proj(obs.state)</code> 的连续 state token。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--amber-soft)">动作 suffix 更干净</span>
+              <ol>
+                <li><code>action_tokens = action_in_proj(x_t)</code> 直接作为 action expert 输入。</li>
+                <li>suffix 的最后 <code>action_horizon</code> 个 hidden state 全部对应动作 token。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--blue-soft)">时间走 adaRMS</span>
+              <ol>
+                <li><code>posemb_sincos(t) -> time_mlp_in/out -> adarms_cond</code>。</li>
+                <li><code>PaliGemma.llm(..., adarms_cond=[None, adarms_cond])</code> 只调制 action expert。</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="pi05-llm-forward">
+        <div class="shell">
+          <h2>Pi05 中 prefix_tokens / suffix_tokens 的 LLM 前向过程</h2>
+          <p class="lead" style="margin-top: 0; font-size: 16px;">
+            这张图对应 <code>self.PaliGemma.llm([prefix_tokens, suffix_tokens], ...)</code>。
+            Pi05 不是把两类 token 简单 concat 后走同一套权重，而是用同一个 Gemma Module 调度两个 expert：
+            <code>paligemma</code> 负责 prefix，<code>action_expert</code> 负责 suffix。attention 在 token 维度联合计算，
+            FFN / norm / 输出投影则按 expert 分开使用各自权重。
+          </p>
+          <div class="diagram-wrap">
+            <div class="diagram-toolbar">
+              <h3>Pi05: [prefix_tokens, suffix_tokens] -> dual-expert Gemma -> suffix_out</h3>
+              <div class="legend" aria-label="图例">
+                <span class="legend-item"><span class="swatch" style="background: var(--purple-soft); border: 1px solid var(--language)"></span>prefix / paligemma</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--amber-soft); border: 1px solid var(--action)"></span>suffix / action_expert</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--core)"></span>joint attention</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--rose-soft); border: 1px solid var(--loss)"></span>action head</span>
+              </div>
+            </div>
+            <div class="svg-holder">
+              <svg viewBox="0 0 1380 780" role="img" aria-labelledby="pi05llm-title pi05llm-desc">
+                <title id="pi05llm-title">Pi05 LLM 前向过程图</title>
+                <desc id="pi05llm-desc">展示 Pi05 中 prefix tokens 和 suffix tokens 进入双专家 Gemma 后，经过专家 RMSNorm、联合 attention、专家 FFN 和 final norm，输出 suffix_out 并进入 action head。</desc>
+                <defs>
+                  <marker id="pi05llmCoreArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#1f5f9d" />
+                  </marker>
+                  <marker id="pi05llmLangArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#7c3aed" />
+                  </marker>
+                  <marker id="pi05llmActionArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#b45309" />
+                  </marker>
+                  <marker id="pi05llmLossArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#be123c" />
+                  </marker>
+                </defs>
+
+                <text x="42" y="46" class="lane-label">Token 构造</text>
+                <text x="340" y="46" class="lane-label">LLM 输入</text>
+                <text x="650" y="46" class="lane-label">每层 Gemma Block</text>
+                <text x="1058" y="46" class="lane-label">输出</text>
+
+                <g class="node">
+                  <rect x="42" y="80" width="246" height="132" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="64" y="114" class="node-title">embed_prefix()</text>
+                  <text x="64" y="140" class="node-sub">SigLIP image tokens</text>
+                  <text x="64" y="164" class="node-sub">Gemma embedder(prompt + state ids)</text>
+                  <text x="64" y="188" class="node-sub">ar_mask = False for prefix</text>
+                </g>
+
+                <g class="node">
+                  <rect x="42" y="260" width="246" height="156" fill="#fbefd7" stroke="#b45309" />
+                  <text x="64" y="294" class="node-title">embed_suffix()</text>
+                  <text x="64" y="320" class="node-sub">action_in_proj(x_t)</text>
+                  <text x="64" y="344" class="node-sub">Pi05: suffix = action tokens only</text>
+                  <text x="64" y="368" class="node-sub">time_mlp(t) -> adarms_cond</text>
+                  <text x="64" y="392" class="node-sub">ar_mask = causal action stream</text>
+                </g>
+
+                <g class="node">
+                  <rect x="342" y="84" width="238" height="116" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="364" y="118" class="node-title">prefix_tokens</text>
+                  <text x="364" y="144" class="node-sub">expert 0: paligemma</text>
+                  <text x="364" y="168" class="node-sub">vision + language + discrete state</text>
+                </g>
+
+                <g class="node">
+                  <rect x="342" y="256" width="238" height="116" fill="#fbefd7" stroke="#b45309" />
+                  <text x="364" y="290" class="node-title">suffix_tokens</text>
+                  <text x="364" y="316" class="node-sub">expert 1: action_expert</text>
+                  <text x="364" y="340" class="node-sub">B x action_horizon x expert_width</text>
+                </g>
+
+                <g class="node">
+                  <rect x="342" y="436" width="238" height="116" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="364" y="470" class="node-title">mask + positions</text>
+                  <text x="364" y="496" class="node-sub">input_mask concat</text>
+                  <text x="364" y="520" class="node-sub">make_attn_mask(input_mask, ar_mask)</text>
+                </g>
+
+                <g class="node">
+                  <rect x="640" y="84" width="350" height="520" fill="#f8fbff" stroke="#1f5f9d" />
+                  <text x="668" y="120" class="node-title">Gemma Module layers scan</text>
+                  <text x="668" y="148" class="node-sub">depth shared, params scanned by layer</text>
+
+                  <rect x="668" y="184" width="132" height="96" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="690" y="218" class="node-title">paligemma</text>
+                  <text x="690" y="244" class="node-sub">RMSNorm</text>
+                  <text x="690" y="266" class="node-sub">Q/K/V proj 0</text>
+
+                  <rect x="830" y="184" width="132" height="96" fill="#fbefd7" stroke="#b45309" />
+                  <text x="852" y="218" class="node-title">action_expert</text>
+                  <text x="852" y="244" class="node-sub">adaRMSNorm(t)</text>
+                  <text x="852" y="266" class="node-sub">Q/K/V proj 1</text>
+
+                  <rect x="684" y="324" width="262" height="104" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="706" y="358" class="node-title">Joint self-attention</text>
+                  <text x="706" y="384" class="node-sub">concat Q/K/V along token axis</text>
+                  <text x="706" y="408" class="node-sub">RoPE + attn_mask + optional KV cache</text>
+
+                  <rect x="668" y="472" width="132" height="96" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="690" y="506" class="node-title">FFN 0</text>
+                  <text x="690" y="532" class="node-sub">paligemma MLP</text>
+                  <text x="690" y="554" class="node-sub">residual</text>
+
+                  <rect x="830" y="472" width="132" height="96" fill="#fbefd7" stroke="#b45309" />
+                  <text x="852" y="506" class="node-title">FFN 1</text>
+                  <text x="852" y="532" class="node-sub">action MLP</text>
+                  <text x="852" y="554" class="node-sub">residual + adaRMS</text>
+
+                  <path class="arrow core" marker-end="url(#pi05llmCoreArrow)" d="M734 280 C734 304 778 304 778 324" />
+                  <path class="arrow core" marker-end="url(#pi05llmCoreArrow)" d="M896 280 C896 304 852 304 852 324" />
+                  <path class="arrow core" marker-end="url(#pi05llmCoreArrow)" d="M778 428 C778 452 734 452 734 472" />
+                  <path class="arrow core" marker-end="url(#pi05llmCoreArrow)" d="M852 428 C852 452 896 452 896 472" />
+                </g>
+
+                <g class="node">
+                  <rect x="1058" y="122" width="244" height="116" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="1080" y="156" class="node-title">prefix_out</text>
+                  <text x="1080" y="182" class="node-sub">final_norm expert 0</text>
+                  <text x="1080" y="206" class="node-sub">通常不接 action head</text>
+                </g>
+
+                <g class="node">
+                  <rect x="1058" y="296" width="244" height="132" fill="#fbefd7" stroke="#b45309" />
+                  <text x="1080" y="330" class="node-title">suffix_out</text>
+                  <text x="1080" y="356" class="node-sub">final_norm expert 1</text>
+                  <text x="1080" y="380" class="node-sub">取最后 action_horizon 个 token</text>
+                  <text x="1080" y="404" class="node-sub">包含 prefix context + action context</text>
+                </g>
+
+                <g class="node">
+                  <rect x="1058" y="500" width="244" height="104" fill="#fde5ea" stroke="#be123c" />
+                  <text x="1080" y="534" class="node-title">Action head</text>
+                  <text x="1080" y="560" class="node-sub">action_out_proj(suffix_out)</text>
+                  <text x="1080" y="584" class="node-sub">predict v_t</text>
+                </g>
+
+                <path class="arrow language" marker-end="url(#pi05llmLangArrow)" d="M288 146 C312 146 318 142 342 142" />
+                <path class="arrow action" marker-end="url(#pi05llmActionArrow)" d="M288 338 C312 338 318 314 342 314" />
+                <path class="arrow core" marker-end="url(#pi05llmCoreArrow)" d="M461 200 L461 436" />
+                <path class="arrow language" marker-end="url(#pi05llmLangArrow)" d="M580 142 C608 142 620 232 668 232" />
+                <path class="arrow action" marker-end="url(#pi05llmActionArrow)" d="M580 314 C608 314 620 232 830 232" />
+                <path class="arrow core" marker-end="url(#pi05llmCoreArrow)" d="M580 494 C612 494 612 376 684 376" />
+                <path class="arrow language" marker-end="url(#pi05llmLangArrow)" d="M990 232 C1022 232 1026 180 1058 180" />
+                <path class="arrow action" marker-end="url(#pi05llmActionArrow)" d="M990 520 C1022 520 1026 362 1058 362" />
+                <path class="arrow loss" marker-end="url(#pi05llmLossArrow)" d="M1180 428 L1180 500" />
+
+                <text x="604" y="124" class="arrow-label">list[0]</text>
+                <text x="604" y="304" class="arrow-label">list[1]</text>
+                <text x="1012" y="348" class="arrow-label">action hidden states</text>
+              </svg>
+            </div>
+          </div>
+
+          <div class="flow-grid" style="margin-top: 14px">
+            <div class="flow-card">
+              <span class="tag" style="background: var(--purple-soft)">prefix_tokens</span>
+              <ol>
+                <li><code>embed_prefix</code> 把图像 token 和 prompt/state token 拼成 prefix。</li>
+                <li>Pi05 的状态已经离散化到 prompt 侧，所以 prefix 包含视觉、语言和离散状态。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--amber-soft)">suffix_tokens</span>
+              <ol>
+                <li><code>embed_suffix</code> 中 <code>action_in_proj(x_t)</code> 直接得到 action expert token。</li>
+                <li><code>time_mlp(t)</code> 不拼进 token，而是作为 <code>adarms_cond</code> 调制 action expert。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--blue-soft)">Gemma Block</span>
+              <ol>
+                <li>attention 前两个 expert 分别做 norm 和 Q/K/V 投影，然后在 token 维度 concat 做联合 attention。</li>
+                <li>attention 输出再切回两个 expert，各自走 output projection、FFN、final norm，返回 <code>prefix_out</code> 和 <code>suffix_out</code>。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="callout">
+            对 action head 来说，真正使用的是 <code>suffix_out[:, -action_horizon:]</code>。
+            它不是原始 action token，而是 action expert 在每层中通过 attention 读取 prefix 上下文、
+            再经过 action expert 自己的 FFN / adaRMS 后得到的动作隐状态。
+          </div>
+        </div>
+      </section>
+
+      <section id="overview-pi05-tactile">
+        <div class="shell">
+          <h2>Pi05 + FastViT 触觉经 action_expert 融合架构图</h2>
+          <p class="lead" style="margin-top: 0; font-size: 16px;">
+            这是把 FastViT 输出放进 Pi05 <code>action_expert</code> 的方案：视觉 / 语言 / 离散状态仍走
+            <code>paligemma</code> prefix；触觉图像经 FastViT 后投影成 tactile suffix tokens，
+            放在 action tokens 前面，一起进入 <code>action_expert</code>。这样触觉会经过 18 层 action expert，
+            并在每层 joint attention 中参与动作 token 的计算。
+          </p>
+          <div class="diagram-wrap">
+            <div class="diagram-toolbar">
+              <h3>Pi05 主干 + FastViT tactile tokens into action_expert</h3>
+              <div class="legend" aria-label="图例">
+                <span class="legend-item"><span class="swatch" style="background: var(--green-soft); border: 1px solid var(--vision)"></span>视觉</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--purple-soft); border: 1px solid var(--language)"></span>语言/离散状态</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--amber-soft); border: 1px solid var(--action)"></span>动作/时间</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--tactile-soft); border: 1px solid var(--tactile)"></span>触觉</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--core)"></span>LLM / action_expert</span>
+              </div>
+            </div>
+            <div class="svg-holder">
+              <svg viewBox="0 0 1380 820" role="img" aria-labelledby="pi05t-title pi05t-desc">
+                <title id="pi05t-title">Pi05 + FastViT 触觉经 action_expert 融合总体架构图</title>
+                <desc id="pi05t-desc">Pi05 主干保持视觉语言 prefix，触觉图像通过 FastViT 编码后作为 action_expert suffix tokens 进入 LLM。</desc>
+                <defs>
+                  <marker id="pi05tVisionArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#0f766e" />
+                  </marker>
+                  <marker id="pi05tLangArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#7c3aed" />
+                  </marker>
+                  <marker id="pi05tActionArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#b45309" />
+                  </marker>
+                  <marker id="pi05tTactileArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#0891b2" />
+                  </marker>
+                  <marker id="pi05tCoreArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#1f5f9d" />
+                  </marker>
+                </defs>
+
+                <text x="42" y="46" class="lane-label">输入</text>
+                <text x="314" y="46" class="lane-label">Pi05 token 化</text>
+                <text x="708" y="46" class="lane-label">LLM 主干</text>
+                <text x="1090" y="46" class="lane-label">action_expert 输出</text>
+
+                <g class="node">
+                  <rect x="42" y="72" width="236" height="108" fill="#e3f4ee" stroke="#0f766e" />
+                  <text x="64" y="105" class="node-title">Visual images</text>
+                  <text x="64" y="130" class="node-sub">3 RGB views</text>
+                  <text x="64" y="152" class="node-sub">same Pi05 prefix path</text>
+                </g>
+                <g class="node">
+                  <rect x="42" y="212" width="236" height="112" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="64" y="245" class="node-title">Prompt + state ids</text>
+                  <text x="64" y="270" class="node-sub">discrete_state_input=True</text>
+                  <text x="64" y="292" class="node-sub">state inside language prefix</text>
+                </g>
+                <g class="node">
+                  <rect x="42" y="352" width="236" height="108" fill="#e0f2fe" stroke="#0891b2" />
+                  <text x="64" y="385" class="node-title">Tactile images</text>
+                  <text x="64" y="410" class="node-sub">left / right tactile cameras</text>
+                  <text x="64" y="432" class="node-sub">separate FastViT branch</text>
+                </g>
+                <g class="node">
+                  <rect x="42" y="492" width="236" height="116" fill="#fbefd7" stroke="#b45309" />
+                  <text x="64" y="525" class="node-title">x_t + t</text>
+                  <text x="64" y="550" class="node-sub">action_in_proj(x_t)</text>
+                  <text x="64" y="572" class="node-sub">posemb_sincos(t) -> adarms_cond</text>
+                </g>
+
+                <g class="node">
+                  <rect x="320" y="72" width="248" height="108" fill="#e3f4ee" stroke="#0f766e" />
+                  <text x="342" y="105" class="node-title">SigLIP encoder</text>
+                  <text x="342" y="130" class="node-sub">visual prefix tokens</text>
+                  <text x="342" y="152" class="node-sub">unchanged from Pi05</text>
+                </g>
+                <g class="node">
+                  <rect x="320" y="212" width="248" height="112" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="342" y="245" class="node-title">Gemma embedder</text>
+                  <text x="342" y="270" class="node-sub">prompt tokens + discrete state</text>
+                  <text x="342" y="292" class="node-sub">full prefix attention</text>
+                </g>
+                <g class="node">
+                  <rect x="320" y="352" width="248" height="108" fill="#e0f2fe" stroke="#0891b2" />
+                  <text x="342" y="385" class="node-title">FastViT encoder</text>
+                  <text x="342" y="410" class="node-sub">token stream or pooled emb</text>
+                  <text x="342" y="432" class="node-sub">project -> tactile suffix tokens</text>
+                </g>
+                <g class="node">
+                  <rect x="320" y="492" width="248" height="116" fill="#fbefd7" stroke="#b45309" />
+                  <text x="342" y="525" class="node-title">action_in_proj + time_mlp</text>
+                  <text x="342" y="550" class="node-sub">action tokens</text>
+                  <text x="342" y="572" class="node-sub">timestep -> adarms_cond</text>
+                </g>
+
+                <g class="node">
+                  <rect x="708" y="106" width="302" height="526" fill="#f8fbff" stroke="#1f5f9d" />
+                  <text x="734" y="142" class="node-title">Gemma dual expert</text>
+                  <text x="734" y="170" class="node-sub">configs=[paligemma, action_expert]</text>
+                  <text x="734" y="198" class="node-sub">use_adarms=[False, True]</text>
+                  <text x="734" y="226" class="node-sub">same Pi05 attention semantics</text>
+
+                  <rect x="734" y="262" width="250" height="110" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="756" y="296" class="node-title">paligemma</text>
+                  <text x="756" y="322" class="node-sub">prefix expert</text>
+                  <text x="756" y="346" class="node-sub">visual + prompt + state</text>
+
+                  <rect x="734" y="400" width="250" height="160" fill="#fbefd7" stroke="#b45309" />
+                  <text x="756" y="446" class="node-title">action_expert</text>
+                  <text x="756" y="472" class="node-sub">suffix expert</text>
+                  <text x="756" y="496" class="node-sub">[tactile_tokens, action_tokens]</text>
+                  <text x="756" y="520" class="node-sub">tactile_cond + time_cond</text>
+                  <text x="756" y="544" class="node-sub">18 layers with joint attention</text>
+
+                  <path class="arrow core" marker-end="url(#pi05tCoreArrow)" d="M859 372 L859 400" />
+                  <text x="878" y="398" class="arrow-label">attention</text>
+
+                  <text x="734" y="602" class="node-sub">outputs: prefix_out, suffix_out</text>
+                </g>
+
+                <g class="node">
+                  <rect x="1090" y="180" width="230" height="126" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="1112" y="214" class="node-title">suffix_out</text>
+                  <text x="1112" y="239" class="node-sub">tactile + action hidden states</text>
+                  <text x="1112" y="261" class="node-sub">take last action_horizon</text>
+                  <text x="1112" y="283" class="node-sub">drop tactile output slice</text>
+                </g>
+                <g class="node">
+                  <rect x="1090" y="382" width="230" height="112" fill="#fff" stroke="#1f5f9d" />
+                  <text x="1112" y="416" class="node-title">Action head</text>
+                  <text x="1112" y="441" class="node-sub">action_out_proj(action_slice)</text>
+                  <text x="1112" y="463" class="node-sub">predict v_t</text>
+                </g>
+                <g class="node">
+                  <rect x="1090" y="598" width="230" height="88" fill="#fde5ea" stroke="#be123c" />
+                  <text x="1112" y="631" class="node-title">Loss / update</text>
+                  <text x="1112" y="656" class="node-sub">MSE or Euler denoise</text>
+                </g>
+
+                <path class="arrow vision" marker-end="url(#pi05tVisionArrow)" d="M278 126 C296 126 304 126 320 126" />
+                <path class="arrow language" marker-end="url(#pi05tLangArrow)" d="M278 268 C296 268 304 268 320 268" />
+                <path class="arrow tactile" marker-end="url(#pi05tTactileArrow)" d="M278 406 C296 406 304 406 320 406" />
+                <path class="arrow action" marker-end="url(#pi05tActionArrow)" d="M278 550 C296 550 304 550 320 550" />
+
+                <path class="arrow core" marker-end="url(#pi05tCoreArrow)" d="M568 126 C618 126 652 314 734 314" />
+                <path class="arrow core" marker-end="url(#pi05tCoreArrow)" d="M568 268 C620 268 652 346 734 346" />
+                <path class="arrow tactile" marker-end="url(#pi05tTactileArrow)" d="M568 406 C626 406 652 496 734 496" />
+                <path class="arrow action" marker-end="url(#pi05tActionArrow)" d="M568 550 C620 550 652 480 734 480" />
+
+                <path class="arrow core" marker-end="url(#pi05tCoreArrow)" d="M984 496 C1038 496 1040 243 1090 243" />
+                <path class="arrow core" marker-end="url(#pi05tCoreArrow)" d="M1205 306 L1205 382" />
+                <path class="arrow action" marker-end="url(#pi05tActionArrow)" d="M1204 494 C1236 494 1236 642 1204 642" />
+                <path class="arrow loss" marker-end="url(#pi05tActionArrow)" d="M1204 494 C1236 494 1236 642 1204 642" />
+
+                <text x="760" y="312" class="arrow-label">prefix / action-expert suffix</text>
+                <text x="590" y="438" class="arrow-label">tactile suffix tokens</text>
+              </svg>
+            </div>
+          </div>
+
+          <div class="flow-grid" style="margin-top: 14px">
+            <div class="flow-card">
+              <span class="tag" style="background: var(--purple-soft)">Pi05 主干</span>
+              <ol>
+                <li>状态被前移到 prefix，和 prompt 一起进入 Gemma embedder。</li>
+                <li>视觉 / 语言 / 离散状态仍走 <code>paligemma</code> prefix，不把触觉塞进 prefix。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--tactile-soft)">触觉进 suffix</span>
+              <ol>
+                <li>触觉图像单独走 FastViT，再投影到 <code>action_expert_config.width</code>。</li>
+                <li>把 <code>tactile_tokens</code> 放在 action tokens 前面：<code>suffix_tokens=[tactile, action]</code>。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--blue-soft)">输出切片</span>
+              <ol>
+                <li><code>suffix_out</code> 同时包含 tactile token hidden states 和 action token hidden states。</li>
+                <li>action head 只取最后 <code>action_horizon</code> 个 action hidden states。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="callout">
+            推荐实现是新增 <code>tactile_proj</code>，把 FastViT 输出对齐到 action expert 宽度，然后在
+            <code>embed_suffix</code> 中先 append <code>tactile_tokens</code>，再 append <code>action_tokens</code>。
+            <code>adarms_cond</code> 可以用 token-wise 形式：tactile token 对应零向量或单独的 tactile cond，
+            action token 对应原来的 <code>time_mlp(t)</code>。这样触觉会完整经过 action expert 的 attention / FFN。
+          </div>
+        </div>
+      </section>
+
+      <section id="prefix">
+        <div class="shell">
+          <h2>Prefix: 图像和语言如何进入模型</h2>
+          <div class="flow-grid">
+            <div class="flow-card">
+              <span class="tag" style="background: var(--green-soft)">视觉 token</span>
+              <ol>
+                <li><code>preprocess_observation</code> 保证需要的 3 路图像存在，并 resize 到 224x224。</li>
+                <li><code>self.PaliGemma.img</code> 使用 SigLIP <code>So400m/14</code>，<code>pool_type="none"</code>。</li>
+                <li>每路图像变为 patch token 序列，224/14=16，所以每路约 256 个视觉 token。</li>
+                <li><code>num_classes=paligemma_config.width</code>，让图像 token 维度对齐 prefix expert。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--purple-soft)">语言 token</span>
+              <ol>
+                <li>如果 <code>obs.tokenized_prompt</code> 存在，调用 <code>PaliGemma.llm(..., method="embed")</code>。</li>
+                <li>输出 token embedding 与图像 token 拼接。</li>
+                <li><code>tokenized_prompt_mask</code> 直接作为语言 token 的有效位。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag">prefix mask</span>
+              <ol>
+                <li>图像 mask 被 repeat 到图像 token 长度。</li>
+                <li>图像和语言 token 的 <code>ar_mask</code> 都是 <code>False</code>。</li>
+                <li>因此 prefix 内部是双向可见的 full attention。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="callout">
+            箭头表达：<code>images -> SigLIP -> image_tokens</code>，<code>prompt ids -> Gemma embedder -> prompt_tokens</code>，
+            <code>[image_tokens, prompt_tokens] -> prefix_tokens</code>。
+          </div>
+        </div>
+      </section>
+
+      <section id="suffix">
+        <div class="shell">
+          <h2>Suffix: 状态、动作和时间如何进入模型</h2>
+          <div class="diagram-wrap">
+            <div class="diagram-toolbar">
+              <h3>suffix token 生成细节</h3>
+              <div class="legend">
+                <span class="legend-item"><span class="swatch" style="background: var(--amber-soft); border: 1px solid var(--action)"></span>Pi0 默认路径</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--core)"></span>Pi05 条件路径</span>
+              </div>
+            </div>
+            <div class="svg-holder">
+              <svg viewBox="0 0 1180 460" role="img" aria-labelledby="suffix-title suffix-desc">
+                <title id="suffix-title">Pi0 suffix token 数据流</title>
+                <desc id="suffix-desc">状态、噪声动作和时间步生成 action expert suffix token。</desc>
+                <defs>
+                  <marker id="suffixArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#b45309" />
+                  </marker>
+                  <marker id="suffixCoreArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#1f5f9d" />
+                  </marker>
+                </defs>
+                <g class="node">
+                  <rect x="38" y="58" width="210" height="94" fill="#fbefd7" stroke="#b45309" />
+                  <text x="60" y="91" class="node-title">obs.state</text>
+                  <text x="60" y="116" class="node-sub">B x action_dim</text>
+                  <text x="60" y="138" class="node-sub">Pi0 only</text>
+                </g>
+                <g class="node">
+                  <rect x="306" y="58" width="240" height="94" fill="#fbefd7" stroke="#b45309" />
+                  <text x="328" y="91" class="node-title">state_proj</text>
+                  <text x="328" y="116" class="node-sub">Linear(action_dim, expert_width)</text>
+                  <text x="328" y="138" class="node-sub">creates 1 state token</text>
+                </g>
+                <g class="node">
+                  <rect x="38" y="214" width="210" height="94" fill="#fbefd7" stroke="#b45309" />
+                  <text x="60" y="247" class="node-title">x_t / noisy_actions</text>
+                  <text x="60" y="272" class="node-sub">B x AH x action_dim</text>
+                  <text x="60" y="294" class="node-sub">train or denoise state</text>
+                </g>
+                <g class="node">
+                  <rect x="306" y="214" width="240" height="94" fill="#fbefd7" stroke="#b45309" />
+                  <text x="328" y="247" class="node-title">action_in_proj</text>
+                  <text x="328" y="272" class="node-sub">Linear(action_dim, expert_width)</text>
+                  <text x="328" y="294" class="node-sub">AH action tokens</text>
+                </g>
+                <g class="node">
+                  <rect x="38" y="340" width="210" height="82" fill="#fbefd7" stroke="#b45309" />
+                  <text x="60" y="373" class="node-title">timestep t</text>
+                  <text x="60" y="398" class="node-sub">B or B x AH</text>
+                </g>
+                <g class="node">
+                  <rect x="306" y="340" width="240" height="82" fill="#fbefd7" stroke="#b45309" />
+                  <text x="328" y="373" class="node-title">posemb_sincos</text>
+                  <text x="328" y="398" class="node-sub">min_period=4e-3, max_period=4.0</text>
+                </g>
+                <g class="node">
+                  <rect x="620" y="214" width="245" height="112" fill="#fbefd7" stroke="#b45309" />
+                  <text x="642" y="247" class="node-title">Pi0: action_time_mlp</text>
+                  <text x="642" y="272" class="node-sub">concat(action_tokens, time_tokens)</text>
+                  <text x="642" y="294" class="node-sub">Linear -> swish -> Linear</text>
+                  <text x="642" y="316" class="node-sub">returns action_expert_tokens</text>
+                </g>
+                <g class="node">
+                  <rect x="620" y="350" width="245" height="82" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="642" y="383" class="node-title">Pi05: time MLP</text>
+                  <text x="642" y="408" class="node-sub">time_emb -> adarms_cond</text>
+                </g>
+                <g class="node">
+                  <rect x="930" y="156" width="210" height="128" fill="#f7f2e8" stroke="#a69d8f" />
+                  <text x="952" y="190" class="node-title">Concat suffix</text>
+                  <text x="952" y="215" class="node-sub">Pi0: [state, actions]</text>
+                  <text x="952" y="237" class="node-sub">Pi05: [actions]</text>
+                  <text x="952" y="259" class="node-sub">ar_mask: True, False...</text>
+                </g>
+                <g class="node">
+                  <rect x="930" y="324" width="210" height="82" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="952" y="357" class="node-title">To action expert</text>
+                  <text x="952" y="382" class="node-sub">suffix_tokens + adarms_cond</text>
+                </g>
+                <path class="arrow action" marker-end="url(#suffixArrow)" d="M248 105 C276 105 278 105 306 105" />
+                <path class="arrow action" marker-end="url(#suffixArrow)" d="M248 261 C276 261 278 261 306 261" />
+                <path class="arrow action" marker-end="url(#suffixArrow)" d="M248 381 C276 381 278 381 306 381" />
+                <path class="arrow action" marker-end="url(#suffixArrow)" d="M546 261 C584 261 586 270 620 270" />
+                <path class="arrow action" marker-end="url(#suffixArrow)" d="M546 381 C584 381 586 312 620 298" />
+                <path class="arrow core" marker-end="url(#suffixCoreArrow)" d="M546 381 C586 381 588 391 620 391" />
+                <path class="arrow action" marker-end="url(#suffixArrow)" d="M546 105 C760 105 760 184 930 198" />
+                <path class="arrow action" marker-end="url(#suffixArrow)" d="M865 270 C894 270 898 238 930 238" />
+                <path class="arrow core" marker-end="url(#suffixCoreArrow)" d="M865 391 C894 391 898 365 930 365" />
+              </svg>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="train">
+        <div class="shell">
+          <h2>训练数据流</h2>
+          <div class="flow-grid">
+            <div class="flow-card">
+              <span class="tag" style="background: var(--rose-soft)">标准 loss</span>
+              <ol>
+                <li><code>actions</code> 和 Gaussian <code>noise</code> 按时间 <code>t</code> 插值：<code>x_t = t * noise + (1 - t) * actions</code>。</li>
+                <li>目标速度场是 <code>u_t = noise - actions</code>。</li>
+                <li><code>embed_prefix(observation)</code> 与 <code>embed_suffix(observation, x_t, t)</code> 同时生成 token。</li>
+                <li><code>make_attn_mask</code> 生成 transformer mask，随后一次完整前向得到 <code>suffix_out</code>。</li>
+                <li><code>action_out_proj</code> 输出 <code>v_t</code>，loss 是 <code>mean((v_t - u_t)^2)</code>。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--rose-soft)">RTC 训练 loss</span>
+              <ol>
+                <li>随机采样 <code>delay</code>，形成 <code>action_prefix_mask</code>。</li>
+                <li>prefix 动作保持 clean：对应时间设为 <code>0.0</code>。</li>
+                <li>postfix 动作按随机 <code>t</code> 加噪。</li>
+                <li>模型仍预测完整 <code>v_t</code>，但 loss 只统计 postfix 区域。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag">注意力关系</span>
+              <ol>
+                <li>prefix token 的 <code>ar_mask=False</code>，图像和语言互相可见。</li>
+                <li>suffix 第一个 token 的 <code>ar_mask=True</code>，切出新 attention block。</li>
+                <li>suffix 可看 prefix，prefix 不反看 suffix。</li>
+                <li>action horizon 内部 <code>False</code> 连续，属于同一个 action block。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="callout">
+            标准训练箭头：<code>actions + noise + t -> x_t -> suffix_tokens -> Gemma -> suffix_out -> action_out_proj -> v_t -> MSE(v_t, u_t)</code>。
+          </div>
+        </div>
+      </section>
+
+      <section id="infer">
+        <div class="shell">
+          <h2>推理采样流</h2>
+          <div class="diagram-wrap">
+            <div class="diagram-toolbar">
+              <h3>denoise loop</h3>
+              <div class="legend">
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--core)"></span>KV cache</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--amber-soft); border: 1px solid var(--action)"></span>动作迭代</span>
+              </div>
+            </div>
+            <div class="svg-holder">
+              <svg viewBox="0 0 1180 420" role="img" aria-labelledby="infer-title infer-desc">
+                <title id="infer-title">Pi0 推理采样流程</title>
+                <desc id="infer-desc">prefix 先进入 KV cache，suffix 在每个 denoise step 中迭代更新动作。</desc>
+                <defs>
+                  <marker id="inferArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#1f5f9d" />
+                  </marker>
+                  <marker id="inferActionArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#b45309" />
+                  </marker>
+                </defs>
+                <g class="node">
+                  <rect x="44" y="72" width="214" height="98" fill="#f7f2e8" stroke="#a69d8f" />
+                  <text x="66" y="106" class="node-title">Observation</text>
+                  <text x="66" y="131" class="node-sub">preprocess train=False</text>
+                  <text x="66" y="153" class="node-sub">image, prompt, state</text>
+                </g>
+                <g class="node">
+                  <rect x="316" y="72" width="232" height="98" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="338" y="106" class="node-title">embed_prefix</text>
+                  <text x="338" y="131" class="node-sub">prefix_tokens, prefix_mask</text>
+                  <text x="338" y="153" class="node-sub">prefix_ar_mask</text>
+                </g>
+                <g class="node">
+                  <rect x="606" y="72" width="232" height="98" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="628" y="106" class="node-title">Prefix forward</text>
+                  <text x="628" y="131" class="node-sub">PaliGemma.llm([prefix, None])</text>
+                  <text x="628" y="153" class="node-sub">returns KV cache</text>
+                </g>
+                <g class="node">
+                  <rect x="64" y="252" width="194" height="98" fill="#fbefd7" stroke="#b45309" />
+                  <text x="86" y="286" class="node-title">Start x_t</text>
+                  <text x="86" y="311" class="node-sub">Gaussian noise</text>
+                  <text x="86" y="333" class="node-sub">t = 1, dt = -1 / steps</text>
+                </g>
+                <g class="node">
+                  <rect x="316" y="252" width="232" height="98" fill="#fbefd7" stroke="#b45309" />
+                  <text x="338" y="286" class="node-title">embed_suffix</text>
+                  <text x="338" y="311" class="node-sub">current x_t + current t</text>
+                  <text x="338" y="333" class="node-sub">suffix attention mask</text>
+                </g>
+                <g class="node">
+                  <rect x="606" y="252" width="232" height="98" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="628" y="286" class="node-title">Suffix forward</text>
+                  <text x="628" y="311" class="node-sub">PaliGemma.llm([None, suffix])</text>
+                  <text x="628" y="333" class="node-sub">uses prefix KV cache</text>
+                </g>
+                <g class="node">
+                  <rect x="896" y="252" width="232" height="98" fill="#fbefd7" stroke="#b45309" />
+                  <text x="918" y="286" class="node-title">Euler update</text>
+                  <text x="918" y="311" class="node-sub">v_t = action_out_proj(...)</text>
+                  <text x="918" y="333" class="node-sub">x_t = x_t + dt * v_t</text>
+                </g>
+                <path class="arrow core" marker-end="url(#inferArrow)" d="M258 121 C286 121 288 121 316 121" />
+                <path class="arrow core" marker-end="url(#inferArrow)" d="M548 121 C576 121 578 121 606 121" />
+                <path class="arrow action" marker-end="url(#inferActionArrow)" d="M258 301 C286 301 288 301 316 301" />
+                <path class="arrow action" marker-end="url(#inferActionArrow)" d="M548 301 C576 301 578 301 606 301" />
+                <path class="arrow core" marker-end="url(#inferArrow)" d="M838 301 C866 301 868 301 896 301" />
+                <path class="arrow core" marker-end="url(#inferArrow)" d="M722 170 C722 208 722 218 722 252" />
+                <path class="arrow action" marker-end="url(#inferActionArrow)" d="M1012 350 C1012 394 160 394 160 350" />
+                <text x="748" y="220" class="arrow-label">cache</text>
+                <text x="526" y="382" class="arrow-label">loop until t reaches 0</text>
+              </svg>
+            </div>
+          </div>
+          <div class="callout">
+            推理箭头：<code>noise x_1 -> suffix forward -> v_t -> x_t + dt * v_t -> ... -> x_0 action chunk</code>。RTC 推理会在每步 denoise 前把已有动作前缀重新冻结到 <code>action_prefix</code>。
+          </div>
+        </div>
+      </section>
+
+      <section id="pi05">
+        <div class="shell">
+          <h2>Pi0 与 Pi05 分支差异</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>位置</th>
+                  <th>Pi0 默认</th>
+                  <th>Pi05</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>配置开关</td>
+                  <td><code>pi05=False</code>，模型类型是 <code>ModelType.PI0</code>。</td>
+                  <td><code>pi05=True</code>，模型类型是 <code>ModelType.PI05</code>。</td>
+                </tr>
+                <tr>
+                  <td>状态输入</td>
+                  <td><code>obs.state -> state_proj -> 1 个 suffix state token</code>。</td>
+                  <td>状态被数据 transform 离散化进语言 token，模型内不再创建连续 state token。</td>
+                </tr>
+                <tr>
+                  <td>时间注入</td>
+                  <td><code>posemb_sincos(t)</code> 与 action token 拼接，经 <code>action_time_mlp</code> 混合。</td>
+                  <td><code>posemb_sincos(t) -> time_mlp</code>，作为 <code>adarms_cond</code> 注入 action expert 的 RMSNorm。</td>
+                </tr>
+                <tr>
+                  <td>max_token_len</td>
+                  <td>默认 48。</td>
+                  <td>默认 200。</td>
+                </tr>
+                <tr>
+                  <td>LLM 初始化</td>
+                  <td><code>use_adarms=[False, False]</code>。</td>
+                  <td><code>use_adarms=[False, True]</code>，只给 action expert 开 adaRMS。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="rtc">
+        <div class="shell">
+          <h2>Pi05 推理时的 RTC 运行图</h2>
+          <p class="lead" style="margin-top: 0; font-size: 16px;">
+            这张图对应 <code>src/openpi/models/pi0.py</code> 里的 <code>training_time_rtc_sample_actions</code>。
+            推理时 RTC 分成三件事：客户端把上一段没执行完的动作作为 <code>prev_chunk_left_over</code> 传回；
+            <code>Policy.infer()</code> 把它转换到训练动作空间；模型在每个 denoise step 里重新写回动作 prefix，
+            只让 postfix 继续按 flow matching 更新。
+          </p>
+          <div class="diagram-wrap">
+            <div class="diagram-toolbar">
+              <h3>简化版：Broker -> Policy -> JAX sampler -> Queue</h3>
+              <div class="legend" aria-label="图例">
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--core)"></span>客户端 / 调度</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--purple-soft); border: 1px solid var(--language)"></span>RTC action prefix</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue-soft); border: 1px solid var(--vision)"></span>观测 prefix KV cache</span>
+                <span class="legend-item"><span class="swatch" style="background: var(--amber-soft); border: 1px solid var(--action)"></span>suffix denoise</span>
+              </div>
+            </div>
+            <div class="svg-holder">
+              <svg viewBox="0 0 1440 640" role="img" aria-labelledby="rtc-title rtc-desc">
+                <title id="rtc-title">Pi05 RTC 推理运行图</title>
+                <desc id="rtc-desc">简化展示客户端 RTC 队列触发、Policy 转换 leftover、JAX sampler 冻结动作 prefix 并返回 action chunk。</desc>
+                <defs>
+                  <marker id="rtcBlueArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#1f5f9d" />
+                  </marker>
+                  <marker id="rtcActionArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#b45309" />
+                  </marker>
+                  <marker id="rtcPurpleArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#7c3aed" />
+                  </marker>
+                  <marker id="rtcRoseArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                    <path d="M2,2 L10,6 L2,10 Z" fill="#be123c" />
+                  </marker>
+                </defs>
+
+                <text x="54" y="48" class="lane-label">Runtime client</text>
+                <text x="336" y="48" class="lane-label">Policy server</text>
+                <text x="628" y="48" class="lane-label">JAX model sampler</text>
+                <text x="1110" y="48" class="lane-label">Return to queue</text>
+
+                <g class="node">
+                  <rect x="48" y="92" width="236" height="170" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="70" y="126" class="node-title">RTCActionChunkBroker</text>
+                  <text x="70" y="153" class="node-sub">1. 按 runtime_hz 消费队列</text>
+                  <text x="70" y="177" class="node-sub">2. 队列低于阈值时触发 infer</text>
+                  <text x="70" y="201" class="node-sub">3. 携带 prev_chunk_left_over</text>
+                  <text x="70" y="225" class="node-sub">4. 估计 inference_delay</text>
+                </g>
+
+                <g class="node">
+                  <rect x="336" y="92" width="244" height="170" fill="#f7f2e8" stroke="#a69d8f" />
+                  <text x="358" y="126" class="node-title">Policy.infer()</text>
+                  <text x="358" y="153" class="node-sub">input_transform(obs)</text>
+                  <text x="358" y="177" class="node-sub">rtc_obs["actions"] = leftover</text>
+                  <text x="358" y="201" class="node-sub">同一套 transform 转换 leftover</text>
+                  <text x="358" y="225" class="node-sub">调用 training_time_rtc_sample_actions</text>
+                </g>
+
+                <g class="node">
+                  <rect x="630" y="78" width="260" height="138" fill="#ede9fe" stroke="#7c3aed" />
+                  <text x="692" y="108" class="node-title">RTC action prefix</text>
+                  <text x="692" y="134" class="node-sub">prev_chunk_left_over</text>
+                  <text x="692" y="158" class="node-sub">pad / truncate 到 action_horizon</text>
+                  <text x="692" y="182" class="node-sub">mask = t &lt; inference_delay</text>
+                </g>
+                <g class="node">
+                  <rect x="630" y="248" width="260" height="138" fill="#e4eef8" stroke="#1f5f9d" />
+                  <text x="660" y="282" class="node-title">Observation KV cache</text>
+                  <text x="660" y="308" class="node-sub">embed_prefix(observation)</text>
+                  <text x="660" y="332" class="node-sub">image + prompt + Pi05 state</text>
+                  <text x="660" y="356" class="node-sub">PaliGemma prefix forward</text>
+                </g>
+
+                <g class="node">
+                  <rect x="950" y="110" width="286" height="250" fill="#fffaf0" stroke="#d7d2c6" />
+                  <text x="974" y="146" class="node-title">Denoise loop</text>
+                  <text x="974" y="176" class="node-sub">while time >= -dt / 2</text>
+                  <text x="974" y="210" class="node-sub">1. x_t[prefix] = action_prefix</text>
+                  <text x="974" y="236" class="node-sub">2. time_masked[prefix] = 0</text>
+                  <text x="974" y="262" class="node-sub">3. suffix forward + kv_cache -> v_t</text>
+                  <text x="974" y="288" class="node-sub">4. postfix = x_t + dt * v_t</text>
+                  <text x="974" y="314" class="node-sub">5. prefix 保持 action_prefix</text>
+                </g>
+
+                <g class="node">
+                  <rect x="1276" y="130" width="130" height="210" fill="#fbefd7" stroke="#b45309" />
+                  <text x="1296" y="166" class="node-title">x_0</text>
+                  <text x="1296" y="194" class="node-sub">action chunk</text>
+                  <text x="1296" y="218" class="node-sub">output_transform</text>
+                  <text x="1296" y="242" class="node-sub">merge queue</text>
+                </g>
+
+                <path class="arrow core" marker-end="url(#rtcBlueArrow)" d="M284 176 L336 176" />
+                <path class="arrow action" marker-end="url(#rtcActionArrow)" d="M580 176 L630 146" />
+                <path class="arrow core" marker-end="url(#rtcBlueArrow)" d="M580 176 L630 318" />
+                <path class="arrow language" marker-end="url(#rtcPurpleArrow)" d="M890 148 C920 148 922 210 950 210" />
+                <path class="arrow core" marker-end="url(#rtcBlueArrow)" d="M890 318 C924 318 922 262 950 262" />
+                <path class="arrow action" marker-end="url(#rtcActionArrow)" d="M1236 236 L1276 236" />
+                <path class="arrow core" marker-end="url(#rtcBlueArrow)" d="M1341 340 C1341 508 168 508 168 262" />
+
+                <text x="300" y="158" class="arrow-label">obs + RTC kwargs</text>
+                <text x="596" y="132" class="arrow-label">leftover</text>
+                <text x="902" y="196" class="arrow-label">freeze mask</text>
+                <text x="900" y="292" class="arrow-label">kv_cache</text>
+                <text x="1180" y="218" class="arrow-label">x_0</text>
+                <text x="600" y="492" class="arrow-label">merge 后继续消费队列</text>
+              </svg>
+            </div>
+          </div>
+
+          <div class="flow-grid" style="margin-top: 14px">
+            <div class="flow-card">
+              <span class="tag" style="background: var(--blue-soft)">1 客户端触发</span>
+              <ol>
+                <li><code>RTCActionChunkBroker</code> 以 runtime 频率消费动作。</li>
+                <li>队列剩余动作低于阈值时，向 policy server 发起新 infer 请求。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--purple-soft)">2 传回 prefix</span>
+              <ol>
+                <li><code>Policy.infer()</code> 把上一段 leftover 动作重新放进训练时动作空间。</li>
+                <li>再把 <code>prev_chunk_left_over</code> 和 <code>inference_delay</code> 传给 <code>training_time_rtc_sample_actions</code>。</li>
+              </ol>
+            </div>
+            <div class="flow-card">
+              <span class="tag" style="background: var(--amber-soft)">3 模型内冻结</span>
+              <ol>
+                <li>模型每一步 denoise 前都把动作 prefix 写回 <code>x_t</code>，并把 prefix 时间设为 0。</li>
+                <li><code>kv_cache</code> 属于观测 prefix cache，和 <code>prev_chunk_left_over</code> 是两条不同路径。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="callout">
+            这条 RTC 链路的关键不是“把 old chunk 塞进 LLM prefix”，而是“客户端在管请求节奏，Policy 在管动作空间转换，
+            模型在管 RTC action prefix 冻结和 postfix denoise”。实际输出的仍然是一个 action chunk，
+            只是它会随着队列余量、延迟估计和 merge 过程不断滚动更新。
+          </div>
+        </div>
+      </section>
+
+      <section id="sources">
+        <div class="shell">
+          <h2>源码定位</h2>
+          <div class="source-list">
+            <a href="../src/openpi/models/pi0.py">
+              <strong>Pi0 主体实现</strong>
+              <span><code>src/openpi/models/pi0.py</code>：初始化、prefix/suffix、训练 loss、采样。</span>
+            </a>
+            <a href="../src/openpi/models/pi0_config.py">
+              <strong>Pi0Config</strong>
+              <span><code>src/openpi/models/pi0_config.py</code>：默认维度、Pi05 开关、输入规格。</span>
+            </a>
+            <a href="../src/openpi/models/gemma.py">
+              <strong>Gemma 模块</strong>
+              <span><code>src/openpi/models/gemma.py</code>：双专家 transformer、embedder、KV cache、adaRMS。</span>
+            </a>
+            <a href="../src/openpi/models/siglip.py">
+              <strong>SigLIP 模块</strong>
+              <span><code>src/openpi/models/siglip.py</code>：图像 patch token、pool_type=none、视觉 head。</span>
+            </a>
+          </div>
+          <div class="callout">
+            关键代码范围：<code>Pi0.__init__</code> 约 70-118 行，<code>embed_prefix</code> 约 120-152 行，
+            <code>embed_suffix</code> 约 154-217 行，标准 loss 约 237-267 行，推理采样约 319-386 行。
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="shell">
+        生成文件：<code>docs/pi0_architecture.html</code>。这是一个自包含静态网页，可直接用浏览器打开。
+      </div>
+    </footer>
+  </body>
+</html>

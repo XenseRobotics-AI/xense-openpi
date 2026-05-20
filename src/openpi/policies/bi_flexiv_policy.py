@@ -104,6 +104,92 @@ class BiFlexivInputs(transforms.DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class BiFlexivTactileInputs(transforms.DataTransformFn):
+    """Inputs for the bi flexiv policy with 4 tactile cameras (left/right × top/bottom).
+
+    Camera mapping (source -> model image key):
+        head                  -> base_0_rgb
+        left_wrist            -> left_wrist_0_rgb
+        right_wrist           -> right_wrist_0_rgb
+        left_tactile_top      -> tactile_0_rgb
+        left_tactile_bottom   -> tactile_1_rgb
+        right_tactile_top     -> tactile_2_rgb
+        right_tactile_bottom  -> tactile_3_rgb
+
+    State/actions handling is identical to :class:`BiFlexivInputs` (20D Cartesian).
+    Missing visual cameras are zero-filled with ``image_mask=False``. Missing tactile
+    cameras are also zero-filled with ``image_mask=False`` so the policy can still run
+    when not all tactile sensors are present at inference time.
+    """
+
+    EXPECTED_CAMERAS: ClassVar[tuple[str, ...]] = (
+        "head",
+        "left_wrist",
+        "right_wrist",
+        "left_tactile_top",
+        "left_tactile_bottom",
+        "right_tactile_top",
+        "right_tactile_bottom",
+    )
+
+    def __call__(self, data: dict) -> dict:
+        data = _decode_bi_flexiv(data)
+
+        in_images = data["images"]
+        if set(in_images) - set(self.EXPECTED_CAMERAS):
+            raise ValueError(
+                f"Expected images to be a subset of {self.EXPECTED_CAMERAS}, got {tuple(in_images)}"
+            )
+
+        if "head" not in in_images:
+            raise ValueError("BiFlexivTactileInputs requires a 'head' camera")
+        head_image = in_images["head"]
+
+        images: dict = {"base_0_rgb": head_image}
+        image_masks: dict = {"base_0_rgb": np.True_}
+
+        wrist_image_names = {
+            "left_wrist_0_rgb": "left_wrist",
+            "right_wrist_0_rgb": "right_wrist",
+        }
+        for dest, source in wrist_image_names.items():
+            if source in in_images:
+                images[dest] = in_images[source]
+                image_masks[dest] = np.True_
+            else:
+                images[dest] = np.zeros_like(head_image)
+                image_masks[dest] = np.False_
+
+        tactile_image_names = {
+            "tactile_0_rgb": "left_tactile_top",
+            "tactile_1_rgb": "left_tactile_bottom",
+            "tactile_2_rgb": "right_tactile_top",
+            "tactile_3_rgb": "right_tactile_bottom",
+        }
+        for dest, source in tactile_image_names.items():
+            if source in in_images:
+                images[dest] = in_images[source]
+                image_masks[dest] = np.True_
+            else:
+                images[dest] = np.zeros_like(head_image)
+                image_masks[dest] = np.False_
+
+        inputs = {
+            "image": images,
+            "image_mask": image_masks,
+            "state": data["state"],
+        }
+
+        if "actions" in data:
+            inputs["actions"] = np.asarray(data["actions"])
+
+        if "prompt" in data:
+            inputs["prompt"] = data["prompt"]
+
+        return inputs
+
+
+@dataclasses.dataclass(frozen=True)
 class BiFlexivOutputs(transforms.DataTransformFn):
     """Outputs for the bi flexiv policy.
 
