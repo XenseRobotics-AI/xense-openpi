@@ -221,6 +221,14 @@ class Args:
     enable_tactile: bool = False
     log_level: str = "DEBUG"
 
+    # Tactile camera mapping (lerobot camera name -> policy-side name).
+    # The four values below correspond to BiFlexivTactileInputs.EXPECTED_CAMERAS;
+    # only edit them if your robot exposes the tactile cameras under different keys.
+    left_tactile_top_cam: str = "left_tactile_top"
+    left_tactile_bottom_cam: str = "left_tactile_bottom"
+    right_tactile_top_cam: str = "right_tactile_top"
+    right_tactile_bottom_cam: str = "right_tactile_bottom"
+
     # Image rendering
     render_height: int = 224
     render_width: int = 224
@@ -347,6 +355,12 @@ def main(args: Args) -> None:
         render_height=args.render_height,
         render_width=args.render_width,
         setup_robot=True,
+        tactile_camera_mapping={
+            "left_tactile_top": args.left_tactile_top_cam,
+            "left_tactile_bottom": args.left_tactile_bottom_cam,
+            "right_tactile_top": args.right_tactile_top_cam,
+            "right_tactile_bottom": args.right_tactile_bottom_cam,
+        },
     )
 
     if args.dry_run:

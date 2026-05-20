@@ -19,6 +19,7 @@ import tyro
 
 import openpi.models.model as _model
 import openpi.models.pi0_config as pi0_config
+import openpi.models.pi0_tactile_fastvit_config as pi0_tactile_fastvit_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.bi_flexiv_policy as bi_flexiv_policy
@@ -456,6 +457,55 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
                     }
                 )
             ]
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBiFlexivTactileDataConfig(LeRobotBiFlexivDataConfig):
+    """BiFlexiv data config with four tactile camera streams."""
+
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "head": "observation.images.head",
+                            "left_wrist": "observation.images.left_wrist",
+                            "right_wrist": "observation.images.right_wrist",
+                            "left_tactile_top": "observation.images.left_tactile_0",
+                            "left_tactile_bottom": "observation.images.left_tactile_1",
+                            "right_tactile_top": "observation.images.right_tactile_0",
+                            "right_tactile_bottom": "observation.images.right_tactile_1",
+                        },
+                        "state": "observation.state",
+                        "actions": "action",
+                        "prompt": "task",
+                    }
+                )
+            ]
+        )
+    )
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[bi_flexiv_policy.BiFlexivTactileInputs()],
+            outputs=[bi_flexiv_policy.BiFlexivOutputs()],
+        )
+        if self.use_delta_cartesian_actions:
+            delta_action_mask = _transforms.make_bool_mask(18, -1, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
         )
     )
     # Action keys that will be used to read the action sequence from the dataset.
