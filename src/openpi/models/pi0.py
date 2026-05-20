@@ -131,6 +131,16 @@ class Pi0(_model.BaseModel):
         self._max_delay = config.max_delay
         self._batch_image_views = config.batch_image_views
 
+    def _preprocess_observation(
+        self,
+        rng: at.KeyArrayLike | None,
+        observation: _model.Observation,
+        *,
+        train: bool,
+    ) -> _model.Observation:
+        """Subclass hook for swapping in a different preprocess (e.g. tactile keys)."""
+        return _model.preprocess_observation(rng, observation, train=train)
+
     @at.typecheck
     def embed_prefix(
         self, obs: _model.Observation
@@ -247,7 +257,7 @@ class Pi0(_model.BaseModel):
     ) -> at.Float[at.Array, "*b ah"]:
         # Split RNG and preprocess observation
         preprocess_rng, loss_rng = jax.random.split(rng)
-        observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
+        observation = self._preprocess_observation(preprocess_rng, observation, train=train)
 
         # Delegate to specific implementation
         if not self._enable_training_time_rtc:
@@ -346,7 +356,7 @@ class Pi0(_model.BaseModel):
         noise: at.Float[at.Array, "b ah ad"] | None = None,
         **kwargs: Unpack[_model.ActionSelectKwargs],
     ) -> _model.Actions:
-        observation = _model.preprocess_observation(None, observation, train=False)
+        observation = self._preprocess_observation(None, observation, train=False)
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
         dt = -1.0 / num_steps
@@ -445,7 +455,7 @@ class Pi0(_model.BaseModel):
         noise: at.Float[at.Array, "b ah ad"] | None = None,
         **kwargs: Unpack[_model.ActionSelectKwargs],
     ) -> _model.Actions:
-        observation = _model.preprocess_observation(None, observation, train=False)
+        observation = self._preprocess_observation(None, observation, train=False)
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
         dt = -1.0 / num_steps
