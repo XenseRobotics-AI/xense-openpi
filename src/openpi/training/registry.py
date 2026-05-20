@@ -13,6 +13,7 @@ are intentionally not registered and remain Python-only; see
 import openpi.models.pi0_config as _pi0_config
 import openpi.models.pi0_fast as _pi0_fast
 import openpi.models.pi0_tactile_config as _pi0_tactile_config
+import openpi.models.pi0_tactile_fastvit_config as _pi0_tactile_fastvit_config
 import openpi.training.optimizer as _optimizer
 import openpi.training.weight_loaders as _weight_loaders
 import openpi.transforms as _transforms
@@ -22,6 +23,7 @@ MODELS: dict[str, type] = {
     "Pi0Config": _pi0_config.Pi0Config,
     "Pi0FASTConfig": _pi0_fast.Pi0FASTConfig,
     "Pi0TactileConfig": _pi0_tactile_config.Pi0TactileConfig,
+    "Pi0TactileFastVitConfig": _pi0_tactile_fastvit_config.Pi0TactileFastVitConfig,
 }
 
 
@@ -76,6 +78,7 @@ def _populate_data_configs() -> None:
             "LeRobotDROIDDataConfig": _config.LeRobotDROIDDataConfig,
             "RLDSDroidDataConfig": _config.RLDSDroidDataConfig,
             "LeRobotBiFlexivDataConfig": _config.LeRobotBiFlexivDataConfig,
+            "LeRobotBiFlexivTactileDataConfig": _config.LeRobotBiFlexivTactileDataConfig,
             "LeRobotXtacUmiDataConfig": _config.LeRobotXtacUmiDataConfig,
             # SimpleDataConfig deliberately omitted: it carries lambdas (data_transforms)
             # that cannot be serialized to YAML.

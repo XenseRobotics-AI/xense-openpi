@@ -60,6 +60,19 @@ IMAGE_KEYS_TACTILE = (
 )
 
 
+# 4-tactile-sensor layout: left-arm top/bottom + right-arm top/bottom.
+# Used by Pi0TactileFastVit and the BiFlexiv tactile policy.
+IMAGE_KEYS_TACTILE_4 = (
+    "base_0_rgb",
+    "left_wrist_0_rgb",
+    "right_wrist_0_rgb",
+    "tactile_0_rgb",
+    "tactile_1_rgb",
+    "tactile_2_rgb",
+    "tactile_3_rgb",
+)
+
+
 # This may need change if we release a small model.
 IMAGE_RESOLUTION = (224, 224)
 
