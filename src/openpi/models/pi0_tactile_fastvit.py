@@ -90,6 +90,21 @@ class Pi0TactileFastVit(pi0.Pi0):
         tokens = jnp.concatenate([tactile_tokens_arr, base_tokens], axis=1)
         input_mask = jnp.concatenate([tactile_mask, base_mask], axis=1)
         ar_mask = jnp.concatenate([tactile_ar, base_ar], axis=0)
+
+        # Per-token adarms_cond (training-time RTC path produces shape (b, ah, emb))
+        # must be padded to match the new suffix length so RMSNorm's element-wise
+        # modulation broadcasts correctly. Zero rows for tactile positions implement
+        # the "tactile does not participate in adaRMS" design from the integration
+        # doc -- at init the zero-init Dense yields a no-op; only the shared learned
+        # bias can leak in, which matches the design intent. The (b, emb) and None
+        # cases broadcast over all suffix tokens naturally and need no change.
+        if adarms_cond is not None and adarms_cond.ndim == 3:
+            tactile_cond = jnp.zeros(
+                (adarms_cond.shape[0], self._num_tactile, adarms_cond.shape[-1]),
+                dtype=adarms_cond.dtype,
+            )
+            adarms_cond = jnp.concatenate([tactile_cond, adarms_cond], axis=1)
+
         return tokens, input_mask, ar_mask, adarms_cond
 
 

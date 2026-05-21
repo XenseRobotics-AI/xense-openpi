@@ -38,16 +38,23 @@ logger = logging.getLogger("openpi")
 FEATURE_DIM = 1024
 
 # ImageNet stats baked into the original FastViT pretraining recipe.
-_IMAGENET_MEAN = jnp.asarray((0.485, 0.456, 0.406), dtype=jnp.float32)
-_IMAGENET_STD = jnp.asarray((0.229, 0.224, 0.225), dtype=jnp.float32)
+# Stored as numpy arrays so the module can be imported safely while a JAX trace
+# is active (e.g. during jax.eval_shape on init_train_state). A module-level
+# jnp.asarray here would be evaluated under that trace and stash a
+# DynamicJaxprTracer in the module globals, which then leaks into the next
+# jax.jit trace and triggers UnexpectedTracerError.
+_IMAGENET_MEAN = np.asarray((0.485, 0.456, 0.406), dtype=np.float32)
+_IMAGENET_STD = np.asarray((0.229, 0.224, 0.225), dtype=np.float32)
 
 
 def _normalize_inputs(x: jax.Array) -> jax.Array:
     """Map ``[-1, 1]`` to ImageNet-normalized inputs that the encoder expects."""
     # Cast to model dtype after normalization to keep numerics in fp32.
     in_dtype = x.dtype
+    mean = jnp.asarray(_IMAGENET_MEAN)
+    std = jnp.asarray(_IMAGENET_STD)
     x = x.astype(jnp.float32) * 0.5 + 0.5
-    x = (x - _IMAGENET_MEAN) / _IMAGENET_STD
+    x = (x - mean) / std
     return x.astype(in_dtype)
 
 

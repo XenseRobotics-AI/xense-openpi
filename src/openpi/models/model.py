@@ -201,17 +201,18 @@ def preprocess_observation_tactile(
             image = image / 2.0 + 0.5
 
             transforms = []
+            # augmax 0.4.1 has no GaussianNoise; the tactile branch applies it
+            # manually after the chain below. Keep std=0.0 for non-tactile keys.
+            additive_noise_std = 0.0
             if "tactile" in key:
                 height, width = image.shape[1:3]
                 transforms += [
                     augmax.RandomCrop(int(width * 0.98), int(height * 0.98)),
                     augmax.Resize(width, height),
                     augmax.Rotate((-2, 2)),
-                ]
-                transforms += [
                     augmax.ColorJitter(brightness=0.1, contrast=0.2, saturation=0.2),
-                    augmax.GaussianNoise(std=0.02),
                 ]
+                additive_noise_std = 0.02
             elif "wrist" in key:
                 transforms += [
                     augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
@@ -227,8 +228,17 @@ def preprocess_observation_tactile(
                     augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
                 ]
 
+            if additive_noise_std > 0:
+                rng, noise_rng = jax.random.split(rng)
+            else:
+                noise_rng = None
+
             sub_rngs = jax.random.split(rng, image.shape[0])
             image = jax.vmap(augmax.Chain(*transforms))(sub_rngs, image)
+
+            if noise_rng is not None:
+                noise = additive_noise_std * jax.random.normal(noise_rng, image.shape, dtype=image.dtype)
+                image = jnp.clip(image + noise, 0.0, 1.0)
 
             # Back to [-1, 1].
             image = image * 2.0 - 1.0
