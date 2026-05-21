@@ -529,3 +529,80 @@ uv run python -m openpi.models.pi0_tactile_fastvit  # 模块自带 __main__ smok
 4. 不动 `Pi0TactileFastVit`、不动 `pi0.py`、不动数据通路。
 
 这是用户"未来可能更换视觉编码器，不要把编码器和 pi 模型耦合得很深"的实现保证。
+
+
+
+会的。我把整条路径走一遍说清楚为什么。
+
+  一、注意力路径：tactile 信息怎么进 action 的
+
+  把整段 [prefix + tactile + actions] 的 ar_mask 摊开看：
+
+  ┌──────────────────────┬──────┬─────────────────────────────┬─────────────┐
+  │          段          │ 长度 │           ar_mask           │ cumsum 块号 │
+  ├──────────────────────┼──────┼─────────────────────────────┼─────────────┤
+  │ prefix (images+text) │ P    │ [False]*P                   │ 0           │
+  ├──────────────────────┼──────┼─────────────────────────────┼─────────────┤
+  │ tactile              │ 4    │ [True, False, False, False] │ 1           │
+  ├──────────────────────┼──────┼─────────────────────────────┼─────────────┤
+  │ actions              │ 50   │ [True, False, ..., False]   │ 2           │
+  └──────────────────────┴──────┴─────────────────────────────┴─────────────┘
+
+  make_attn_mask 的规则（pi0.py:47）：token i 能注意到 token j ⟺ cumsum[j] ≤ cumsum[i]。
+
+  - action token（块 2）→ tactile token（块 1）：1 ≤ 2，允许注意。
+  - action token（块 2）→ prefix（块 0）：允许（这是原本就有的）。
+  - tactile token（块 1）→ prefix（块 0）：允许（tactile 可以读图像和语言上下文）。
+  - tactile token（块 1）→ action token（块 2）：2 > 1，不允许——tactile 不被 action 反向污染，这就是 ar_mask 的"块单向"语义。
+
+  所以每一层 transformer 里，action token 都能通过 attention 把 tactile 的 key/value 拉过来。经过若干层 stack 后，suffix_out[:, 
+  -50:]（即最后 50 个 action token 的隐藏态）已经累积了 tactile 信息。最后 v_t = self.action_out_proj(suffix_out[:, 
+  -50:])（pi0.py:320）就把这份带有触觉特征的隐藏态映射成 flow 速度，进入 loss / 推理。
+
+  二、adarms_cond 补零会不会切断 tactile→action 的信息？
+
+  不会。把它们彻底拆开看：
+
+  - attention 决定"哪个 token 看得到哪个 token 的内容"——由 ar_mask / attn_mask 控制；tactile→action 通路在这里成立。
+  - adarms_cond 只进 RMSNorm，作用是"在 attention/FFN 之前对每个 token 的隐藏态做 scale/shift 调制"（gemma.py:135-137），是一种
+  per-token 归一化条件，不是门控也不是 attention mask。
+  - 给 tactile 位置补零，等价于"tactile token 自身不被 diffusion timestep 调制"，但它仍然是一个有内容、有 KV、可被 query 的 token。
+
+  换句话说：补零影响的是"tactile token 出去时长什么样"，不影响"它能不能被 action 看到"。design 里 "tactile 不进 adaRMS"
+  这句话指的就是前者，不是切断信息流。
+
+  三、信息流动的端到端简图
+
+  tactile_image (b, 224, 224, 3)
+      │ FastViT-T12 + tactile_proj
+      ▼
+  tactile_feat (b, 4, action_expert_width)        ← 4 个 token
+      │ 拼到 suffix 前面
+      ▼
+  suffix = [tactile(4) | action(50)]              shape (b, 54, emb)
+      │ + prefix (image+text) 一起进 PaliGemma.llm
+      │ 每层 transformer:
+      │   - RMSNorm(cond=0 for tactile, cond=time_emb for action)
+      │   - self-attention(全 token，但受 ar_mask 限制为单向块结构)
+      │       └─ action_token.Q · tactile_token.K  →  attention weight  ★ 这里把 tactile 拉进来
+      │       └─ ... · prefix_token.K              →  原有的 image+text 通路
+      │   - FFN
+      ▼
+  suffix_out (b, 54, emb)
+      │ suffix_out[:, -50:]  取后 50（action 位置）
+      ▼
+  v_t = action_out_proj(...)                       ← 已经隐含 tactile 信息
+
+  四、几个值得知道的副作用 / 注意点
+
+  1. 每一层都注入一次：tactile→action 不是只在最后一层一次性接进来，而是每个 transformer block 都会重新做一次 attention，所以 tactile
+  信号实际上是被多层逐步抽取/精炼的。
+  2. action token 之间也共享 tactile：50 个 action token 都能各自从 tactile 那儿拿信息，不是只有第一个。
+  3. time conditioning 仍然独立于 tactile：action token 的 RMSNorm 用 time_emb 调制，告诉网络"现在是 flow 的哪个时刻"；tactile
+  是内容性条件，两个职责不冲突。
+  4. 若想让 tactile 也享受 time-cond（即让 tactile 表征也随 diffusion step 变化），把那段补零改成 time_emb 的 broadcast 即可。但目前 doc
+   决策是不要，所以保持零。
+
+  结论：当前实现，输出 action 一定带 tactile 信息，且经过每一层都重新混合，不只是最后一层。如果你想验证，可以拿一个固定 batch、把 4 张
+  tactile 图替换成全零（或随机扰动）跑两遍 compute_loss，看 v_t 是否改变——改了就证明通路确实活的。
+
