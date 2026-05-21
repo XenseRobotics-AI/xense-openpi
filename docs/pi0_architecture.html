@@ -1240,10 +1240,13 @@
         <div class="shell">
           <h2>Pi05 + FastViT 触觉经 action_expert 融合架构图</h2>
           <p class="lead" style="margin-top: 0; font-size: 16px;">
-            这是把 FastViT 输出放进 Pi05 <code>action_expert</code> 的方案：视觉 / 语言 / 离散状态仍走
-            <code>paligemma</code> prefix；触觉图像经 FastViT 后投影成 tactile suffix tokens，
-            放在 action tokens 前面，一起进入 <code>action_expert</code>。这样触觉会经过 18 层 action expert，
-            并在每层 joint attention 中参与动作 token 的计算。
+            这是 <code>Pi0TactileFastVit</code> 当前的实现架构：视觉 / 语言 / 离散状态仍走
+            <code>paligemma</code> prefix；4 路触觉图像分别经 FastViT-T12 编码并由 <code>tactile_proj</code>
+            投影成 4 个 tactile token，<strong>前置</strong>在 50 个 action token 之前，一起进入
+            <code>action_expert</code>。<code>ar_mask</code> 把 suffix 切成 <em>tactile</em> 与 <em>action</em>
+            两个块——action 每一层都能注意到 tactile，反之不行，这样触觉特征在 18 层 joint attention
+            中持续注入 action token 的隐藏态，最终从 <code>suffix_out[:, -action_horizon:]</code>
+            通过 <code>action_out_proj</code> 输出。
           </p>
           <div class="diagram-wrap">
             <div class="diagram-toolbar">
@@ -1298,8 +1301,8 @@
                 <g class="node">
                   <rect x="42" y="352" width="236" height="108" fill="#e0f2fe" stroke="#0891b2" />
                   <text x="64" y="385" class="node-title">Tactile images</text>
-                  <text x="64" y="410" class="node-sub">left / right tactile cameras</text>
-                  <text x="64" y="432" class="node-sub">separate FastViT branch</text>
+                  <text x="64" y="410" class="node-sub">4 cameras (tactile_image_keys)</text>
+                  <text x="64" y="432" class="node-sub">tactile_0..3_rgb @ 224x224</text>
                 </g>
                 <g class="node">
                   <rect x="42" y="492" width="236" height="116" fill="#fbefd7" stroke="#b45309" />
@@ -1322,9 +1325,9 @@
                 </g>
                 <g class="node">
                   <rect x="320" y="352" width="248" height="108" fill="#e0f2fe" stroke="#0891b2" />
-                  <text x="342" y="385" class="node-title">FastViT encoder</text>
-                  <text x="342" y="410" class="node-sub">token stream or pooled emb</text>
-                  <text x="342" y="432" class="node-sub">project -> tactile suffix tokens</text>
+                  <text x="342" y="385" class="node-title">FastViT-T12 + tactile_proj</text>
+                  <text x="342" y="410" class="node-sub">pooled (b, feat_dim) per image</text>
+                  <text x="342" y="432" class="node-sub">Linear -> 4 tokens, action_expert_width</text>
                 </g>
                 <g class="node">
                   <rect x="320" y="492" width="248" height="116" fill="#fbefd7" stroke="#b45309" />
@@ -1346,11 +1349,12 @@
                   <text x="756" y="346" class="node-sub">visual + prompt + state</text>
 
                   <rect x="734" y="400" width="250" height="160" fill="#fbefd7" stroke="#b45309" />
-                  <text x="756" y="446" class="node-title">action_expert</text>
-                  <text x="756" y="472" class="node-sub">suffix expert</text>
-                  <text x="756" y="496" class="node-sub">[tactile_tokens, action_tokens]</text>
-                  <text x="756" y="520" class="node-sub">tactile_cond + time_cond</text>
-                  <text x="756" y="544" class="node-sub">18 layers with joint attention</text>
+                  <text x="756" y="438" class="node-title">action_expert</text>
+                  <text x="756" y="462" class="node-sub">suffix = [tactile(4) | action(50)]</text>
+                  <text x="756" y="484" class="node-sub">ar_mask: tactile block, action block</text>
+                  <text x="756" y="506" class="node-sub">adarms_cond: 0 (tactile) / time (action)</text>
+                  <text x="756" y="528" class="node-sub">18 layers, joint attention</text>
+                  <text x="756" y="550" class="node-sub">action attends back to tactile</text>
 
                   <path class="arrow core" marker-end="url(#pi05tCoreArrow)" d="M859 372 L859 400" />
                   <text x="878" y="398" class="arrow-label">attention</text>
@@ -1361,9 +1365,9 @@
                 <g class="node">
                   <rect x="1090" y="180" width="230" height="126" fill="#e4eef8" stroke="#1f5f9d" />
                   <text x="1112" y="214" class="node-title">suffix_out</text>
-                  <text x="1112" y="239" class="node-sub">tactile + action hidden states</text>
-                  <text x="1112" y="261" class="node-sub">take last action_horizon</text>
-                  <text x="1112" y="283" class="node-sub">drop tactile output slice</text>
+                  <text x="1112" y="239" class="node-sub">shape (b, 54, emb)</text>
+                  <text x="1112" y="261" class="node-sub">slice [:, -50:] -> action only</text>
+                  <text x="1112" y="283" class="node-sub">first 4 tokens (tactile) dropped</text>
                 </g>
                 <g class="node">
                   <rect x="1090" y="382" width="230" height="112" fill="#fff" stroke="#1f5f9d" />
@@ -1402,30 +1406,36 @@
             <div class="flow-card">
               <span class="tag" style="background: var(--purple-soft)">Pi05 主干</span>
               <ol>
-                <li>状态被前移到 prefix，和 prompt 一起进入 Gemma embedder。</li>
-                <li>视觉 / 语言 / 离散状态仍走 <code>paligemma</code> prefix，不把触觉塞进 prefix。</li>
+                <li>状态通过 <code>discrete_state_input=True</code>（pi05 默认）被 tokenize 进 prompt，和 prompt 一起进入 Gemma embedder。</li>
+                <li>视觉 / 语言 / 离散状态仍走 <code>paligemma</code> prefix；触觉不进 prefix，避免改写 PaliGemma 的注意力结构。</li>
               </ol>
             </div>
             <div class="flow-card">
               <span class="tag" style="background: var(--tactile-soft)">触觉进 suffix</span>
               <ol>
-                <li>触觉图像单独走 FastViT，再投影到 <code>action_expert_config.width</code>。</li>
-                <li>把 <code>tactile_tokens</code> 放在 action tokens 前面：<code>suffix_tokens=[tactile, action]</code>。</li>
+                <li>每张触觉图经 <code>TactileFastVitEncoder</code> 输出 <code>(b, feat_dim)</code>，再由 <code>tactile_proj</code>（<code>nnx.Linear</code>）线性映射到 <code>action_expert_width</code>，共 4 个 token。</li>
+                <li>FastViT 预训练权重在 <code>__init__</code> 阶段从 <code>params.safetensors</code> 直接加载，与 <code>CheckpointWeightLoader</code>（只加载 pi05_base）解耦。</li>
+                <li>suffix 顺序：<code>[tactile(4) | action(50)]</code>，tactile 前置以便 <code>suffix_out[:, -50:]</code> 直接取 action 切片。</li>
               </ol>
             </div>
             <div class="flow-card">
-              <span class="tag" style="background: var(--blue-soft)">输出切片</span>
+              <span class="tag" style="background: var(--blue-soft)">注意力与 adaRMS</span>
               <ol>
-                <li><code>suffix_out</code> 同时包含 tactile token hidden states 和 action token hidden states。</li>
-                <li>action head 只取最后 <code>action_horizon</code> 个 action hidden states。</li>
+                <li><code>ar_mask</code> 在 suffix 内把 tactile 与 action 切成两个块（<code>[True, F, F, F, True, F&times;49]</code>），action 块能注意到 prefix + tactile + 自身，tactile 块不能反向看到 action。</li>
+                <li><code>adarms_cond</code> 在标准 loss 路径为 <code>(b, emb)</code>，<code>RMSNorm</code> 内 <code>cond[:, None, :]</code> 自然广播；training-time RTC 路径为 <code>(b, ah, emb)</code>，前置 <code>(b, 4, emb)</code> 零向量后变成 <code>(b, 54, emb)</code>。</li>
+                <li>action head 只取最后 <code>action_horizon</code> 个 hidden state，过 <code>action_out_proj</code> 输出 <code>v_t</code>。</li>
               </ol>
             </div>
           </div>
           <div class="callout">
-            推荐实现是新增 <code>tactile_proj</code>，把 FastViT 输出对齐到 action expert 宽度，然后在
-            <code>embed_suffix</code> 中先 append <code>tactile_tokens</code>，再 append <code>action_tokens</code>。
-            <code>adarms_cond</code> 可以用 token-wise 形式：tactile token 对应零向量或单独的 tactile cond，
-            action token 对应原来的 <code>time_mlp(t)</code>。这样触觉会完整经过 action expert 的 attention / FFN。
+            <strong>实现要点对照：</strong><code>Pi0TactileFastVit</code> 继承 <code>Pi0</code>，构造时新增
+            <code>tactile_encoder</code> 与 <code>tactile_proj</code> 两个子模块；<code>embed_suffix</code>
+            先调用 <code>super().embed_suffix(...)</code> 拿到 <code>(base_tokens, base_mask, base_ar, adarms_cond)</code>，
+            再在前面拼接 4 个 tactile token / mask / ar 项。tactile 的 ar_mask 形如
+            <code>[True, False, False, False]</code>——首 token 充当块边界，块内 3 个 token 互相可见。
+            "tactile 不进 adaRMS" 的设计通过对 3-D <code>adarms_cond</code> 在 tactile 位置补零实现；
+            2-D 情况下 RMSNorm 的广播语义本就把同一个时间条件分发给所有 suffix token，无需特殊处理。
+            <code>action_out_proj</code> 不变，沿用 pi05 基座的权重。
           </div>
         </div>
       </section>

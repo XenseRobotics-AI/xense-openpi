@@ -46,12 +46,18 @@ class CheckpointWeightLoader(WeightLoader):
     """
 
     params_path: str
+    # Regex matching parameter keys that may legitimately be absent from the
+    # checkpoint (e.g. LoRA adapters, freshly added submodules like tactile
+    # encoder/projection). Missing keys are filled from the reference params,
+    # which keeps the structure check happy and lets those branches retain the
+    # values produced by the model's own __init__ (random init or, in the
+    # tactile case, pretrained weights loaded inside the encoder).
+    missing_regex: str = ".*lora.*"
 
     def load(self, params: at.Params) -> at.Params:
         # We are loading np.ndarray and relying on the training code to properly convert and shard the params.
         loaded_params = _model.restore_params(download.maybe_download(self.params_path), restore_type=np.ndarray)
-        # Add all missing LoRA weights.
-        return _merge_params(loaded_params, params, missing_regex=".*lora.*")
+        return _merge_params(loaded_params, params, missing_regex=self.missing_regex)
 
 
 @dataclasses.dataclass(frozen=True)
