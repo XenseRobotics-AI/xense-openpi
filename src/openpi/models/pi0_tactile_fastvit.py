@@ -14,7 +14,6 @@ preprocess so that the 4 tactile keys are correctly augmented during training.
 
 from __future__ import annotations
 
-import einops
 import flax.nnx as nnx
 import jax.numpy as jnp
 
@@ -32,10 +31,14 @@ class Pi0TactileFastVit(pi0.Pi0):
     def __init__(self, config: pi0_tactile_fastvit_config.Pi0TactileFastVitConfig, rngs: nnx.Rngs) -> None:
         super().__init__(config, rngs=rngs)
 
+        # Resolve "bfloat16"/"float32"/"float16" strings to a JAX dtype so the
+        # encoder's conv/BN/dense ops run in the requested compute precision.
+        compute_dtype = jnp.dtype(config.tactile_compute_dtype)
         self.tactile_encoder = build_tactile_encoder(
             config.tactile_encoder_name,
             rngs=rngs,
             pretrained_path=config.tactile_pretrained_path,
+            compute_dtype=compute_dtype,
         )
 
         action_expert_width = _gemma.get_config(config.action_expert_variant).width
@@ -68,17 +71,23 @@ class Pi0TactileFastVit(pi0.Pi0):
         at.Bool[at.Array, " s"],
         at.Float[at.Array, "b emb"] | at.Float[at.Array, "b s emb"] | None,
     ]:
-        tactile_tokens: list = []
-        tactile_mask_parts: list = []
-        for key in self._tactile_keys:
-            feat = self.tactile_encoder(obs.images[key])  # (b, feat_dim)
-            feat = self.tactile_proj(feat)  # (b, action_expert_width)
-            tactile_tokens.append(feat[:, None, :])
-            tactile_mask_parts.append(
-                einops.repeat(obs.image_masks[key], "b -> b s", s=1)
-            )
-        tactile_tokens_arr = jnp.concatenate(tactile_tokens, axis=1)  # (b, N, w)
-        tactile_mask = jnp.concatenate(tactile_mask_parts, axis=1)  # (b, N)
+        # Stack the 4 tactile images on a new axis and fold it into the batch
+        # dim so the FastViT encoder runs as ONE call at batch B*N instead of
+        # N sequential calls at batch B. BatchNorm uses frozen running stats
+        # (use_running_average=True) and every other op in FastViT is
+        # batch-invariant, so this is exactly equivalent to the per-key loop
+        # but lets XLA fuse a single graph and gives the small depthwise convs
+        # a much larger effective batch — the dominant win on H100.
+        tactile_imgs = jnp.stack(
+            [obs.images[key] for key in self._tactile_keys], axis=1
+        )  # (b, N, h, w, 3)
+        tactile_mask = jnp.stack(
+            [obs.image_masks[key] for key in self._tactile_keys], axis=1
+        )  # (b, N)
+        b, n, h, w, c = tactile_imgs.shape
+        feats = self.tactile_encoder(tactile_imgs.reshape(b * n, h, w, c))  # (b*n, feat)
+        feats = self.tactile_proj(feats)  # (b*n, action_expert_width)
+        tactile_tokens_arr = feats.reshape(b, n, -1)  # (b, N, w)
         # tactile block: first token is a block boundary (cannot peek prefix),
         # the remaining tactile tokens are co-visible within the block.
         tactile_ar = jnp.asarray([True] + [False] * (self._num_tactile - 1))

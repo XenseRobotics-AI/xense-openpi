@@ -39,7 +39,11 @@ def build_tactile_encoder(
     if name == "fastvit_t12":
         from openpi.models.tactile_encoders.fastvit import TactileFastVitEncoder
 
-        return TactileFastVitEncoder(rngs=rngs, pretrained_path=pretrained_path, **kwargs)
+        return TactileFastVitEncoder(
+            rngs=rngs,
+            pretrained_path=pretrained_path,
+            **kwargs,
+        )
     raise ValueError(f"Unknown tactile encoder: {name!r}")
 
 
