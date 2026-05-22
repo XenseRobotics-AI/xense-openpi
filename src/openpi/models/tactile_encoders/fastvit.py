@@ -72,8 +72,25 @@ def _pytorch_pad(kernel_size: int, stride: int = 1, dilation: int = 1) -> int:
     return ((stride - 1) + dilation * (kernel_size - 1)) // 2
 
 
-def _conv(features: int, kernel_size: int, *, stride: int = 1, groups: int = 1, use_bias: bool, name: str) -> nn.Conv:
-    """A timm-style 2D conv with explicit symmetric padding (matches PyTorch exactly)."""
+def _conv(
+    features: int,
+    kernel_size: int,
+    *,
+    stride: int = 1,
+    groups: int = 1,
+    use_bias: bool,
+    name: str,
+    dtype: Any = jnp.float32,
+) -> nn.Conv:
+    """A timm-style 2D conv with explicit symmetric padding (matches PyTorch exactly).
+
+    ``dtype`` is the compute dtype. Parameters stay in fp32 (``param_dtype``
+    defaults to fp32), so the optimizer keeps a fp32 master copy while each
+    forward/backward casts to ``dtype`` (typically bf16). We MUST pass dtype
+    explicitly — Flax's default ``dtype=None`` runs ``promote_dtype`` which
+    upcasts bf16 inputs to fp32 to match the fp32 params, defeating the entire
+    purpose of feeding bf16 activations.
+    """
     pad = _pytorch_pad(kernel_size, stride=stride)
     return nn.Conv(
         features=features,
@@ -82,6 +99,7 @@ def _conv(features: int, kernel_size: int, *, stride: int = 1, groups: int = 1, 
         padding=((pad, pad), (pad, pad)),
         feature_group_count=groups,
         use_bias=use_bias,
+        dtype=dtype,
         name=name,
     )
 
@@ -106,6 +124,7 @@ class _ConvBn(nn.Module):
     kernel_size: int
     stride: int = 1
     groups: int = 1
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -116,8 +135,9 @@ class _ConvBn(nn.Module):
             groups=self.groups,
             use_bias=False,
             name="conv",
+            dtype=self.dtype,
         )(x)
-        x = nn.BatchNorm(use_running_average=True, name="bn")(x)
+        x = nn.BatchNorm(use_running_average=True, dtype=self.dtype, name="bn")(x)
         return x
 
 
@@ -132,15 +152,16 @@ class _SqueezeExcite(nn.Module):
 
     rd_ratio: float = 1.0 / 16
     rd_divisor: int = 8
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
         c = x.shape[-1]
         hidden = _make_divisible(c * self.rd_ratio, self.rd_divisor, round_limit=0.0)
         s = jnp.mean(x, axis=(1, 2), keepdims=True)
-        s = nn.Conv(features=hidden, kernel_size=(1, 1), use_bias=True, name="fc1")(s)
+        s = nn.Conv(features=hidden, kernel_size=(1, 1), use_bias=True, dtype=self.dtype, name="fc1")(s)
         s = jax.nn.relu(s)
-        s = nn.Conv(features=c, kernel_size=(1, 1), use_bias=True, name="fc2")(s)
+        s = nn.Conv(features=c, kernel_size=(1, 1), use_bias=True, dtype=self.dtype, name="fc2")(s)
         s = jax.nn.sigmoid(s)
         return x * s
 
@@ -159,6 +180,7 @@ class MobileOneBlock(nn.Module):
     use_act: bool = True
     use_scale_branch: bool = True
     num_conv_branches: int = 1
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -167,7 +189,7 @@ class MobileOneBlock(nn.Module):
 
         # identity branch (BN over input) — present when shapes match
         if self.out_chs == in_chs and self.stride == 1:
-            out = nn.BatchNorm(use_running_average=True, name="identity")(x)
+            out = nn.BatchNorm(use_running_average=True, dtype=self.dtype, name="identity")(x)
         else:
             h = (x.shape[1] + self.stride - 1) // self.stride
             w = (x.shape[2] + self.stride - 1) // self.stride
@@ -180,6 +202,7 @@ class MobileOneBlock(nn.Module):
                 kernel_size=1,
                 stride=self.stride,
                 groups=groups,
+                dtype=self.dtype,
                 name="conv_scale",
             )(x)
             out = out + scale
@@ -191,12 +214,13 @@ class MobileOneBlock(nn.Module):
                 kernel_size=self.kernel_size,
                 stride=self.stride,
                 groups=groups,
+                dtype=self.dtype,
                 name=f"conv_kxk_{i}",
             )(x)
             out = out + branch
 
         if self.use_se:
-            out = _SqueezeExcite(rd_divisor=1, name="se")(out)
+            out = _SqueezeExcite(rd_divisor=1, dtype=self.dtype, name="se")(out)
 
         if self.use_act:
             out = jax.nn.gelu(out, approximate=False)
@@ -213,6 +237,7 @@ class _ReparamLargeKernelConv(nn.Module):
     small_kernel: int | None = 3
     use_se: bool = False
     use_act: bool = False
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -223,6 +248,7 @@ class _ReparamLargeKernelConv(nn.Module):
             kernel_size=self.kernel_size,
             stride=self.stride,
             groups=groups,
+            dtype=self.dtype,
             name="large_conv",
         )(x)
         if self.small_kernel is not None:
@@ -231,10 +257,11 @@ class _ReparamLargeKernelConv(nn.Module):
                 kernel_size=self.small_kernel,
                 stride=self.stride,
                 groups=groups,
+                dtype=self.dtype,
                 name="small_conv",
             )(x)
         if self.use_se:
-            out = _SqueezeExcite(rd_ratio=0.25, name="se")(out)
+            out = _SqueezeExcite(rd_ratio=0.25, dtype=self.dtype, name="se")(out)
         if self.use_act:
             out = jax.nn.gelu(out, approximate=False)
         return out
@@ -248,6 +275,7 @@ class _PatchEmbed(nn.Module):
     stride: int
     use_se: bool = False
     lkc_use_act: bool = False
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -259,6 +287,7 @@ class _PatchEmbed(nn.Module):
             small_kernel=3,
             use_se=self.use_se,
             use_act=self.lkc_use_act,
+            dtype=self.dtype,
             name="proj_0",
         )(x)
         x = MobileOneBlock(
@@ -267,6 +296,7 @@ class _PatchEmbed(nn.Module):
             stride=1,
             use_se=False,
             num_conv_branches=1,
+            dtype=self.dtype,
             name="proj_1",
         )(x)
         return x
@@ -291,6 +321,7 @@ class _RepMixer(nn.Module):
 
     kernel_size: int = 3
     layer_scale_init_value: float | None = 1e-5
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -299,7 +330,7 @@ class _RepMixer(nn.Module):
         # ``norm`` is constructed with ``use_act=False`` AND ``use_scale_branch=False``
         # AND ``num_conv_branches=0`` — i.e. only the identity BN branch is active.
         # That collapses to a single BN over the input.
-        norm = nn.BatchNorm(use_running_average=True, name="norm_identity")(x)
+        norm = nn.BatchNorm(use_running_average=True, dtype=self.dtype, name="norm_identity")(x)
         mixer = MobileOneBlock(
             out_chs=dim,
             kernel_size=self.kernel_size,
@@ -308,6 +339,7 @@ class _RepMixer(nn.Module):
             use_act=False,
             use_scale_branch=True,
             num_conv_branches=1,
+            dtype=self.dtype,
             name="mixer",
         )(x)
         delta = mixer - norm
@@ -320,14 +352,15 @@ class _ConvMlp(nn.Module):
     """Depthwise 7x7 conv -> 1x1 expand -> GELU -> 1x1 project."""
 
     hidden_channels: int
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
         dim = x.shape[-1]
-        x = _ConvBn(features=dim, kernel_size=7, stride=1, groups=dim, name="conv")(x)
-        x = nn.Conv(features=self.hidden_channels, kernel_size=(1, 1), use_bias=True, name="fc1")(x)
+        x = _ConvBn(features=dim, kernel_size=7, stride=1, groups=dim, dtype=self.dtype, name="conv")(x)
+        x = nn.Conv(features=self.hidden_channels, kernel_size=(1, 1), use_bias=True, dtype=self.dtype, name="fc1")(x)
         x = jax.nn.gelu(x, approximate=False)
-        x = nn.Conv(features=dim, kernel_size=(1, 1), use_bias=True, name="fc2")(x)
+        x = nn.Conv(features=dim, kernel_size=(1, 1), use_bias=True, dtype=self.dtype, name="fc2")(x)
         return x
 
 
@@ -335,15 +368,17 @@ class _RepMixerBlock(nn.Module):
     kernel_size: int = 3
     mlp_ratio: float = 3.0
     layer_scale_init_value: float | None = 1e-5
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
         x = _RepMixer(
             kernel_size=self.kernel_size,
             layer_scale_init_value=self.layer_scale_init_value,
+            dtype=self.dtype,
             name="token_mixer",
         )(x)
-        delta = _ConvMlp(hidden_channels=int(x.shape[-1] * self.mlp_ratio), name="mlp")(x)
+        delta = _ConvMlp(hidden_channels=int(x.shape[-1] * self.mlp_ratio), dtype=self.dtype, name="mlp")(x)
         if self.layer_scale_init_value is not None:
             delta = _LayerScale2d(init_values=self.layer_scale_init_value, name="layer_scale")(delta)
         x = x + delta
@@ -361,6 +396,7 @@ class _FastVitStage(nn.Module):
     mlp_ratio: float = 3.0
     lkc_use_act: bool = False
     layer_scale_init_value: float | None = 1e-5
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -371,6 +407,7 @@ class _FastVitStage(nn.Module):
                 stride=self.down_stride,
                 use_se=self.se_downsample,
                 lkc_use_act=self.lkc_use_act,
+                dtype=self.dtype,
                 name="downsample",
             )(x)
         for i in range(self.depth):
@@ -378,13 +415,23 @@ class _FastVitStage(nn.Module):
                 kernel_size=self.kernel_size,
                 mlp_ratio=self.mlp_ratio,
                 layer_scale_init_value=self.layer_scale_init_value,
+                dtype=self.dtype,
                 name=f"blocks_{i}",
             )(x)
         return x
 
 
 class FastVitT12Module(nn.Module):
-    """Flax/linen FastViT-T12, returning a (B, 1024) global-pooled embedding."""
+    """Flax/linen FastViT-T12, returning a (B, 1024) global-pooled embedding.
+
+    ``dtype`` controls the compute dtype for every conv/BN/dense in the module.
+    Parameters remain stored in fp32 (``param_dtype`` defaults to fp32) so the
+    optimizer keeps an fp32 master copy; the params are cast on the fly to
+    ``dtype`` for each op. Setting ``dtype=jnp.bfloat16`` on H100/A100 roughly
+    halves activation memory and unlocks bf16 tensor cores on the dense
+    matmuls. Default stays fp32 to preserve the exact numerics used by the
+    Torch→Flax conversion verifier.
+    """
 
     layers: Sequence[int] = (2, 2, 6, 2)
     embed_dims: Sequence[int] = (64, 128, 256, 512)
@@ -395,14 +442,23 @@ class FastVitT12Module(nn.Module):
     cls_ratio: float = 2.0
     layer_scale_init_value: float | None = 1e-5
     lkc_use_act: bool = False
+    dtype: Any = jnp.float32
 
     @nn.compact
     def __call__(self, x: jax.Array) -> jax.Array:
+        # Normalization stays in fp32 for numerical stability, then cast to the
+        # compute dtype. Every nn.Conv / nn.BatchNorm receives ``dtype=self.dtype``
+        # explicitly because Flax's default ``dtype=None`` calls promote_dtype
+        # which upcasts bf16 inputs to fp32 to match the fp32 params, defeating
+        # the entire purpose. With dtype set explicitly, params stay stored as
+        # fp32 (param_dtype default) but are cast to bf16 on the fly for each
+        # op — i.e. the standard "fp32 master + bf16 compute" pattern.
         x = _normalize_inputs(x)
+        x = x.astype(self.dtype)
 
         # Stem: 3 MobileOne blocks (kernels 3-3-1). Match timm naming "stem.0/1/2".
         x = MobileOneBlock(
-            out_chs=self.embed_dims[0], kernel_size=3, stride=2, num_conv_branches=1, name="stem_0"
+            out_chs=self.embed_dims[0], kernel_size=3, stride=2, num_conv_branches=1, dtype=self.dtype, name="stem_0"
         )(x)
         x = MobileOneBlock(
             out_chs=self.embed_dims[0],
@@ -410,10 +466,11 @@ class FastVitT12Module(nn.Module):
             stride=2,
             group_size=1,
             num_conv_branches=1,
+            dtype=self.dtype,
             name="stem_1",
         )(x)
         x = MobileOneBlock(
-            out_chs=self.embed_dims[0], kernel_size=1, stride=1, num_conv_branches=1, name="stem_2"
+            out_chs=self.embed_dims[0], kernel_size=1, stride=1, num_conv_branches=1, dtype=self.dtype, name="stem_2"
         )(x)
 
         # Stages
@@ -431,6 +488,7 @@ class FastVitT12Module(nn.Module):
                 mlp_ratio=float(self.mlp_ratios[i]),
                 lkc_use_act=self.lkc_use_act,
                 layer_scale_init_value=self.layer_scale_init_value,
+                dtype=self.dtype,
                 name=f"stages_{i}",
             )(x)
             prev_dim = self.embed_dims[i]
@@ -444,6 +502,7 @@ class FastVitT12Module(nn.Module):
             group_size=1,
             use_se=True,
             num_conv_branches=1,
+            dtype=self.dtype,
             name="final_conv",
         )(x)
         # Global average pool -> (B, C)
@@ -463,11 +522,23 @@ class TactileFastVitEncoder(nnx.Module):
 
     feature_dim: int = FEATURE_DIM
 
-    def __init__(self, *, rngs: nnx.Rngs, pretrained_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        rngs: nnx.Rngs,
+        pretrained_path: str | Path | None = None,
+        compute_dtype: Any = jnp.float32,
+    ) -> None:
         self.feature_dim = FEATURE_DIM
-        self.module = nnx_bridge.ToNNX(FastVitT12Module())
-        # Initialise with a fake (B, 224, 224, 3) batch. The dtype matches what the
-        # downstream Pi0 pipeline feeds in (float32 after preprocessing).
+        # The wrapped linen module uses ``compute_dtype`` for every conv/BN/dense
+        # while ``param_dtype`` stays fp32. lazy_init still runs with the fake
+        # input below — params therefore initialise in fp32 (the fp32 master
+        # copy) and are cast to compute_dtype on the fly during each forward.
+        self.module = nnx_bridge.ToNNX(FastVitT12Module(dtype=compute_dtype))
+        # Initialise with a fake (B, 224, 224, 3) batch. We deliberately feed
+        # fp32 here so lazy_init records fp32 params (overwritten later by
+        # _load_pretrained); the compute_dtype cast happens inside __call__ so
+        # bf16 mode does not affect parameter dtype.
         fake = jnp.zeros((1, 224, 224, 3), dtype=jnp.float32)
         self.module.lazy_init(fake, rngs=rngs)
 
