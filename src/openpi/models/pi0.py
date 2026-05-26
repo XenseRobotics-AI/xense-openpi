@@ -1,11 +1,11 @@
 import logging
-from typing import Unpack, override
 
 import einops
 import flax.nnx as nnx
 import flax.nnx.bridge as nnx_bridge
 import jax
 import jax.numpy as jnp
+from typing_extensions import Unpack, override
 
 from openpi.models import model as _model
 from openpi.models import pi0_config
@@ -136,7 +136,8 @@ class Pi0(_model.BaseModel):
         tokens = []
         # embed images
         for name in obs.images:
-            image_tokens, _ = self.PaliGemma.img(obs.images[name], train=False)
+            with jax.named_scope(f"prefix/img/{name}"):
+                image_tokens, _ = self.PaliGemma.img(obs.images[name], train=False)
 
             tokens.append(image_tokens)
             input_mask.append(
@@ -151,7 +152,8 @@ class Pi0(_model.BaseModel):
 
         # add language (aka tokenized inputs)
         if obs.tokenized_prompt is not None:
-            tokenized_inputs = self.PaliGemma.llm(obs.tokenized_prompt, method="embed")
+            with jax.named_scope("prefix/prompt_embed"):
+                tokenized_inputs = self.PaliGemma.llm(obs.tokenized_prompt, method="embed")
             tokens.append(tokenized_inputs)
             input_mask.append(obs.tokenized_prompt_mask)
             # full attention between image and language inputs
@@ -178,13 +180,15 @@ class Pi0(_model.BaseModel):
         tokens = []
         if not self.pi05:
             # add a single state token
-            state_token = self.state_proj(obs.state)[:, None, :]
+            with jax.named_scope("suffix/state_token"):
+                state_token = self.state_proj(obs.state)[:, None, :]
             tokens.append(state_token)
             input_mask.append(jnp.ones((obs.state.shape[0], 1), dtype=jnp.bool_))
             # image/language inputs do not attend to state or actions
             ar_mask += [True]
 
-        action_tokens = self.action_in_proj(noisy_actions)
+        with jax.named_scope("suffix/action_in_proj"):
+            action_tokens = self.action_in_proj(noisy_actions)
         if timestep.ndim == 1:
             if timestep.shape[0] != noisy_actions.shape[0]:
                 raise ValueError(f"Expected timestep batch dimension {noisy_actions.shape[0]}, got {timestep.shape[0]}")
@@ -195,28 +199,29 @@ class Pi0(_model.BaseModel):
         else:
             raise ValueError(f"Expected timestep ndim 1 or 2, got {timestep.ndim}")
 
-        # embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
-        time_emb = posemb_sincos(timestep, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0)
-        if self.pi05:
-            # time MLP (for adaRMS)
-            time_emb = self.time_mlp_in(time_emb)
-            time_emb = nnx.swish(time_emb)
-            time_emb = self.time_mlp_out(time_emb)
-            time_emb = nnx.swish(time_emb)
-            action_expert_tokens = action_tokens
-            adarms_cond = time_emb
-        else:
-            # mix timestep + action information using an MLP (no adaRMS)
-            if time_emb.ndim == 2:
-                time_tokens = einops.repeat(time_emb, "b emb -> b s emb", s=self.action_horizon)
+        with jax.named_scope("suffix/time_embed"):
+            # embed timestep using sine-cosine positional encoding with sensitivity in the range [0, 1]
+            time_emb = posemb_sincos(timestep, self.action_in_proj.out_features, min_period=4e-3, max_period=4.0)
+            if self.pi05:
+                # time MLP (for adaRMS)
+                time_emb = self.time_mlp_in(time_emb)
+                time_emb = nnx.swish(time_emb)
+                time_emb = self.time_mlp_out(time_emb)
+                time_emb = nnx.swish(time_emb)
+                action_expert_tokens = action_tokens
+                adarms_cond = time_emb
             else:
-                time_tokens = time_emb
-            action_time_tokens = jnp.concatenate([action_tokens, time_tokens], axis=-1)
-            action_time_tokens = self.action_time_mlp_in(action_time_tokens)
-            action_time_tokens = nnx.swish(action_time_tokens)
-            action_time_tokens = self.action_time_mlp_out(action_time_tokens)
-            action_expert_tokens = action_time_tokens
-            adarms_cond = None
+                # mix timestep + action information using an MLP (no adaRMS)
+                if time_emb.ndim == 2:
+                    time_tokens = einops.repeat(time_emb, "b emb -> b s emb", s=self.action_horizon)
+                else:
+                    time_tokens = time_emb
+                action_time_tokens = jnp.concatenate([action_tokens, time_tokens], axis=-1)
+                action_time_tokens = self.action_time_mlp_in(action_time_tokens)
+                action_time_tokens = nnx.swish(action_time_tokens)
+                action_time_tokens = self.action_time_mlp_out(action_time_tokens)
+                action_expert_tokens = action_time_tokens
+                adarms_cond = None
         tokens.append(action_expert_tokens)
         input_mask.append(jnp.ones(action_expert_tokens.shape[:2], dtype=jnp.bool_))
         # image/language/state inputs do not attend to action tokens
@@ -237,7 +242,8 @@ class Pi0(_model.BaseModel):
     ) -> at.Float[at.Array, "*b ah"]:
         # Split RNG and preprocess observation
         preprocess_rng, loss_rng = jax.random.split(rng)
-        observation = self._preprocess_observation(preprocess_rng, observation, train=train)
+        with jax.named_scope("loss/preprocess"):
+            observation = self._preprocess_observation(preprocess_rng, observation, train=train)
 
         # Delegate to specific implementation
         if not self._enable_training_time_rtc:
@@ -251,30 +257,36 @@ class Pi0(_model.BaseModel):
         actions: _model.Actions,
     ) -> at.Float[at.Array, "*b ah"]:
         """Standard Pi0 loss computation."""
-        noise_rng, time_rng = jax.random.split(rng)
-        batch_shape = actions.shape[:-2]
-        noise = jax.random.normal(noise_rng, actions.shape)
-        time = jax.random.beta(time_rng, 1.5, 1, batch_shape) * 0.999 + 0.001
-        time_expanded = time[..., None, None]
+        with jax.named_scope("loss/rng_noise_time"):
+            noise_rng, time_rng = jax.random.split(rng)
+            batch_shape = actions.shape[:-2]
+            noise = jax.random.normal(noise_rng, actions.shape)
+            time = jax.random.beta(time_rng, 1.5, 1, batch_shape) * 0.999 + 0.001
+            time_expanded = time[..., None, None]
 
-        x_t = time_expanded * noise + (1 - time_expanded) * actions
-        u_t = noise - actions
+            x_t = time_expanded * noise + (1 - time_expanded) * actions
+            u_t = noise - actions
 
         # one big forward pass of prefix + suffix at once
-        prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
-        suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(observation, x_t, time)
-        input_mask = jnp.concatenate([prefix_mask, suffix_mask], axis=1)
-        ar_mask = jnp.concatenate([prefix_ar_mask, suffix_ar_mask], axis=0)
-        attn_mask = make_attn_mask(input_mask, ar_mask)
-        positions = jnp.cumsum(input_mask, axis=1) - 1
-        (_, suffix_out), _ = self.PaliGemma.llm(
-            [prefix_tokens, suffix_tokens],
-            mask=attn_mask,
-            positions=positions,
-            adarms_cond=[None, adarms_cond],
-        )
-        v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
-        return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+        with jax.named_scope("loss/embed_prefix"):
+            prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+        with jax.named_scope("loss/embed_suffix"):
+            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(observation, x_t, time)
+        with jax.named_scope("loss/attn_mask"):
+            input_mask = jnp.concatenate([prefix_mask, suffix_mask], axis=1)
+            ar_mask = jnp.concatenate([prefix_ar_mask, suffix_ar_mask], axis=0)
+            attn_mask = make_attn_mask(input_mask, ar_mask)
+            positions = jnp.cumsum(input_mask, axis=1) - 1
+        with jax.named_scope("loss/llm_forward"):
+            (prefix_out, suffix_out), _ = self.PaliGemma.llm(
+                [prefix_tokens, suffix_tokens],
+                mask=attn_mask,
+                positions=positions,
+                adarms_cond=[None, adarms_cond],
+            )
+        with jax.named_scope("loss/action_out"):
+            v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+            return jnp.mean(jnp.square(v_t - u_t), axis=-1)
 
     def _compute_loss_training_time_rtc(
         self,
@@ -283,48 +295,54 @@ class Pi0(_model.BaseModel):
         actions: _model.Actions,
     ) -> at.Float[at.Array, "*b ah"]:
         """Training-time RTC loss computation."""
-        noise_rng, time_rng, delay_rng = jax.random.split(rng, 3)
-        b, ah, ad = actions.shape  # (batch_size, action_horizon, action_dim)
-        time = jax.random.uniform(time_rng, (b,))
-        noise = jax.random.normal(noise_rng, (b, ah, ad))
+        with jax.named_scope("loss/rng_noise_time_delay"):
+            noise_rng, time_rng, delay_rng = jax.random.split(rng, 3)
+            b, ah, ad = actions.shape  # (batch_size, action_horizon, action_dim)
+            time = jax.random.uniform(time_rng, (b,))
+            noise = jax.random.normal(noise_rng, (b, ah, ad))
 
-        # sample delays from some distribution of choice:
-        # here, we use Uniform[0, max_delay), as in our real-world experiments
-        delay = jax.random.randint(delay_rng, (b,), 0, self._max_delay)
+            # sample delays from some distribution of choice:
+            # here, we use Uniform[0, max_delay), as in our real-world experiments
+            delay = jax.random.randint(delay_rng, (b,), 0, self._max_delay)
 
-        # Create action prefix mask (True for prefix actions, False for postfix actions)
-        action_prefix_mask = jnp.arange(ah)[None, :] < delay[:, None]
+            # Create action prefix mask (True for prefix actions, False for postfix actions)
+            action_prefix_mask = jnp.arange(ah)[None, :] < delay[:, None]
 
-        # Compute x_t: prefix uses clean actions (time=0.0), postfix uses noisy actions
-        time_masked = jnp.where(action_prefix_mask, 0.0, time[:, None])
-        x_t = time_masked[:, :, None] * noise + (1 - time_masked[:, :, None]) * actions
-        u_t = noise - actions
+            # Compute x_t: prefix uses clean actions (time=0.0), postfix uses noisy actions
+            time_masked = jnp.where(action_prefix_mask, 0.0, time[:, None])
+            x_t = time_masked[:, :, None] * noise + (1 - time_masked[:, :, None]) * actions
+            u_t = noise - actions
 
         # one big forward pass of prefix + suffix at once
-        prefix_tokens, prefix_input_mask, prefix_ar_mask = self.embed_prefix(observation)
-        suffix_tokens, suffix_input_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
-            observation,
-            x_t,
-            time_masked,
-        )
-        input_mask = jnp.concatenate([prefix_input_mask, suffix_input_mask], axis=1)
-        ar_mask = jnp.concatenate([prefix_ar_mask, suffix_ar_mask], axis=0)
-        attn_mask = make_attn_mask(input_mask, ar_mask)
-        positions = jnp.cumsum(input_mask, axis=1) - 1
-        (_, suffix_out), _ = self.PaliGemma.llm(
-            [prefix_tokens, suffix_tokens],
-            mask=attn_mask,
-            positions=positions,
-            adarms_cond=[None, adarms_cond],
-        )
-        v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
-        loss = (v_t - u_t) ** 2
+        with jax.named_scope("loss/embed_prefix"):
+            prefix_tokens, prefix_input_mask, prefix_ar_mask = self.embed_prefix(observation)
+        with jax.named_scope("loss/embed_suffix"):
+            suffix_tokens, suffix_input_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
+                observation,
+                x_t,
+                time_masked,
+            )
+        with jax.named_scope("loss/attn_mask"):
+            input_mask = jnp.concatenate([prefix_input_mask, suffix_input_mask], axis=1)
+            ar_mask = jnp.concatenate([prefix_ar_mask, suffix_ar_mask], axis=0)
+            attn_mask = make_attn_mask(input_mask, ar_mask)
+            positions = jnp.cumsum(input_mask, axis=1) - 1
+        with jax.named_scope("loss/llm_forward"):
+            (prefix_out, suffix_out), _ = self.PaliGemma.llm(
+                [prefix_tokens, suffix_tokens],
+                mask=attn_mask,
+                positions=positions,
+                adarms_cond=[None, adarms_cond],
+            )
+        with jax.named_scope("loss/action_out"):
+            v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+            loss = (v_t - u_t) ** 2
 
-        # compute the loss on the postfix only
-        # Use action_prefix_mask (not prefix_input_mask which is for transformer)
-        action_postfix_mask = jnp.logical_not(action_prefix_mask)[:, :, None]
-        loss = jnp.sum(loss * action_postfix_mask, axis=-1) / (jnp.sum(action_postfix_mask, axis=-1) + 1e-8)
-        return loss
+            # compute the loss on the postfix only
+            # Use action_prefix_mask (not prefix_input_mask which is for transformer)
+            action_postfix_mask = jnp.logical_not(action_prefix_mask)[:, :, None]
+            loss = jnp.sum(loss * action_postfix_mask, axis=-1) / (jnp.sum(action_postfix_mask, axis=-1) + 1e-8)
+            return loss
 
     @override
     def sample_actions(
@@ -388,7 +406,7 @@ class Pi0(_model.BaseModel):
             return x_t + dt * v_t, time + dt
 
         def cond(carry):
-            _, time = carry
+            x_t, time = carry
             # robust to floating-point error
             return time >= -dt / 2
 
@@ -538,7 +556,7 @@ class Pi0(_model.BaseModel):
             return x_t, time + dt
 
         def cond(carry):
-            _, time = carry
+            x_t, time = carry
             # robust to floating-point error
             return time >= -dt / 2
 

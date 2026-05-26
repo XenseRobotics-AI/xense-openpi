@@ -1,6 +1,8 @@
 import dataclasses
 import functools
+import json
 import logging
+import os
 import platform
 import time
 from typing import Any
@@ -156,11 +158,14 @@ def train_step(
 
     # Filter out frozen params.
     diff_state = nnx.DiffState(0, config.trainable_filter)
-    loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(model, train_rng, observation, actions)
+    with jax.named_scope("train_step/loss_and_grad"):
+        loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(model, train_rng, observation, actions)
 
     params = state.params.filter(config.trainable_filter)
-    updates, new_opt_state = state.tx.update(grads, state.opt_state, params)
-    new_params = optax.apply_updates(params, updates)
+    with jax.named_scope("train_step/optimizer_update"):
+        updates, new_opt_state = state.tx.update(grads, state.opt_state, params)
+    with jax.named_scope("train_step/apply_updates"):
+        new_params = optax.apply_updates(params, updates)
 
     # Update the model in place and return the new full state.
     nnx.update(model, new_params)
@@ -168,12 +173,13 @@ def train_step(
 
     new_state = dataclasses.replace(state, step=state.step + 1, params=new_params, opt_state=new_opt_state)
     if state.ema_decay is not None:
-        new_state = dataclasses.replace(
-            new_state,
-            ema_params=jax.tree.map(
-                lambda old, new: state.ema_decay * old + (1 - state.ema_decay) * new, state.ema_params, new_params
-            ),
-        )
+        with jax.named_scope("train_step/ema_update"):
+            new_state = dataclasses.replace(
+                new_state,
+                ema_params=jax.tree.map(
+                    lambda old, new: state.ema_decay * old + (1 - state.ema_decay) * new, state.ema_params, new_params
+                ),
+            )
 
     # Filter out params that aren't kernels.
     kernel_params = nnx.state(
@@ -184,10 +190,14 @@ def train_step(
             lambda _, x: x.value.ndim > 1,
         ),
     )
+    with jax.named_scope("train_step/grad_norm"):
+        grad_norm = optax.global_norm(grads)
+    with jax.named_scope("train_step/param_norm"):
+        param_norm = optax.global_norm(kernel_params)
     info = {
         "loss": loss,
-        "grad_norm": optax.global_norm(grads),
-        "param_norm": optax.global_norm(kernel_params),
+        "grad_norm": grad_norm,
+        "param_norm": param_norm,
     }
     return new_state, info
 
@@ -225,17 +235,17 @@ def main(config: _config.TrainConfig):
         sharding=data_sharding,
         shuffle=True,
     )
-    logging.info(f"[INIT] create_data_loader() done in {time.monotonic() - t_dl:.1f}s")
+    logging.info(f"[INIT] create_data_loader() done in {time.monotonic()-t_dl:.1f}s")
 
     t_it = time.monotonic()
     logging.info("[INIT] calling iter(data_loader) (this spawns workers) ...")
     data_iter = iter(data_loader)
-    logging.info(f"[INIT] iter() done in {time.monotonic() - t_it:.1f}s — workers spawned")
+    logging.info(f"[INIT] iter() done in {time.monotonic()-t_it:.1f}s — workers spawned")
 
     t_nb = time.monotonic()
     logging.info("[INIT] waiting for first batch via next(data_iter) ...")
     batch = next(data_iter)
-    logging.info(f"[INIT] first batch received in {time.monotonic() - t_nb:.1f}s")
+    logging.info(f"[INIT] first batch received in {time.monotonic()-t_nb:.1f}s")
 
     logging.info(f"Initialized data loader:\n{training_utils.array_tree_to_info(batch)}")
 
@@ -268,20 +278,67 @@ def main(config: _config.TrainConfig):
         dynamic_ncols=True,
     )
 
+    # --- profiling setup ---
+    timing_log_path = config.profile_timing_log_path
+    if timing_log_path is None:
+        timing_log_path = str(config.checkpoint_dir / "timing.jsonl")
+    timing_log_dir = os.path.dirname(timing_log_path)
+    if timing_log_dir:
+        os.makedirs(timing_log_dir, exist_ok=True)
+    timing_file = open(timing_log_path, "a", buffering=1)
+    logging.info(f"[PROFILE] per-step timing → {timing_log_path}")
+
+    trace_start = config.profile_trace_start_step
+    trace_stop = (
+        trace_start + config.profile_trace_num_steps if trace_start is not None else None
+    )
+    trace_active = False
+    if trace_start is not None:
+        os.makedirs(config.profile_trace_dir, exist_ok=True)
+        logging.info(
+            f"[PROFILE] will capture JAX profiler trace at steps "
+            f"[{trace_start}, {trace_stop}) into {config.profile_trace_dir}"
+        )
+
     infos = []
-    # --- stall diagnostics ---
-    stall_threshold_s = 3.0  # log a warning when any phase exceeds this
-    t_prev_loop_end = time.monotonic()
+    STALL_THRESHOLD_S = 3.0
     for step in pbar:
+        # Start the profiler trace right before the first traced step so the
+        # first step inside the window is fully captured.
+        if trace_start is not None and step == trace_start and not trace_active:
+            # Make sure all previously dispatched work has finished so the trace
+            # window only contains the steps we care about.
+            jax.block_until_ready(train_state)
+            jax.profiler.start_trace(config.profile_trace_dir)
+            trace_active = True
+            logging.info(f"[PROFILE] started JAX trace at step {step}")
+
         t_loop_start = time.monotonic()
 
+        # --- dispatch (Python -> XLA queue) ---
+        # When profile_host_sync is False this is dominated by donate_argnums waiting
+        # for the previous step's train_state to be ready (i.e. effectively device time).
+        # When profile_host_sync is True we explicitly block below so this becomes ~pure
+        # Python dispatch cost.
         t0 = time.monotonic()
-        with sharding.set_mesh(mesh):
-            train_state, info = ptrain_step(train_rng, train_state, batch)
-        t_dispatch = time.monotonic() - t0
+        if trace_active:
+            with jax.profiler.StepTraceAnnotation("train_step", step_num=step), sharding.set_mesh(mesh):
+                train_state, info = ptrain_step(train_rng, train_state, batch)
+        else:
+            with sharding.set_mesh(mesh):
+                train_state, info = ptrain_step(train_rng, train_state, batch)
+        t_dispatch_only = time.monotonic() - t0
+
+        # --- device wait (real on-device step time when host_sync is on) ---
+        t_device_wait = 0.0
+        if config.profile_host_sync or trace_active:
+            t0 = time.monotonic()
+            jax.block_until_ready((train_state, info))
+            t_device_wait = time.monotonic() - t0
 
         infos.append(info)
 
+        # --- log reduce + wandb ---
         t_log = 0.0
         if step % config.log_interval == 0:
             t0 = time.monotonic()
@@ -293,10 +350,12 @@ def main(config: _config.TrainConfig):
             infos = []
             t_log = time.monotonic() - t0
 
+        # --- next batch ---
         t0 = time.monotonic()
         batch = next(data_iter)
         t_next_batch = time.monotonic() - t0
 
+        # --- checkpoint ---
         t_ckpt = 0.0
         if (step % config.save_interval == 0 and step > start_step) or step == config.num_train_steps - 1:
             t0 = time.monotonic()
@@ -304,26 +363,66 @@ def main(config: _config.TrainConfig):
             t_ckpt = time.monotonic() - t0
 
         t_total = time.monotonic() - t_loop_start
-        # Warn on any slow phase OR any slow overall step
+
+        # --- emit per-step timing record ---
+        timing_record = {
+            "step": int(step),
+            "total_s": round(t_total, 4),
+            "dispatch_only_s": round(t_dispatch_only, 4),
+            "device_wait_s": round(t_device_wait, 4),
+            "next_batch_s": round(t_next_batch, 4),
+            "log_s": round(t_log, 4),
+            "ckpt_s": round(t_ckpt, 4),
+            "host_sync": bool(config.profile_host_sync or trace_active),
+            "trace_active": bool(trace_active),
+        }
+        timing_file.write(json.dumps(timing_record) + "\n")
+
+        if config.profile_log_timing_to_wandb and config.wandb_enabled:
+            wandb.log(
+                {
+                    "timing/total_s": t_total,
+                    "timing/dispatch_only_s": t_dispatch_only,
+                    "timing/device_wait_s": t_device_wait,
+                    "timing/next_batch_s": t_next_batch,
+                    "timing/log_s": t_log,
+                    "timing/ckpt_s": t_ckpt,
+                },
+                step=step,
+            )
+
         if (
-            t_total > stall_threshold_s
-            or t_next_batch > stall_threshold_s
-            or t_dispatch > stall_threshold_s
-            or t_ckpt > stall_threshold_s
+            t_total > STALL_THRESHOLD_S
+            or t_next_batch > STALL_THRESHOLD_S
+            or t_dispatch_only > STALL_THRESHOLD_S
+            or t_device_wait > STALL_THRESHOLD_S
+            or t_ckpt > STALL_THRESHOLD_S
         ):
             pbar.write(
                 f"[STALL step={step}] total={t_total:.2f}s "
-                f"dispatch={t_dispatch:.2f}s next_batch={t_next_batch:.2f}s "
-                f"log={t_log:.2f}s ckpt={t_ckpt:.2f}s"
+                f"dispatch={t_dispatch_only:.2f}s device_wait={t_device_wait:.2f}s "
+                f"next_batch={t_next_batch:.2f}s log={t_log:.2f}s ckpt={t_ckpt:.2f}s"
             )
-        # Also log every 50 steps a summary line so we can see trends even without stalls
         if step % 50 == 0:
             pbar.write(
                 f"[TIMING step={step}] total={t_total:.2f}s "
-                f"dispatch={t_dispatch:.2f}s next_batch={t_next_batch:.2f}s "
-                f"log={t_log:.2f}s ckpt={t_ckpt:.2f}s"
+                f"dispatch={t_dispatch_only:.2f}s device_wait={t_device_wait:.2f}s "
+                f"next_batch={t_next_batch:.2f}s log={t_log:.2f}s ckpt={t_ckpt:.2f}s"
             )
 
+        # Stop the profiler trace AFTER the last traced step has fully landed on device.
+        if trace_active and trace_stop is not None and step == trace_stop - 1:
+            jax.block_until_ready(train_state)
+            jax.profiler.stop_trace()
+            trace_active = False
+            logging.info(
+                f"[PROFILE] stopped JAX trace at step {step}. "
+                f"Trace artifacts in {config.profile_trace_dir} -- open with "
+                f"`tensorboard --logdir {config.profile_trace_dir}` or load the "
+                f"trace.json.gz in Perfetto."
+            )
+
+    timing_file.close()
     logging.info("Waiting for checkpoint manager to finish")
     checkpoint_manager.wait_until_finished()
 
