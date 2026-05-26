@@ -191,59 +191,60 @@ def preprocess_observation_tactile(
 
     out_images = {}
     for key in image_keys:
-        image = observation.images[key]
-        if image.shape[1:3] != image_resolution:
-            logger.info(f"Resizing image {key} from {image.shape[1:3]} to {image_resolution}")
-            image = image_tools.resize_with_pad(image, *image_resolution)
+        with jax.named_scope(f"preprocess/augment/{key}"):
+            image = observation.images[key]
+            if image.shape[1:3] != image_resolution:
+                logger.info(f"Resizing image {key} from {image.shape[1:3]} to {image_resolution}")
+                image = image_tools.resize_with_pad(image, *image_resolution)
 
-        if train:
-            # Convert from [-1, 1] to [0, 1] for augmax.
-            image = image / 2.0 + 0.5
+            if train:
+                # Convert from [-1, 1] to [0, 1] for augmax.
+                image = image / 2.0 + 0.5
 
-            transforms = []
-            # augmax 0.4.1 has no GaussianNoise; the tactile branch applies it
-            # manually after the chain below. Keep std=0.0 for non-tactile keys.
-            additive_noise_std = 0.0
-            if "tactile" in key:
-                height, width = image.shape[1:3]
-                transforms += [
-                    augmax.RandomCrop(int(width * 0.98), int(height * 0.98)),
-                    augmax.Resize(width, height),
-                    augmax.Rotate((-2, 2)),
-                    augmax.ColorJitter(brightness=0.1, contrast=0.2, saturation=0.2),
-                ]
-                additive_noise_std = 0.02
-            elif "wrist" in key:
-                transforms += [
-                    augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
-                ]
-            else:
-                height, width = image.shape[1:3]
-                transforms += [
-                    augmax.RandomCrop(int(width * 0.95), int(height * 0.95)),
-                    augmax.Resize(width, height),
-                    augmax.Rotate((-5, 5)),
-                ]
-                transforms += [
-                    augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
-                ]
+                transforms = []
+                # augmax 0.4.1 has no GaussianNoise; the tactile branch applies it
+                # manually after the chain below. Keep std=0.0 for non-tactile keys.
+                additive_noise_std = 0.0
+                if "tactile" in key:
+                    height, width = image.shape[1:3]
+                    transforms += [
+                        augmax.RandomCrop(int(width * 0.98), int(height * 0.98)),
+                        augmax.Resize(width, height),
+                        augmax.Rotate((-2, 2)),
+                        augmax.ColorJitter(brightness=0.1, contrast=0.2, saturation=0.2),
+                    ]
+                    additive_noise_std = 0.02
+                elif "wrist" in key:
+                    transforms += [
+                        augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
+                    ]
+                else:
+                    height, width = image.shape[1:3]
+                    transforms += [
+                        augmax.RandomCrop(int(width * 0.95), int(height * 0.95)),
+                        augmax.Resize(width, height),
+                        augmax.Rotate((-5, 5)),
+                    ]
+                    transforms += [
+                        augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
+                    ]
 
-            if additive_noise_std > 0:
-                rng, noise_rng = jax.random.split(rng)
-            else:
-                noise_rng = None
+                if additive_noise_std > 0:
+                    rng, noise_rng = jax.random.split(rng)
+                else:
+                    noise_rng = None
 
-            sub_rngs = jax.random.split(rng, image.shape[0])
-            image = jax.vmap(augmax.Chain(*transforms))(sub_rngs, image)
+                sub_rngs = jax.random.split(rng, image.shape[0])
+                image = jax.vmap(augmax.Chain(*transforms))(sub_rngs, image)
 
-            if noise_rng is not None:
-                noise = additive_noise_std * jax.random.normal(noise_rng, image.shape, dtype=image.dtype)
-                image = jnp.clip(image + noise, 0.0, 1.0)
+                if noise_rng is not None:
+                    noise = additive_noise_std * jax.random.normal(noise_rng, image.shape, dtype=image.dtype)
+                    image = jnp.clip(image + noise, 0.0, 1.0)
 
-            # Back to [-1, 1].
-            image = image * 2.0 - 1.0
+                # Back to [-1, 1].
+                image = image * 2.0 - 1.0
 
-        out_images[key] = image
+            out_images[key] = image
 
     # obtain mask
     out_masks = {}
@@ -284,33 +285,34 @@ def preprocess_observation(
 
     out_images = {}
     for key in image_keys:
-        image = observation.images[key]
-        if image.shape[1:3] != image_resolution:
-            logger.info(f"Resizing image {key} from {image.shape[1:3]} to {image_resolution}")
-            image = image_tools.resize_with_pad(image, *image_resolution)
+        with jax.named_scope(f"preprocess/augment/{key}"):
+            image = observation.images[key]
+            if image.shape[1:3] != image_resolution:
+                logger.info(f"Resizing image {key} from {image.shape[1:3]} to {image_resolution}")
+                image = image_tools.resize_with_pad(image, *image_resolution)
 
-        if train:
-            # Convert from [-1, 1] to [0, 1] for augmax.
-            image = image / 2.0 + 0.5
+            if train:
+                # Convert from [-1, 1] to [0, 1] for augmax.
+                image = image / 2.0 + 0.5
 
-            transforms = []
-            if "wrist" not in key:
-                height, width = image.shape[1:3]
+                transforms = []
+                if "wrist" not in key:
+                    height, width = image.shape[1:3]
+                    transforms += [
+                        augmax.RandomCrop(int(width * 0.95), int(height * 0.95)),
+                        augmax.Resize(width, height),
+                        augmax.Rotate((-5, 5)),
+                    ]
                 transforms += [
-                    augmax.RandomCrop(int(width * 0.95), int(height * 0.95)),
-                    augmax.Resize(width, height),
-                    augmax.Rotate((-5, 5)),
+                    augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
                 ]
-            transforms += [
-                augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
-            ]
-            sub_rngs = jax.random.split(rng, image.shape[0])
-            image = jax.vmap(augmax.Chain(*transforms))(sub_rngs, image)
+                sub_rngs = jax.random.split(rng, image.shape[0])
+                image = jax.vmap(augmax.Chain(*transforms))(sub_rngs, image)
 
-            # Back to [-1, 1].
-            image = image * 2.0 - 1.0
+                # Back to [-1, 1].
+                image = image * 2.0 - 1.0
 
-        out_images[key] = image
+            out_images[key] = image
 
     # obtain mask
     out_masks = {}
