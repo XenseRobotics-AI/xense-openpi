@@ -1,9 +1,11 @@
 """Pi0/Pi05 variant that consumes 4 tactile images via a FastViT-T12 encoder.
 
-The class subclasses ``Pi0`` and only changes two things:
+The class subclasses ``Pi0`` and only changes these things:
 
 * ``__init__`` instantiates the tactile encoder (via the registry) and a linear
   projection to the action-expert width.
+* ``embed_prefix`` filters tactile keys out of ``obs.images`` so they do *not*
+  go through PaliGemma/SigLIP. Tactile is the FastViT branch only.
 * ``embed_suffix`` prepends 4 tactile tokens to the existing suffix tokens
   (``state`` + ``action+time``). Tactile features do not participate in
   ``adarms_cond``.
@@ -13,6 +15,8 @@ preprocess so that the 4 tactile keys are correctly augmented during training.
 """
 
 from __future__ import annotations
+
+import dataclasses
 
 import flax.nnx as nnx
 import jax
@@ -59,6 +63,20 @@ class Pi0TactileFastVit(pi0.Pi0):
             train=train,
             image_keys=_model.IMAGE_KEYS_TACTILE_4,
         )
+
+    @at.typecheck
+    def embed_prefix(
+        self, obs: _model.Observation
+    ) -> tuple[at.Float[at.Array, "b s emb"], at.Bool[at.Array, "b s"], at.Bool[at.Array, " s"]]:
+        # Tactile images are handled exclusively by the FastViT branch in
+        # embed_suffix. Hide them from the base implementation so PaliGemma /
+        # SigLIP only sees the 3 camera views; otherwise tactile gets encoded
+        # twice and adds ~1024 prefix image tokens (256 per tactile view),
+        # which dominates the LLM cost.
+        filtered_images = {k: v for k, v in obs.images.items() if k not in self._tactile_keys}
+        filtered_masks = {k: v for k, v in obs.image_masks.items() if k not in self._tactile_keys}
+        filtered_obs = dataclasses.replace(obs, images=filtered_images, image_masks=filtered_masks)
+        return super().embed_prefix(filtered_obs)
 
     @at.typecheck
     def embed_suffix(
