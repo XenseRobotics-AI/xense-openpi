@@ -278,7 +278,7 @@ def main(config: _config.TrainConfig):
         dynamic_ncols=True,
     )
 
-    # --- profiling setup ---
+    # --- timing setup ---
     timing_log_path = config.profile_timing_log_path
     if timing_log_path is None:
         timing_log_path = str(config.checkpoint_dir / "timing.jsonl")
@@ -286,33 +286,11 @@ def main(config: _config.TrainConfig):
     if timing_log_dir:
         os.makedirs(timing_log_dir, exist_ok=True)
     timing_file = open(timing_log_path, "a", buffering=1)
-    logging.info(f"[PROFILE] per-step timing → {timing_log_path}")
-
-    trace_start = config.profile_trace_start_step
-    trace_stop = (
-        trace_start + config.profile_trace_num_steps if trace_start is not None else None
-    )
-    trace_active = False
-    if trace_start is not None:
-        os.makedirs(config.profile_trace_dir, exist_ok=True)
-        logging.info(
-            f"[PROFILE] will capture JAX profiler trace at steps "
-            f"[{trace_start}, {trace_stop}) into {config.profile_trace_dir}"
-        )
+    logging.info(f"[TIMING] per-step timing → {timing_log_path}")
 
     infos = []
     STALL_THRESHOLD_S = 3.0
     for step in pbar:
-        # Start the profiler trace right before the first traced step so the
-        # first step inside the window is fully captured.
-        if trace_start is not None and step == trace_start and not trace_active:
-            # Make sure all previously dispatched work has finished so the trace
-            # window only contains the steps we care about.
-            jax.block_until_ready(train_state)
-            jax.profiler.start_trace(config.profile_trace_dir)
-            trace_active = True
-            logging.info(f"[PROFILE] started JAX trace at step {step}")
-
         t_loop_start = time.monotonic()
 
         # --- dispatch (Python -> XLA queue) ---
@@ -321,17 +299,13 @@ def main(config: _config.TrainConfig):
         # When profile_host_sync is True we explicitly block below so this becomes ~pure
         # Python dispatch cost.
         t0 = time.monotonic()
-        if trace_active:
-            with jax.profiler.StepTraceAnnotation("train_step", step_num=step), sharding.set_mesh(mesh):
-                train_state, info = ptrain_step(train_rng, train_state, batch)
-        else:
-            with sharding.set_mesh(mesh):
-                train_state, info = ptrain_step(train_rng, train_state, batch)
+        with sharding.set_mesh(mesh):
+            train_state, info = ptrain_step(train_rng, train_state, batch)
         t_dispatch_only = time.monotonic() - t0
 
         # --- device wait (real on-device step time when host_sync is on) ---
         t_device_wait = 0.0
-        if config.profile_host_sync or trace_active:
+        if config.profile_host_sync:
             t0 = time.monotonic()
             jax.block_until_ready((train_state, info))
             t_device_wait = time.monotonic() - t0
@@ -373,8 +347,7 @@ def main(config: _config.TrainConfig):
             "next_batch_s": round(t_next_batch, 4),
             "log_s": round(t_log, 4),
             "ckpt_s": round(t_ckpt, 4),
-            "host_sync": bool(config.profile_host_sync or trace_active),
-            "trace_active": bool(trace_active),
+            "host_sync": bool(config.profile_host_sync),
         }
         timing_file.write(json.dumps(timing_record) + "\n")
 
@@ -408,18 +381,6 @@ def main(config: _config.TrainConfig):
                 f"[TIMING step={step}] total={t_total:.2f}s "
                 f"dispatch={t_dispatch_only:.2f}s device_wait={t_device_wait:.2f}s "
                 f"next_batch={t_next_batch:.2f}s log={t_log:.2f}s ckpt={t_ckpt:.2f}s"
-            )
-
-        # Stop the profiler trace AFTER the last traced step has fully landed on device.
-        if trace_active and trace_stop is not None and step == trace_stop - 1:
-            jax.block_until_ready(train_state)
-            jax.profiler.stop_trace()
-            trace_active = False
-            logging.info(
-                f"[PROFILE] stopped JAX trace at step {step}. "
-                f"Trace artifacts in {config.profile_trace_dir} -- open with "
-                f"`tensorboard --logdir {config.profile_trace_dir}` or load the "
-                f"trace.json.gz in Perfetto."
             )
 
     timing_file.close()
