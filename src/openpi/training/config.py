@@ -684,13 +684,6 @@ class TrainConfig:
     # device-wait time are cleanly separated. This breaks host/device pipeline overlap and
     # makes training ~5-10% slower, so leave off for production runs and turn on for diagnosis.
     profile_host_sync: bool = False
-    # If set, jax.profiler.start_trace runs at this step and stops after profile_trace_num_steps
-    # steps. Pick a step well past JIT compilation (e.g. 50) so the trace is steady-state.
-    profile_trace_start_step: int | None = None
-    # Number of steps to include inside the profile trace window.
-    profile_trace_num_steps: int = 10
-    # Directory to write the JAX profiler trace into. Open in TensorBoard or Perfetto.
-    profile_trace_dir: str = "./profile_traces"
     # If set, every step appends one JSON line of per-phase host timings here.
     # If None, falls back to <checkpoint_dir>/timing.jsonl when timing logging is enabled.
     profile_timing_log_path: str | None = None
