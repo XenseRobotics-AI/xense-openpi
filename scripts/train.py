@@ -31,6 +31,129 @@ import openpi.training.utils as training_utils
 import openpi.training.weight_loaders as _weight_loaders
 
 
+def _array_to_uint8_image(image: np.ndarray) -> np.ndarray:
+    """Convert one HWC image from model/data range to uint8 for W&B."""
+    image = np.asarray(image)
+    if image.ndim == 3 and image.shape[0] == 3 and image.shape[-1] != 3:
+        image = np.moveaxis(image, 0, -1)
+
+    if np.issubdtype(image.dtype, np.integer):
+        return np.clip(image, 0, 255).astype(np.uint8)
+
+    image = image.astype(np.float32)
+    image_min = float(np.nanmin(image))
+    image_max = float(np.nanmax(image))
+    if image_min >= -1.05 and image_max <= 1.05:
+        image = (np.clip(image, -1.0, 1.0) + 1.0) * 127.5
+    elif image_min >= -0.05 and image_max <= 1.05:
+        image = np.clip(image, 0.0, 1.0) * 255.0
+    else:
+        image = np.clip(image, 0.0, 255.0)
+    return image.astype(np.uint8)
+
+
+def _make_wandb_image_strip(
+    images: dict[str, at.ArrayLike],
+    *,
+    image_keys: tuple[str, ...],
+    sample_index: int,
+    caption_extra: str = "",
+) -> wandb.Image:
+    strip = np.concatenate(
+        [_array_to_uint8_image(np.asarray(jax.device_get(images[key][sample_index]))) for key in image_keys],
+        axis=1,
+    )
+    caption = " | ".join(image_keys)
+    if caption_extra:
+        caption = f"{caption} ({caption_extra})"
+    return wandb.Image(strip, caption=caption)
+
+
+def _validate_and_log_first_batch_images(config: _config.TrainConfig, obs: _model.Observation) -> None:
+    image_keys = tuple(obs.images.keys())
+    batch_size = int(next(iter(obs.images.values())).shape[0])
+    num_examples = min(5, batch_size)
+
+    camera_views = [
+        _make_wandb_image_strip(obs.images, image_keys=image_keys, sample_index=i)
+        for i in range(num_examples)
+    ]
+    wandb_payload: dict[str, Any] = {"camera_views": camera_views}
+
+    tactile_keys = tuple(getattr(config.model, "tactile_image_keys", ()))
+    if not tactile_keys:
+        wandb.log(wandb_payload, step=0)
+        return
+
+    missing_images = [key for key in tactile_keys if key not in obs.images]
+    missing_masks = [key for key in tactile_keys if key not in obs.image_masks]
+    if missing_images or missing_masks:
+        raise RuntimeError(
+            "Tactile batch validation failed: "
+            f"missing image keys={missing_images}, missing mask keys={missing_masks}, "
+            f"available image keys={image_keys}"
+        )
+
+    tactile_mask_arrays: dict[str, np.ndarray] = {}
+    for key in tactile_keys:
+        image = np.asarray(jax.device_get(obs.images[key]))
+        mask = np.asarray(jax.device_get(obs.image_masks[key])).astype(bool)
+        tactile_mask_arrays[key] = mask
+
+        if image.ndim != 4 or image.shape[-1] != 3:
+            raise RuntimeError(f"Tactile image {key} must be NHWC, got shape={image.shape}")
+        if image.shape[1:3] != _model.IMAGE_RESOLUTION:
+            raise RuntimeError(
+                f"Tactile image {key} must be resized to {_model.IMAGE_RESOLUTION}, got {image.shape[1:3]}"
+            )
+        if mask.shape != image.shape[:1]:
+            raise RuntimeError(f"Tactile mask {key} shape={mask.shape} does not match image batch={image.shape[:1]}")
+        if not mask.any():
+            raise RuntimeError(f"Tactile image {key} exists but all image_mask values are False")
+
+        valid_image = image[mask]
+        if not np.isfinite(valid_image).all():
+            raise RuntimeError(f"Tactile image {key} contains NaN or Inf")
+
+        valid_min = float(valid_image.min())
+        valid_max = float(valid_image.max())
+        valid_mean = float(valid_image.mean())
+        valid_std = float(valid_image.std())
+        if np.issubdtype(valid_image.dtype, np.floating) and (valid_min < -1.05 or valid_max > 1.05):
+            raise RuntimeError(
+                f"Tactile image {key} is outside expected [-1, 1] range: min={valid_min:.4f}, max={valid_max:.4f}"
+            )
+        if valid_std <= 1e-6:
+            raise RuntimeError(f"Tactile image {key} appears constant: std={valid_std:.6g}")
+
+        logging.info(
+            "[TACTILE CHECK] %s shape=%s dtype=%s min=%.4f max=%.4f mean=%.4f std=%.4f mask_true=%d/%d",
+            key,
+            image.shape,
+            image.dtype,
+            valid_min,
+            valid_max,
+            valid_mean,
+            valid_std,
+            int(mask.sum()),
+            int(mask.size),
+        )
+
+    tactile_views = []
+    for i in range(num_examples):
+        mask_summary = ", ".join(f"{key}={bool(tactile_mask_arrays[key][i])}" for key in tactile_keys)
+        tactile_views.append(
+            _make_wandb_image_strip(
+                obs.images,
+                image_keys=tactile_keys,
+                sample_index=i,
+                caption_extra=f"sample={i}, {mask_summary}",
+            )
+        )
+    wandb_payload["tactile_views"] = tactile_views
+    wandb.log(wandb_payload, step=0)
+
+
 def init_logging():
     """Custom logging format for better readability."""
     level_mapping = {"DEBUG": "D", "INFO": "I", "WARNING": "W", "ERROR": "E", "CRITICAL": "C"}
@@ -249,12 +372,7 @@ def main(config: _config.TrainConfig):
 
     logging.info(f"Initialized data loader:\n{training_utils.array_tree_to_info(batch)}")
 
-    # Log images from first batch to sanity check.
-    images_to_log = [
-        wandb.Image(np.concatenate([np.array(img[i]) for img in batch[0].images.values()], axis=1))
-        for i in range(min(5, len(next(iter(batch[0].images.values())))))
-    ]
-    wandb.log({"camera_views": images_to_log}, step=0)
+    _validate_and_log_first_batch_images(config, batch[0])
 
     train_state, train_state_sharding = init_train_state(config, init_rng, mesh, resume=resuming)
     jax.block_until_ready(train_state)
