@@ -53,6 +53,7 @@ class Policy(BasePolicy):
         self._metadata = metadata or {}
         self._is_pytorch_model = is_pytorch
         self._pytorch_device = pytorch_device
+        self._tactile_audit_done = False
 
         if self._is_pytorch_model:
             self._model = self._model.to(pytorch_device)
@@ -82,6 +83,7 @@ class Policy(BasePolicy):
         # Make a copy since transformations may modify the inputs in place.
         inputs = jax.tree.map(lambda x: x, obs)
         inputs = self._input_transform(inputs)
+        self._audit_tactile_inputs_once(inputs)
         rtc_inputs = None
 
         # RTC prefixes must live in the same action space the model was trained on.
@@ -171,6 +173,66 @@ class Policy(BasePolicy):
             "infer_ms": model_time * 1000,
         }
         return outputs
+
+    def _audit_tactile_inputs_once(self, inputs: dict) -> None:
+        if self._tactile_audit_done:
+            return
+
+        images = inputs.get("image")
+        image_masks = inputs.get("image_mask")
+        if not isinstance(images, dict) or not isinstance(image_masks, dict):
+            return
+
+        tactile_keys = ("tactile_0_rgb", "tactile_1_rgb", "tactile_2_rgb", "tactile_3_rgb")
+        if not any(key in images for key in tactile_keys):
+            return
+
+        self._tactile_audit_done = True
+        missing_images = [key for key in tactile_keys if key not in images]
+        missing_masks = [key for key in tactile_keys if key not in image_masks]
+        if missing_images or missing_masks:
+            raise RuntimeError(
+                "Tactile policy audit failed after input transforms: "
+                f"missing image keys={missing_images}, missing mask keys={missing_masks}, "
+                f"available image keys={tuple(images.keys())}"
+            )
+
+        for key in tactile_keys:
+            image = np.asarray(images[key])
+            mask = bool(np.asarray(image_masks[key]))
+            if image.ndim != 3 or image.shape[-1] != 3:
+                raise RuntimeError(f"Tactile policy audit expected HWC image for {key}, got shape={image.shape}")
+            if image.shape[:2] != _model.IMAGE_RESOLUTION:
+                raise RuntimeError(
+                    f"Tactile policy audit expected {key} resolution {_model.IMAGE_RESOLUTION}, got {image.shape[:2]}"
+                )
+            if not mask:
+                raise RuntimeError(f"Tactile policy audit found {key} image_mask=False")
+            if not np.isfinite(image).all():
+                raise RuntimeError(f"Tactile policy audit found NaN or Inf in {key}")
+
+            image_min = float(image.min())
+            image_max = float(image.max())
+            image_mean = float(image.mean())
+            image_std = float(image.std())
+            if np.issubdtype(image.dtype, np.floating) and (image_min < -1.05 or image_max > 1.05):
+                raise RuntimeError(
+                    f"Tactile policy audit found {key} outside [-1, 1]: min={image_min:.4f}, max={image_max:.4f}"
+                )
+            if image_std <= 1e-6:
+                raise RuntimeError(f"Tactile policy audit found constant image for {key}: std={image_std:.6g}")
+
+            logging.info(
+                "[TACTILE SERVER] %s shape=%s dtype=%s mask=%s min=%.4f max=%.4f mean=%.4f std=%.4f",
+                key,
+                image.shape,
+                image.dtype,
+                mask,
+                image_min,
+                image_max,
+                image_mean,
+                image_std,
+            )
 
     @property
     def metadata(self) -> dict[str, Any]:
