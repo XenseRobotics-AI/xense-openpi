@@ -614,5 +614,5 @@ class DataLoaderImpl(DataLoader):
         return self._data_config
 
     def __iter__(self):
-        for batch in self._data_loader:
+        for batch in self._data_loader:#从 _data_loader中拿一个数据
             yield _model.Observation.from_dict(batch), batch["actions"]
