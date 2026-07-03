@@ -1,6 +1,7 @@
 {
   "_comment": "Tuned on Xense/newbalance_shoe_insole_retrieval_and_packing_0611 ep0. The two arms alternate take-outs: shoes 1-2 are lifted by the RIGHT arm (tcp 9,10,11 / grip 19) from the box at negative y (~-0.35); shoes 3-4 by the LEFT arm (tcp 0,1,2 / grip 18) from the box at positive y (~+0.30). Both source boxes are at high x (~1.0-1.25). Verified pick times: 4.7s / 122.6s / 234.6s / 407.0s (ground truth 1-5 / 115-125 / 225-240 / 390-410s). blue.roi = middle columns / upper rows where the gripper presents the insole to the head cam; blue HSV sampled from the insole (H~95-120, S~220, V~175); area ~0.16 when the blue underside is up vs ~0.01 absent, so min_area_frac=0.05.",
   "n_shoes": 4,
+  "scene_groups": 2,
   "vision_stride": 15,
   "vision_confirm": 2,
   "home_tol": 0.05,
@@ -17,7 +18,7 @@
     "h_lo": 90, "h_hi": 125,
     "s_lo": 70, "s_hi": 255,
     "v_lo": 40, "v_hi": 255,
-    "min_area_frac": 0.05,
+    "min_area_frac": 0.10,
     "roi": [0.33, 0.05, 0.68, 0.55]
   }
 }

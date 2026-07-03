@@ -7,16 +7,15 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #stage { position: fixed; inset: 0; }
-  /* Every clip is always playing. Switching is a LAYERED cross-dissolve: the
-     incoming clip is raised above the current one and faded 0->1 while the
-     current stays fully opaque underneath. The composite is therefore opaque at
-     every instant — the black background never shows through, so there is no
-     bright/dark dip mid-switch. */
+  /* Every clip is preloaded and playing (standby is frozen on frame 0). A switch
+     is an INSTANT, seamless cut — no cross-dissolve: the incoming clip is raised
+     above the others and shown at full opacity in a single frame. The outgoing
+     clip stays opaque underneath until that instant, so the composite is opaque
+     throughout and there is no flash, dip, or fade. */
   video {
     position: absolute; inset: 0;
     width: 100%; height: 100%; object-fit: cover;
-    opacity: 0; transition: opacity 320ms ease-in-out;
-    will-change: opacity;
+    opacity: 0;
   }
   #status {
     position: fixed; left: 8px; bottom: 6px;
@@ -31,11 +30,19 @@
 
 <script>
 // ---- Config: scene id -> video file (under web/videos/). -------------------
-// The scene ids MUST match what the detector emits (see detector.py SCENES).
+// Scene ids from the detector (shoe_state_machine._level()):
+//   standby                     — idle: shows the 1-1 clip frozen on its first frame
+//   "1-1"/"2-1"  (detecting)    — after pick, white(1)/red(2) shoe: play that clip
+//   "1-2"/"2-2"  (after blue)   — after the blue insole is seen: play that clip
+// Flow: standby -> 1-1 -> 1-2 -> 2-1 -> 2-2 -> 1-1 -> 1-2 -> 2-1 -> 2-2 -> standby.
+// videos/<scene>.mp4 are symlinks to the real product clips (dewu-whiteshoes-*,
+// dewu-red-shoes-*) — swap the symlink target to change a clip, not this file.
 const SCENES = {
-  standby:   "videos/standby.mp4",    // state 0 — idle / reset (arm at init)
-  detecting: "videos/detecting.mp4",  // after a pick — detection running
-  next:      "videos/next.mp4",       // after the blue insole is detected
+  standby: "videos/1-1.mp4",   // white shoe clip, frozen on frame 0
+  "1-1":   "videos/1-1.mp4",   // shoe 1/3 (white) detecting
+  "1-2":   "videos/1-2.mp4",   // shoe 1/3 (white) after blue insole
+  "2-1":   "videos/2-1.mp4",   // shoe 2/4 (red) detecting
+  "2-2":   "videos/2-2.mp4",   // shoe 2/4 (red) after blue insole
 };
 const DEFAULT_SCENE = "standby";
 // Front-end ws is served by app.py on switch-port (default 9101) on this host.
@@ -48,20 +55,27 @@ const els = {};        // scene id -> <video>
 let activeScene = null;
 let zTop = 0;          // running z-index so each switch lands on top
 
-// Preload + autoplay every clip muted & looping so they're warm; a switch is
-// then a pure opacity fade with no load/seek. (Muted autoplay is allowed
-// without a gesture on Chrome and Safari -> works on Windows and macOS alike.)
+// Preload every clip muted so it's warm and a switch is instant (no load/seek).
+// Content clips autoplay & loop; the standby clip is held frozen on frame 0.
+// (Muted autoplay is allowed without a gesture on Chrome & Safari -> Windows and
+// macOS alike.)
 for (const [scene, src] of Object.entries(SCENES)) {
   const v = document.createElement("video");
   v.src = src;
   v.muted = true;
-  v.loop = true;
-  v.autoplay = true;
   v.playsInline = true;
   v.preload = "auto";
+  const isStandby = (scene === "standby");
+  v.loop = !isStandby;
+  v.autoplay = !isStandby;
   stage.appendChild(v);
   els[scene] = v;
-  v.play().catch(() => {/* will start once data is ready */});
+  if (isStandby) {
+    // freeze on the first frame
+    v.addEventListener("loadeddata", () => { try { v.pause(); v.currentTime = 0; } catch (e) {} }, { once: true });
+  } else {
+    v.play().catch(() => {/* will start once data is ready */});
+  }
 }
 
 function show(scene) {
@@ -69,19 +83,17 @@ function show(scene) {
   if (scene === activeScene) return;
   const v = els[scene];
 
-  // Layered cross-dissolve: drop the incoming clip to opacity 0 *while it is
-  // still below* (covered, so invisible), raise it above everything, then fade
-  // it in over the current clip — which stays opaque underneath the whole time.
-  // No instant where the screen is partially transparent => no dark dip, and a
-  // re-shown scene still fades (its opacity actually changes 0 -> 1).
-  v.style.transition = "none";
-  v.style.opacity = "0";
-  void v.offsetWidth;                 // commit opacity:0 before raising/fading
+  // Instant seamless cut: raise the incoming clip above everything and show it at
+  // full opacity in one frame. The outgoing clip stays opaque underneath until
+  // now, so there is never a transparent instant -> no flash/dip, no fade.
+  if (scene === "standby") {
+    try { v.pause(); v.currentTime = 0; } catch (e) {}   // frozen first frame
+  } else {
+    try { v.currentTime = 0; } catch (e) {}              // (re)start this phase's clip
+    v.play().catch(() => {});
+  }
   v.style.zIndex = String(++zTop);
-  v.style.transition = "";            // restore CSS transition (320ms)
-  void v.offsetWidth;
   v.style.opacity = "1";
-  v.play().catch(() => {});
 
   activeScene = scene;
   statusEl.textContent = "scene: " + scene;

@@ -65,6 +65,12 @@ class TransitionConfig:
 @dataclass
 class ShoeSMConfig:
     n_shoes: int = 4
+    # Scenes alternate by shoe group. The shoes cycle through `scene_groups` visual
+    # groups (e.g. white / red shoes -> 2 groups), so state N uses group
+    # ((N-1) % scene_groups)+1. The emitted scene id is "<group>-1" while detecting
+    # (after the pick) and "<group>-2" after the blue insole -> so the flow is
+    # standby -> 1-1 -> 1-2 -> 2-1 -> 2-2 -> 1-1 -> 1-2 -> 2-1 -> 2-2 -> standby.
+    scene_groups: int = 2
     transitions: list = field(default_factory=list)  # len == n_shoes (one box per pick)
     blue: BlueInsoleConfig = field(default_factory=BlueInsoleConfig)
     vision_stride: int = 30   # run the blue check every N frames (~1 Hz @ 30 fps)
@@ -99,6 +105,7 @@ class ShoeSMConfig:
             d = json.load(f)
         cfg = cls()
         cfg.n_shoes = int(d.get("n_shoes", cfg.n_shoes))
+        cfg.scene_groups = int(d.get("scene_groups", cfg.scene_groups))
         cfg.vision_stride = int(d.get("vision_stride", cfg.vision_stride))
         cfg.vision_confirm = int(d.get("vision_confirm", cfg.vision_confirm))
         cfg.home_tol = float(d.get("home_tol", cfg.home_tol))
@@ -249,7 +256,9 @@ class ShoeStateMachineDetector(Detector):
     def _level(self) -> str:
         if self._state == 0:
             return SCENE_STANDBY
-        return SCENE_NEXT if self._blue_fired else SCENE_DETECTING
+        group = ((self._state - 1) % max(1, self.cfg.scene_groups)) + 1  # 1,2,1,2,... by shoe
+        phase = 2 if self._blue_fired else 1                             # 1=detecting, 2=after blue
+        return f"{group}-{phase}"
 
     def _reset_cycle(self) -> None:
         self._state = 0

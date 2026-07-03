@@ -188,3 +188,5 @@ debug_runs/
 white_shoe_*.mp4
 # Editor caches / local IDE config
 .vscode/
+# Local dewu demo scene videos (large, product-specific)
+dewu-*.mp4
