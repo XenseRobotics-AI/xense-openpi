@@ -6,6 +6,75 @@ forwards a slim obs payload and spends zero extra cycles on detection or
 rendering, and the **switch decision is computed on the playback laptop** and
 pushed to its own browser over localhost.
 
+## Quick start — the shoe-insole demo
+
+The current demo drives four pre-recorded shoe clips off the **real detection
+events** so it looks like live robot inspection. Scenes alternate by shoe group
+(white shoe = group 1, red shoe = group 2): after each pick a `<group>-1` clip
+plays, and once the blue insole is seen it switches to `<group>-2`. `standby`
+holds clip `1-1` frozen on its first frame, and switching is an **instant
+seamless cut** (no cross-dissolve):
+
+```
+standby → 1-1 → 1-2 → 2-1 → 2-2 → 1-1 → 1-2 → 2-1 → 2-2 → standby
+         └ shoe1 white ┘ └ shoe2 red ┘ └ shoe3 white ┘ └ shoe4 red ┘
+   (pick → x-1,  blue insole → x-2;  reset → standby)
+```
+
+### One-time setup
+
+Use an env with `websockets msgpack numpy opencv-python lerobot` (the
+`lerobot-xense` conda env has them). Symlink the four product clips into
+`web/videos/` under their **scene names** (swap the target to change a clip —
+`web/index.html` references `videos/<scene>.mp4`, never the product filename):
+
+```bash
+cd examples/dewu_video_switch/web/videos
+ln -sf <path>/dewu-whiteshoes-1-1.mp4 1-1.mp4   # shoe 1/3 detecting
+ln -sf <path>/dewu-whiteshoes-1-2.mp4 1-2.mp4   # shoe 1/3 after blue insole
+ln -sf <path>/dewu-red-shoes-2-1.mp4  2-1.mp4   # shoe 2/4 detecting
+ln -sf <path>/dewu-red-shoes-2-2.mp4  2-2.mp4   # shoe 2/4 after blue insole
+```
+
+### Run (from the repo root)
+
+```bash
+conda activate lerobot-xense
+
+# 1) detection + web player + switch ws  (serves web/ on :8080, switch ws :9101, obs ws :9100)
+python -m examples.dewu_video_switch.app \
+    --detector shoe_sm \
+    --detector-config examples/dewu_video_switch/shoe_sm.json
+
+# 2) open the display in a browser:  http://<this-host>:8080
+
+# 3a) DEMO from a recorded episode (mimics the robot; run on any host with lerobot):
+python -m examples.dewu_video_switch.replay_lerobot \
+    --repo-id Xense/newbalance_shoe_insole_retrieval_and_packing_0611 --episode 0
+
+# 3b) LIVE on the robot laptop: add the forwarder to the usual launch instead of 3a
+python -m examples.bi_flexiv_rizon4_rt.main --host <5090-ip> --port 8000 \
+    --forward --forward_uri ws://<play-ip>:9100
+```
+
+### Tune / debug the detector
+
+`shoe_sm.json` holds the tuned config: per-arm pick boxes (shoes 1-2 = right arm,
+3-4 = left arm), blue HSV/ROI, the **insole-flip pose gate**, `min_area_frac`
+(blue area threshold), and `scene_groups`. To see exactly when each pick / blue /
+reset fires with an annotated video + HUD (decodes only the head stream), use the
+debug tool:
+
+```bash
+python -m examples.dewu_video_switch.replay_debug --episode 0 \
+    --detector-config examples/dewu_video_switch/shoe_sm.json --out debug_ep0.mp4
+# add --show for a live window; --out "" for a fast text-only event trace
+```
+
+The sections below describe the general three-machine framework and the earlier
+2-scene gripper example; the demo above is the current shoe_sm configuration of
+that same pipeline.
+
 ## System architecture — three machines
 
 Three processes collaborate: ① the openpi inference server — a dedicated **5090
