@@ -182,7 +182,7 @@ for a complete LoRA example.
 # configs/my_task.yaml  (filename stem = config name; do not put `name:` inside)
 
 model:
-  type: Pi0Config              # registered in src/openpi/training/registry.py
+  type: Pi0Config # registered in src/openpi/training/registry.py
   pi05: true
   paligemma_variant: gemma_2b
   action_expert_variant: gemma_300m
@@ -391,13 +391,13 @@ We will collect common issues and their solutions here. If you encounter an issu
 
 | Issue                                  | Resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dependency conflicts                   | Make sure you are in the `lerobot-xense` mamba environment, then run `GIT_LFS_SKIP_SMUDGE=1 pip install -e .` to install openpi.                                                                                                                                                                                                                                                                                                                                                                                 |
+| Dependency conflicts                   | Make sure you are in the `lerobot-xense` mamba environment, then run `GIT_LFS_SKIP_SMUDGE=1 pip install -e .` to install openpi.                                                                                                                                                                                                                                                                                                                                                                                    |
 | Training runs out of GPU memory        | Make sure you set `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` (or higher) before running training to allow JAX to use more GPU memory. You can also use `--fsdp-devices <n>` where `<n>` is your number of GPUs, to enable [fully-sharded data parallelism](https://engineering.fb.com/2021/07/15/open-source/fsdp/), which reduces memory usage in exchange for slower training (the amount of slowdown depends on your particular setup). If you are still running out of memory, you may way to consider disabling EMA. |
 | Policy server connection errors        | Check that the server is running and listening on the expected port. Verify network connectivity and firewall settings between client and server.                                                                                                                                                                                                                                                                                                                                                                   |
 | Missing norm stats error when training | Run `scripts/compute_norm_stats.py` with your config name before starting training.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Dataset download fails                 | Check your internet connection. For HuggingFace datasets, ensure you're logged in (`huggingface-cli login`).                                                                                                                                                                                                                                                                                                                                                                                                        |
 | CUDA/GPU errors                        | Verify NVIDIA drivers are installed correctly. For Docker, ensure nvidia-container-toolkit is installed. Check GPU compatibility. You do NOT need CUDA libraries installed at a system level --- they will be installed via pip as part of openpi's dependencies. You may even want to try _uninstalling_ system CUDA libraries if you run into CUDA issues, since system libraries can sometimes cause conflicts.                                                                                                  |
-| Import errors when running examples    | Make sure you've installed all dependencies with `pip install -e .`. Some examples may have additional requirements listed in their READMEs.                                                                                                                                                                                                                                                                                                                                                                                 |
+| Import errors when running examples    | Make sure you've installed all dependencies with `pip install -e .`. Some examples may have additional requirements listed in their READMEs.                                                                                                                                                                                                                                                                                                                                                                        |
 | Action dimensions mismatch             | Verify your data processing transforms match the expected input/output dimensions of your robot. Check the action space definitions in your policy classes.                                                                                                                                                                                                                                                                                                                                                         |
 | Diverging training loss                | Check the `q01`, `q99`, and `std` values in `norm_stats.json` for your dataset. Certain dimensions that are rarely used can end up with very small `q01`, `q99`, or `std` values, leading to huge states and actions after normalization. You can manually adjust the norm stats as a workaround.                                                                                                                                                                                                                   |
 
@@ -557,6 +557,7 @@ python scripts/serve_policy.py \
 ```
 
 #### BiFlexiv — earbuds case assembly with lid operation inference
+
 ```bash
 python scripts/serve_policy.py \
     --default-prompt="Pick up the earbuds from the acrylic plate, open the charging case, precisely align and gently insert the earbuds using contact feedback, then close the lid securely" \
@@ -589,8 +590,8 @@ python scripts/serve_policy.py \
 python scripts/serve_policy.py \
     --default-prompt="Take the shoe out of the shoebox, open the shoe tongue, remove and reinsert the insole, then place the shoe into the shoebox." \
     policy:checkpoint \
-    --policy.config=pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0607_h100 \
-    --policy.dir=checkpoints/pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0607_h100/pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0607_h100_0607/59999
+    --policy.config=pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100 \
+    --policy.dir=checkpoints/pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100/pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100_0701/77000
 ```
 
 #### BiFlexiv - bag_inspection_0611 inference
@@ -623,17 +624,58 @@ python -m examples.bi_flexiv_rizon4_rt.main \
     --args.runtime-hz 30 \
     --args.rtc-enabled \
     --args.dry-run
+```
 
-# BiFlexiv RT forward mount with RTC enabled
+### BiFlexiv RT forward mount + dewu video switch — full 3-machine demo
+
+The shoe-insole packing demo runs across three machines: the **inference server**
+(RTX 5090 GPU, runs the VLA), the **screen PC** (video-playback laptop — detection
+
+- seamless scene-video switching + browser display), and the **robot host**
+  (Flexiv Rizon4 ×2 control loop, which forwards the head camera + state to the
+  screen PC). Start them in this order; see
+  [`examples/dewu_video_switch/README.md`](examples/dewu_video_switch/README.md)
+  for the full architecture.
+
+**① Inference server — run on the server side**
+
+```bash
+python scripts/serve_policy.py \
+    --default-prompt="Take the shoe out of the shoebox, open the shoe tongue, remove and reinsert the insole, then place the shoe into the shoebox." \
+    policy:checkpoint \
+    --policy.config=pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100 \
+    --policy.dir=checkpoints/pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100/pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100_0701/77000
+```
+
+**② Screen PC (video-playback laptop) — run on the screen pc side**
+
+```bash
+# Detection + seamless video player + switch ws
+# (serves web/ on :8080, switch ws :9101, obs ws :9100)
+python -m examples.dewu_video_switch.app \
+    --detector shoe_sm \
+    --detector-config examples/dewu_video_switch/shoe_sm.json
+
+# then open the display in a browser:  http://<screen-pc-ip>:8080
+```
+
+**③ Robot host — run on the robot side**
+
+```bash
+# --args.forward / --args.forward-uri wire the robot's head camera + state to the
+# screen PC (②) so the on-screen scene video switches with the real inspection.
 python -m examples.bi_flexiv_rizon4_rt.main \
-    --args.host 192.168.142.220 \
-    --args.port 8000 \
-    --args.bi-mount-type forward \
-    --args.inner-control-hz 1000 \
-    --args.interpolate-cmds \
-    --args.runtime-hz 30 \
-    --args.rtc-enabled \
-    --args.dry-run
+ --args.host 192.168.5.87 \
+ --args.port 8000 \
+ --args.bi-mount-type forward-05 \
+ --args.inner-control-hz 1000 \
+ --args.interpolate-cmds \
+ --args.runtime-hz 30 \
+ --args.rtc-enabled \
+ --args.forward \
+ --args.forward-uri ws://<screen-pc-ip>:9100 \
+ --args.forward-hz 10 \
+ --args.dry-run
 ```
 
 ---
