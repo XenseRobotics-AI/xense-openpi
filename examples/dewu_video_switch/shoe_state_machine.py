@@ -88,6 +88,18 @@ class ShoeSMConfig:
     use_flip_gate: bool = True
     flip_min_delta: float = 1.0
     flip_confirm: int = 8     # frames the flipped pose must hold before blue is allowed
+    # Insole-presentation detection method:
+    #   "blue" — vision (BlueInsoleDetector + flip gate). Fails when the scene has other
+    #            same-colour blue (product boxes, robot LED rings): they trip the mask.
+    #   "pose" — proprioceptive: the LEFT gripper always holds the insole, and at the
+    #            presentation the LEFT arm reaches a fixed "show-to-camera" pose (one for
+    #            shoes 1-2, another for 3-4). Fire when the left-arm 9-D pose
+    #            (xyz + 6-D rot = state[0:9]) is within present_pose_tol of the calibrated
+    #            present_poses[state-1] for present_confirm frames. Immune to background.
+    insole_detect: str = "blue"
+    present_poses: list = field(default_factory=list)  # len n_shoes; each = 9 floats (state[0:9])
+    present_pose_tol: float = 0.6
+    present_confirm: int = 5
 
     @classmethod
     def from_json(cls, path: str) -> "ShoeSMConfig":
@@ -112,6 +124,10 @@ class ShoeSMConfig:
         cfg.use_flip_gate = bool(d.get("use_flip_gate", cfg.use_flip_gate))
         cfg.flip_min_delta = float(d.get("flip_min_delta", cfg.flip_min_delta))
         cfg.flip_confirm = int(d.get("flip_confirm", cfg.flip_confirm))
+        cfg.insole_detect = str(d.get("insole_detect", cfg.insole_detect))
+        cfg.present_poses = [list(map(float, p)) for p in d.get("present_poses", cfg.present_poses)]
+        cfg.present_pose_tol = float(d.get("present_pose_tol", cfg.present_pose_tol))
+        cfg.present_confirm = int(d.get("present_confirm", cfg.present_confirm))
 
         def _box(b):
             return BoundingBox3D(b["x_min"], b["x_max"], b["y_min"], b["y_max"], b["z_min"], b["z_max"])
@@ -199,6 +215,9 @@ class ShoeStateMachineDetector(Detector):
         self._flip_ori_slice: slice | None = None
         self._flip_count = 0
         self._last_flip: dict = {"delta": None, "ready": False}
+        # Presentation-pose gate state (insole_detect="pose").
+        self._pose_count = 0
+        self._last_pose: dict = {"dist": None, "ready": False}
         # Per-frame debug snapshot (filled by detect(); read by replay_debug).
         self.last: dict = {}
 
@@ -223,6 +242,7 @@ class ShoeStateMachineDetector(Detector):
             "blue_fired": self._blue_fired,
             "last_blue_area": self._last_blue_area,
             "flip": dict(self._last_flip),   # {delta, ready} — insole-flip pose gate
+            "pose": dict(self._last_pose),   # {dist, ready} — presentation-pose gate
         }
         return scene
 
@@ -242,6 +262,23 @@ class ShoeStateMachineDetector(Detector):
         self._flip_count = self._flip_count + 1 if delta > self.cfg.flip_min_delta else 0
         ready = self._flip_count >= self.cfg.flip_confirm
         self._last_flip = {"delta": delta, "ready": ready}
+        return ready
+
+    def _pose_gate(self, state) -> bool:
+        """True once the LEFT arm has HELD the calibrated presentation pose for the
+        current shoe. The left gripper always holds the insole, so the distinctive
+        signal is the left arm reaching present_poses[state-1] (9-D: xyz + 6-D rot =
+        state[0:9]) — one pose for shoes 1-2, another for 3-4. Immune to background blue."""
+        poses = self.cfg.present_poses
+        if not poses or not (1 <= self._state <= len(poses)):
+            self._last_pose = {"dist": None, "ready": False}
+            return False
+        ref = np.asarray(poses[self._state - 1], dtype=float)
+        cur = np.asarray(state[: len(ref)], dtype=float)  # left arm 9-D = state[0:9]
+        dist = float(np.linalg.norm(cur - ref))
+        self._pose_count = self._pose_count + 1 if dist < self.cfg.present_pose_tol else 0
+        ready = self._pose_count >= self.cfg.present_confirm
+        self._last_pose = {"dist": dist, "ready": ready}
         return ready
 
     def _ensure_blue(self):
@@ -267,6 +304,7 @@ class ShoeStateMachineDetector(Detector):
         self._flip_ref = None
         self._flip_ori_slice = None
         self._flip_count = 0
+        self._pose_count = 0
         for p in self._picks:
             p.reset()
 
@@ -303,6 +341,7 @@ class ShoeStateMachineDetector(Detector):
                 self._state += 1
                 self._blue_fired = False
                 self._blue_pos_count = 0
+                self._pose_count = 0
                 # Capture the presenting arm's 6D orientation as the flip reference.
                 # Layout per arm: x,y,z, r1..r6 -> orientation starts 3 past the xyz.
                 tcp0 = int(self.cfg.transitions[from_state].tcp_idx[0])
@@ -311,19 +350,39 @@ class ShoeStateMachineDetector(Detector):
                 self._flip_count = 0
                 return self._record("pick", from_state, self._state, pick_dbg, blue_dbg)
 
-        # Blue event: the insole-flip pose gate AND the vision check, once each shoe.
+        # Insole-presentation event, once per shoe.
         if 1 <= self._state <= self.cfg.n_shoes and not self._blue_fired:
-            flip_ready = self._flip_gate(state)  # every frame -> keeps the hold counter live
-            if flip_ready and self._frame_i % max(1, self.cfg.vision_stride) == 0:
-                head = (frame.get("images") or {}).get("head")
-                if isinstance(head, np.ndarray) and head.ndim == 3:
-                    present, _dbg = self._ensure_blue().detect(head)
-                    self._last_blue_area = _dbg.get("area_frac")
-                    blue_dbg = {"checked": True, "area_frac": self._last_blue_area, "present": bool(present)}
-                    self._blue_pos_count = self._blue_pos_count + 1 if present else 0
+            if self.cfg.insole_detect == "pose":
+                # LEFT-arm reaches the calibrated presentation pose (held) AND the blue
+                # vision confirms the insole (>= min_area_frac). The pose gate means the
+                # blue check only runs at the true presentation instant, so background
+                # blue (boxes / LED rings) can't trigger it at the wrong time.
+                pose_ready = self._pose_gate(state)  # every frame -> keeps the hold counter live
+                if pose_ready and self._frame_i % max(1, self.cfg.vision_stride) == 0:
+                    head = (frame.get("images") or {}).get("head")
+                    if isinstance(head, np.ndarray) and head.ndim == 3:
+                        present, _dbg = self._ensure_blue().detect(head)
+                        self._last_blue_area = _dbg.get("area_frac")
+                        blue_dbg = {"checked": True, "area_frac": self._last_blue_area, "present": bool(present)}
+                        self._blue_pos_count = self._blue_pos_count + 1 if present else 0
+                    else:
+                        self._blue_pos_count += 1  # no image -> pose alone (headless/state-only)
                     if self._blue_pos_count >= self.cfg.vision_confirm:
                         self._blue_fired = True
                         return self._record("blue", self._state, self._state, pick_dbg, blue_dbg)
+            else:
+                # Legacy vision path: insole-flip orientation gate + blue vision.
+                flip_ready = self._flip_gate(state)  # every frame -> keeps the hold counter live
+                if flip_ready and self._frame_i % max(1, self.cfg.vision_stride) == 0:
+                    head = (frame.get("images") or {}).get("head")
+                    if isinstance(head, np.ndarray) and head.ndim == 3:
+                        present, _dbg = self._ensure_blue().detect(head)
+                        self._last_blue_area = _dbg.get("area_frac")
+                        blue_dbg = {"checked": True, "area_frac": self._last_blue_area, "present": bool(present)}
+                        self._blue_pos_count = self._blue_pos_count + 1 if present else 0
+                        if self._blue_pos_count >= self.cfg.vision_confirm:
+                            self._blue_fired = True
+                            return self._record("blue", self._state, self._state, pick_dbg, blue_dbg)
 
         # Reset 4 -> 0 when the arm returns to the init/home pose (episode done).
         if self._state == self.cfg.n_shoes and self._home is not None and self._home.at_home(state):
