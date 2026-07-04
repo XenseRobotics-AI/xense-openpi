@@ -210,19 +210,38 @@ def main() -> None:
     event_log: list[str] = []  # accumulated pick/blue/switch/reset lines, drawn on the frame
     skipped = 0  # frames whose video failed to decode (bad timestamps) — skipped, not fatal
 
-    for f in range(n):
-        try:
-            item = ds[f]
-        except Exception as e:  # noqa: BLE001 — a single bad frame must not abort the run
-            skipped += 1
-            if skipped <= 5:
-                print(f"[warn] frame {f}: video decode failed ({type(e).__name__}); skipping")
-            continue
-        t = f / fps
-        head = _to_hwc_rgb_uint8(item[img_key])
-        state = item["observation.state"].numpy().astype(np.float32) if "observation.state" in item else None
+    # Fast path for text-only runs (no video written/shown): pick + presentation-pose
+    # detection use only the state (read straight from the parquet, every frame, no video
+    # decode); the head image is needed only for the ~vision_stride blue check, so decode
+    # it just on the detector's vision-check frames. ~vision_stride x fewer decodes.
+    text_only = (out_path == "" and not show)
+    vstride = max(1, detector.cfg.vision_stride)
+    states_all = np.asarray(ds.hf_dataset["observation.state"], dtype=np.float32) if text_only else None
 
-        frame = {"step": f, "state": state, "images": {args.camera: head}}
+    for f in range(n):
+        t = f / fps
+        head = None
+        if text_only:
+            state = states_all[f]
+            if (f + 1) % vstride == 0:  # aligns with the detector's frame_i % vision_stride == 0
+                try:
+                    head = _to_hwc_rgb_uint8(ds[f][img_key])
+                except Exception as ex:  # noqa: BLE001 — one bad frame's image is not fatal
+                    skipped += 1
+                    if skipped <= 5:
+                        print(f"[warn] frame {f}: image decode failed ({type(ex).__name__}); skipping image")
+        else:
+            try:
+                item = ds[f]
+            except Exception as ex:  # noqa: BLE001 — a single bad frame must not abort the run
+                skipped += 1
+                if skipped <= 5:
+                    print(f"[warn] frame {f}: video decode failed ({type(ex).__name__}); skipping")
+                continue
+            head = _to_hwc_rgb_uint8(item[img_key])
+            state = item["observation.state"].numpy().astype(np.float32) if "observation.state" in item else None
+
+        frame = {"step": f, "state": state, "images": ({args.camera: head} if head is not None else {})}
         scene = detector.detect(frame)
         last = detector.last
         committed = controller.update(scene)
