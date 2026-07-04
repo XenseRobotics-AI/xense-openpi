@@ -15,7 +15,6 @@ import time
 import dm_env
 from lerobot.robots.flexiv_rizon4_rt.config_flexiv_rizon4_rt import FlexivRizon4RTConfig
 from lerobot.robots.utils import make_robot_from_config
-from lerobot.utils.robot_utils import emergency_stop_flexiv_rt_robot
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
 
@@ -209,5 +208,3 @@ class FlexivRizon4RTRealEnv:
                 logger.info("Flexiv Rizon4 RT robot disconnected")
             except Exception as e:
                 logger.warning(f"Error during Flexiv Rizon4 RT disconnect: {e}")
-                if emergency_stop_flexiv_rt_robot(self.robot, logger):
-                    logger.warning("Emergency stop fallback completed for Flexiv Rizon4 RT")

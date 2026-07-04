@@ -153,7 +153,7 @@ class Args:
 
     # RTC config
     rtc_enabled: bool = False
-    action_queue_size_to_get_new_actions: int = 40
+    action_queue_size_to_get_new_actions: int = 20
     execution_horizon: int = 50
     blend_steps: int = 3
     default_delay: int = 2
