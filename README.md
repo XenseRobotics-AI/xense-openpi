@@ -654,7 +654,8 @@ python scripts/serve_policy.py \
 # (serves web/ on :8080, switch ws :9101, obs ws :9100)
 python -m examples.dewu_video_switch.app \
     --detector shoe_sm \
-    --detector-config examples/dewu_video_switch/shoe_sm.json
+    --detector-config examples/dewu_video_switch/shoe_sm.json \
+    --save-blue-frames
 
 # then open the display in a browser:  http://<screen-pc-ip>:8080
 ```
