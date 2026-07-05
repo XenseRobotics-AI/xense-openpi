@@ -15,6 +15,12 @@ subscriber.on_step INSIDE the control loop):
   failure. Every exception is swallowed so a dead video-playback laptop, a slow
   link, or a network hiccup can never disturb the robot's 30 Hz control loop or
   its home-on-exit motion.
+- Optional STARTUP handshake (require_handshake): before the control loop starts,
+  block until the video-playback laptop's obs server is reachable and greets us —
+  mirroring the VLA policy client (WebsocketClientPolicy._wait_for_server), which
+  waits for the inference server before running. This is the ONE place forwarding
+  may block, and only at construction — never in on_step. Once running, the
+  swallow-all-errors / never-block contract above still holds.
 
 The wire format is msgpack (xense_client.msgpack_numpy), the same codec the
 inference channel uses. The video-playback laptop can decode it with a vendored
@@ -52,6 +58,8 @@ class ForwardSubscriber(_subscriber.Subscriber):
         subscribe_hz: float = 0.0,
         send_stride: int = 1,
         connect_timeout_s: float = 2.0,
+        require_handshake: bool = False,
+        handshake_timeout_s: float = 0.0,
     ) -> None:
         """
         The detector needs exactly two channels: the **head camera stream** and
@@ -73,6 +81,13 @@ class ForwardSubscriber(_subscriber.Subscriber):
             send_stride: forward every Nth step (1 = every step). Integer
                 subsample; prefer subscribe_hz to target an actual rate.
             connect_timeout_s: per-attempt websocket connect timeout.
+            require_handshake: if True, block in __init__ until the receiver is up
+                and greets us (see _wait_for_receiver) before returning — so the
+                caller never starts inference while the video-playback laptop is
+                unreachable. Mirrors WebsocketClientPolicy._wait_for_server.
+            handshake_timeout_s: with require_handshake, give up and raise
+                ConnectionError after this many seconds. 0 = wait forever (retry),
+                exactly like the VLA client.
         """
         self._uri = uri
         self._cameras = cameras
@@ -92,6 +107,13 @@ class ForwardSubscriber(_subscriber.Subscriber):
         self._step_idx = 0
         self._dropped = 0
         self._sent = 0
+
+        # Startup handshake: block until the video-playback laptop is up and greets
+        # us, so the caller (main.py) never proceeds to inference with the screen
+        # unreachable. Raises ConnectionError on timeout. The open connection is
+        # reused by the sender thread below.
+        if require_handshake:
+            self._ws = self._wait_for_receiver(handshake_timeout_s)
 
         self._worker = threading.Thread(target=self._run, name="forward-sender", daemon=True)
         self._worker.start()
@@ -166,7 +188,10 @@ class ForwardSubscriber(_subscriber.Subscriber):
     # ----- Background sender thread (owns the socket; swallows all errors) -----
 
     def _run(self) -> None:
-        self._connect()
+        # Reuse the connection opened by the startup handshake if there is one;
+        # otherwise open it now (require_handshake=False / lazy path).
+        if self._ws is None:
+            self._connect()
         while not self._stop.is_set():
             try:
                 payload = self._q.get(timeout=0.5)
@@ -181,6 +206,60 @@ class ForwardSubscriber(_subscriber.Subscriber):
                 logger.warning(f"forward send failed ({e}); reconnecting")
                 self._reconnect()
         self._safe_close_ws()
+
+    # ----- Startup handshake (mirrors WebsocketClientPolicy._wait_for_server) -----
+
+    def _wait_for_receiver(self, timeout_s: float):
+        """Block until the video-playback laptop's obs server is up and greets us,
+        then return the open connection. Retries on failure; raises ConnectionError
+        once timeout_s (> 0) elapses. timeout_s <= 0 waits forever, exactly like the
+        VLA policy client waiting for the inference server."""
+        logger.info(f"Waiting for video-playback laptop at {self._uri} ...")
+        deadline = (time.monotonic() + timeout_s) if timeout_s and timeout_s > 0 else None
+        attempt = 0
+        while not self._stop.is_set():
+            ws = self._connect_and_greet()
+            if ws is not None:
+                logger.info(f"ForwardSubscriber handshake OK with {self._uri}")
+                return ws
+            attempt += 1
+            now = time.monotonic()
+            if deadline is not None and now >= deadline:
+                raise ConnectionError(
+                    f"No video-playback laptop obs server at {self._uri} after {timeout_s:g}s. "
+                    f"Start `python -m examples.dewu_video_switch.app` on the screen PC, or drop "
+                    f"--subscribe to run without it."
+                )
+            logger.info(f"Still waiting for video-playback laptop at {self._uri} (attempt {attempt})...")
+            backoff = 3.0 if deadline is None else min(3.0, max(0.0, deadline - now))
+            self._stop.wait(backoff)  # interruptible backoff (Ctrl-C / close() breaks out)
+        raise ConnectionError(f"ForwardSubscriber handshake to {self._uri} aborted before connecting")
+
+    def _connect_and_greet(self):
+        """One handshake attempt: open the ws and wait for the receiver's hello frame.
+        Returns the open connection on success, or None (closing any half-open socket)
+        so _wait_for_receiver retries. Requiring the greeting confirms the detection
+        app is really there, not just some listener on the port."""
+        try:
+            ws = websockets.sync.client.connect(
+                self._uri,
+                compression=None,
+                max_size=None,
+                open_timeout=self._connect_timeout_s,
+            )
+        except Exception as e:
+            logger.debug(f"forward connect failed ({e})")
+            return None
+        try:
+            msg = ws.recv(timeout=self._connect_timeout_s)
+            hello = msgpack_numpy.unpackb(msg) if isinstance(msg, (bytes, bytearray)) else msg
+            logger.info(f"ForwardSubscriber greeted by receiver: {hello}")
+            return ws
+        except Exception as e:
+            logger.debug(f"connected to {self._uri} but got no handshake hello ({e}); retrying")
+            with contextlib.suppress(Exception):
+                ws.close()
+            return None
 
     def _connect(self) -> bool:
         try:
@@ -222,6 +301,8 @@ def make_forward_subscriber(
     send_action: bool = False,
     subscribe_hz: float = 0.0,
     send_stride: int = 1,
+    require_handshake: bool = False,
+    handshake_timeout_s: float = 0.0,
 ) -> ForwardSubscriber:
     """Convenience factory mirroring make_recorder_subscriber's style."""
     return ForwardSubscriber(
@@ -231,4 +312,6 @@ def make_forward_subscriber(
         send_action=send_action,
         subscribe_hz=subscribe_hz,
         send_stride=send_stride,
+        require_handshake=require_handshake,
+        handshake_timeout_s=handshake_timeout_s,
     )

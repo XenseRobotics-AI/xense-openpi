@@ -137,6 +137,16 @@ class App:
         peer = getattr(websocket, "remote_address", "?")
         print(f"[obs] laptop connected: {peer}")
         self._debug("obs_connect", peer=str(peer))
+        # Handshake: greet the just-connected robot client so its startup connection
+        # check can confirm the detection app (not just any listener on this port) is
+        # really up before it starts inference — mirrors the VLA policy server sending
+        # metadata on connect. One-way from here on; the client only pushes obs.
+        with contextlib.suppress(Exception):
+            await websocket.send(
+                msgpack_numpy.packb(
+                    {"type": "dewu_obs_hello", "app": "dewu_video_switch", "detector": type(self._detector).__name__}
+                )
+            )
         try:
             async for message in websocket:
                 if isinstance(message, str):
