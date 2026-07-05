@@ -100,6 +100,12 @@ class ShoeSMConfig:
     present_poses: list = field(default_factory=list)  # len n_shoes; each = 9 floats (state[0:9])
     present_pose_tol: float = 0.6
     present_confirm: int = 5
+    # In "pose" mode, whether the blue vision must ALSO confirm the insole. False => fire
+    # on the LEFT-arm presentation pose alone. Set false where the scene fools the blue
+    # mask badly (the robot arm's own body reads as blue under the booth lighting, so the
+    # arm is "blue" during the insole grab too): the pose gate alone is fully reliable
+    # there because the grab pose is ~1.5-2.0 away from the held presentation pose.
+    pose_require_blue: bool = True
 
     @classmethod
     def from_json(cls, path: str) -> "ShoeSMConfig":
@@ -128,6 +134,7 @@ class ShoeSMConfig:
         cfg.present_poses = [list(map(float, p)) for p in d.get("present_poses", cfg.present_poses)]
         cfg.present_pose_tol = float(d.get("present_pose_tol", cfg.present_pose_tol))
         cfg.present_confirm = int(d.get("present_confirm", cfg.present_confirm))
+        cfg.pose_require_blue = bool(d.get("pose_require_blue", cfg.pose_require_blue))
 
         def _box(b):
             return BoundingBox3D(b["x_min"], b["x_max"], b["y_min"], b["y_max"], b["z_min"], b["z_max"])
@@ -353,11 +360,15 @@ class ShoeStateMachineDetector(Detector):
         # Insole-presentation event, once per shoe.
         if 1 <= self._state <= self.cfg.n_shoes and not self._blue_fired:
             if self.cfg.insole_detect == "pose":
-                # LEFT-arm reaches the calibrated presentation pose (held) AND the blue
-                # vision confirms the insole (>= min_area_frac). The pose gate means the
-                # blue check only runs at the true presentation instant, so background
-                # blue (boxes / LED rings) can't trigger it at the wrong time.
+                # LEFT-arm reaches the calibrated presentation pose (held). Optionally the
+                # blue vision must ALSO confirm the insole; when pose_require_blue is false
+                # the pose gate fires alone (vision is useless here: the arm body itself
+                # reads as blue, so blue is high during the insole grab too — only the pose
+                # separates the grab, ~1.5-2.0 away, from the held presentation).
                 pose_ready = self._pose_gate(state)  # every frame -> keeps the hold counter live
+                if pose_ready and not self.cfg.pose_require_blue:
+                    self._blue_fired = True
+                    return self._record("blue", self._state, self._state, pick_dbg, blue_dbg)
                 if pose_ready and self._frame_i % max(1, self.cfg.vision_stride) == 0:
                     head = (frame.get("images") or {}).get("head")
                     if isinstance(head, np.ndarray) and head.ndim == 3:

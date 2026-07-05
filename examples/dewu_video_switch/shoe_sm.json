@@ -9,14 +9,15 @@
   "flip_min_delta": 1.0,
   "flip_confirm": 8,
   "insole_detect": "pose",
-  "present_pose_tol": 0.6,
+  "pose_require_blue": true,
+  "present_pose_tol": 1.0,
   "present_confirm": 5,
-  "_present_poses_note": "LEFT-arm 9-D pose (xyz + 6-D rot = state[0:9]) at the insole show-to-camera instant, calibrated from ep194 true blue frames (state1 f1920/64s, state2 f7140/238s, state3 f12840/428s, state4 f17790/593s). states 1-2 share a pose, 3-4 share another (within-group dist ~0.3, cross-group ~1.5). Fires when the left arm is within present_pose_tol for present_confirm frames AND blue vision >= min_area_frac.",
+  "_present_poses_note": "LEFT-arm 9-D pose (xyz + 6-D rot = state[0:9]) held at the insole show-to-camera instant, RE-CALIBRATED on the on-site robot from dewu_debug_20260704_175421 (shoe1 f662-849 z+0.06, shoe2 f2689-2889 z+0.08, shoe3 f5076-5157 z-0.19; shoe4 not captured that run -> reuse shoe3, same group). Two-stage gate: (1) the pose gate is the PRIMARY discriminator — the insole GRAB pose (z ~ -0.34..-0.42) sits ~1.5-2.0 away, so tol 0.6 matches ONLY the held presentation and never the grab (this is what killed the arm-side blue false positives, which all fired during the grab). (2) pose_require_blue=true then double-checks the blue vision at that held pose: the insole fills the ROI when shown to the head cam (verified f690 ~33%+), so blue confirms the insole is really there. Because the blue check runs ONLY while the presentation pose is held, the arm-body-reads-as-blue problem is moot (that happens at the grab pose, which the pose gate already rejects).",
   "present_poses": [
-    [0.60, -0.24, 0.08, -0.96, 0.09, 0.27, -0.26, 0.06, -0.96],
-    [0.66, -0.20, 0.08, -0.85, 0.04, 0.52, -0.52, 0.13, -0.85],
-    [0.81, -0.12, -0.16, -0.04, 0.10, 0.99, -1.00, 0.08, -0.05],
-    [0.79, -0.15, -0.17, 0.02, 0.05, 1.00, -0.99, -0.12, 0.03]
+    [0.601, -0.169, 0.060, -0.932, 0.138, 0.335, -0.314, 0.154, -0.937],
+    [0.596, -0.173, 0.084, -0.887, 0.151, 0.437, -0.423, 0.114, -0.899],
+    [0.791, -0.168, -0.193, -0.040, 0.086, 0.995, -0.999, 0.027, -0.043],
+    [0.791, -0.168, -0.193, -0.040, 0.086, 0.995, -0.999, 0.027, -0.043]
   ],
   "transitions": [
     { "box": { "x_min": 0.95, "x_max": 1.35, "y_min": -0.45, "y_max": 0.05, "z_min": -0.45, "z_max": -0.10 }, "tcp_idx": [9, 10, 11], "grip_idx": 19 },
@@ -28,7 +29,7 @@
     "h_lo": 90, "h_hi": 125,
     "s_lo": 70, "s_hi": 255,
     "v_lo": 40, "v_hi": 255,
-    "min_area_frac": 0.10,
-    "roi": [0.33, 0.05, 0.68, 0.55]
+    "min_area_frac": 0.08,
+    "roi": [0.33, 0.05, 0.78, 0.62]
   }
 }
