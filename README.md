@@ -663,8 +663,13 @@ python -m examples.dewu_video_switch.app \
 **③ Robot host — run on the robot side**
 
 ```bash
-# --args.forward / --args.forward-uri wire the robot's head camera + state to the
-# screen PC (②) so the on-screen scene video switches with the real inspection.
+# --args.subscribe / --args.subscribe-url wire the robot's head camera + state to
+# the screen PC (②) so the on-screen scene video switches with the real inspection.
+# (Note: --args.subscribe is the detection-data stream — unrelated to the
+# --args.bi-mount-type forward-05 arm-mount option below.)
+# --args.subscribe BLOCKS at startup until ② is reachable (handshake, like the
+# VLA client waits for the inference server), so start ② before this. Add
+# --args.subscribe-handshake-timeout <s> to abort instead of waiting forever.
 python -m examples.bi_flexiv_rizon4_rt.main \
  --args.host 192.168.5.87 \
  --args.port 8000 \
@@ -673,9 +678,9 @@ python -m examples.bi_flexiv_rizon4_rt.main \
  --args.interpolate-cmds \
  --args.runtime-hz 30 \
  --args.rtc-enabled \
- --args.forward \
- --args.forward-uri ws://<screen-pc-ip>:9100 \
- --args.forward-hz 10 \
+ --args.subscribe \
+ --args.subscribe-url ws://<screen-pc-ip>:9100 \
+ --args.subscribe-hz 10 \
  --args.dry-run
 ```
 

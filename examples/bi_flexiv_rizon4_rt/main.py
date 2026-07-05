@@ -25,11 +25,11 @@ Example usage:
         --record_repo_id Xense/my_new_dataset \\
         --task "pack 6 cosmetic bottles into the carton"
 
-    # Inference + forward head camera & state to the video-playback laptop at 10 Hz
+    # Inference + stream head camera & state to the video-playback laptop at 10 Hz
     # (off-laptop detection + seamless video switching; never blocks control)
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --host 192.168.2.100 --port 8000 \\
-        --forward --forward_uri ws://192.168.2.50:9100 --forward_hz 10
+        --subscribe --subscribe_url ws://192.168.2.50:9100 --subscribe_hz 10
 
     # Inference with Pico4 human intervention (both grips held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
@@ -197,24 +197,30 @@ class Args:
     action_hz: float = 0.0
     paced_queue_size: int = 50
 
-    # Enable forwarding obs to the downstream video-playback laptop (③) for
-    # off-laptop detection + seamless video switching. One-way ws push on a daemon
-    # thread; never blocks the 30 Hz control loop. (Inference is on the separate
-    # 5090 server, set via --host/--port.)
-    forward: bool = False
-    # obs ws URI of the video-playback laptop's app (its --obs_port, default 9100).
-    forward_uri: str = "ws://127.0.0.1:9100"
-    # Which raw cameras to forward from observation["images_raw"]; the detector uses head.
-    forward_cameras: tuple[str, ...] = ("head",)
-    # Forward the 20-D robot state — the gripper detector needs it.
-    forward_state: bool = True
-    # Also forward the 20-D model action (debug/overlay only; the detector ignores it).
-    forward_action: bool = False
-    # Cap the forward rate to this many frames/sec (wall-clock throttle, independent of
-    # runtime_hz). 0 = forward on every control step. e.g. 10 = stream the head at 10 Hz.
-    forward_hz: float = 0.0
-    # Forward every Nth step (integer subsample); prefer forward_hz to target a rate.
-    forward_stride: int = 1
+    # Enable the obs subscriber that streams observations to the downstream
+    # video-playback laptop (③) for off-laptop detection + seamless video switching.
+    # One-way ws push on a daemon thread; never blocks the 30 Hz control loop.
+    # (Inference is on the separate 5090 server, set via --host/--port.)
+    # NB: distinct from --bi_mount_type forward — this is the detection-data stream.
+    subscribe: bool = False
+    # obs ws URL of the video-playback laptop's app (its --obs_port, default 9100).
+    subscribe_url: str = "ws://127.0.0.1:9100"
+    # Which raw cameras to stream from observation["images_raw"]; the detector uses head.
+    subscribe_cameras: tuple[str, ...] = ("head",)
+    # Stream the 20-D robot state — the gripper detector needs it.
+    subscribe_state: bool = True
+    # Also stream the 20-D model action (debug/overlay only; the detector ignores it).
+    subscribe_action: bool = False
+    # Cap the stream rate to this many frames/sec (wall-clock throttle, independent of
+    # runtime_hz). 0 = stream on every control step. e.g. 10 = stream the head at 10 Hz.
+    subscribe_hz: float = 0.0
+    # Stream every Nth step (integer subsample); prefer subscribe_hz to target a rate.
+    subscribe_stride: int = 1
+    # Startup handshake: when --subscribe is set, block until the video-playback laptop
+    # is reachable before running (like the VLA client waits for the inference server),
+    # so we never run inference with the screen unreachable. Give up after this many
+    # seconds; 0 = wait forever (retry), matching the VLA client.
+    subscribe_handshake_timeout: float = 0.0
 
     # Recording (LeRobot format, raw 640x480 images + absolute actions)
     record: bool = False
@@ -290,17 +296,22 @@ def main(args: Args) -> None:
         subscribers.append(recorder)
         logger.info(f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}'")
 
-    if args.forward:
+    if args.subscribe:
+        # require_handshake blocks here until the video-playback laptop is up and
+        # greets us — so, like the VLA policy client waiting for the inference server,
+        # we never proceed to inference while the screen PC is unreachable.
         forwarder = _forward.make_forward_subscriber(
-            uri=args.forward_uri,
-            cameras=tuple(args.forward_cameras),
-            send_state=args.forward_state,
-            send_action=args.forward_action,
-            subscribe_hz=args.forward_hz,
-            send_stride=args.forward_stride,
+            uri=args.subscribe_url,
+            cameras=tuple(args.subscribe_cameras),
+            send_state=args.subscribe_state,
+            send_action=args.subscribe_action,
+            subscribe_hz=args.subscribe_hz,
+            send_stride=args.subscribe_stride,
+            require_handshake=True,
+            handshake_timeout_s=args.subscribe_handshake_timeout,
         )
         subscribers.append(forwarder)
-        logger.info(f"Forwarding obs to detection machine: {args.forward_uri}")
+        logger.info(f"Subscribing obs to detection machine: {args.subscribe_url}")
 
     # In decoupled mode the broker is popped at action_hz, not runtime_hz —
     # RTC's internal delay/blend math reads frequency_hz to estimate

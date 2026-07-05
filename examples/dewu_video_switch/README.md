@@ -54,7 +54,7 @@ python -m examples.dewu_video_switch.replay_lerobot \
 
 # 3b) LIVE on the robot laptop: add the forwarder to the usual launch instead of 3a
 python -m examples.bi_flexiv_rizon4_rt.main --host <5090-ip> --port 8000 \
-    --forward --forward_uri ws://<play-ip>:9100
+    --subscribe --subscribe_url ws://<play-ip>:9100
 ```
 
 ### Tune / debug the detector
@@ -91,7 +91,7 @@ switching + display).
         ▲ observation:  images 224² · state(20) · prompt
         │ WebSocket / msgpack
         │                                     ▼ actions: 20-D × horizon (chunk)
-══ ② ROBOT HOST LAPTOP ── examples.bi_flexiv_rizon4_rt.main --forward ──────
+══ ② ROBOT HOST LAPTOP ── examples.bi_flexiv_rizon4_rt.main --subscribe ────
    Flexiv Rizon4 ×2  +  cameras(head, wrists)  ──▶  Environment.get_observation()
         ▲ apply_action @ 1000 Hz (inner)                  │ runtime loop @ 30 Hz
         │                                                 ▼
@@ -129,7 +129,7 @@ switching + display).
 | Link | Transport | Endpoint | Direction | Payload | Notes |
 |------|-----------|----------|-----------|---------|-------|
 | **A** ②→① | WebSocket / msgpack | `<5090-ip>:8000` | request → response | obs `{images 224², state(20), prompt}` → action chunk `(20-D × horizon)` | inference runs on the 5090 server, not the laptop; RTC overlaps inference with execution |
-| **B** ②→③ | WebSocket / msgpack | `ws://<play-ip>:9100` | one-way push | `{step, state(20), images:{head HWC u8}}` (+`action` opt-in) | rate = `forward_hz` (≤ runtime_hz); zero-copy, single-slot drop-oldest, non-blocking |
+| **B** ②→③ | WebSocket / msgpack | `ws://<play-ip>:9100` | one-way push | `{step, state(20), images:{head HWC u8}}` (+`action` opt-in) | rate = `subscribe_hz` (≤ runtime_hz); zero-copy, single-slot drop-oldest, non-blocking |
 | **C** ③→browser | WebSocket / JSON | `ws://<play-ip>:9101` | one-way push | `{"scene":"scene_a"\|"scene_b"}` | only on committed switch; current scene sent on connect |
 | **D** ③→browser | HTTP | `http://<play-ip>:8080` | request → response | `web/` player + `scene_{a,b}.mp4` | static; clips fetched once, then play locally |
 
@@ -145,6 +145,15 @@ thin policy client; inference itself is on the 5090 server. Per step it does
 socket and does all msgpack + I/O off-loop, swallowing every error — so a dead
 playback laptop or a slow link can **never** disturb the robot's 30 Hz control
 loop or its home-on-exit motion.
+
+**Startup handshake.** The one exception to "never blocks" is *before* the control
+loop starts: with `--subscribe`, `ForwardSubscriber` waits at construction until ③'s
+obs server is up and greets it (③ sends a `dewu_obs_hello` on connect), then proceeds
+— exactly like the VLA policy client (`WebsocketClientPolicy._wait_for_server`) waits
+for the inference server before running. So a launch with `--subscribe` will **not**
+run inference while the screen PC is unreachable; it retries forever (or aborts after
+`--subscribe_handshake_timeout` seconds, if set). Once running, the swallow-all-errors,
+never-block contract above still holds.
 
 > **Local testing (where this repo is now):** all three roles collapse onto one
 > box. `replay_offline.py` runs the detector over a recorded episode with no ws /
@@ -183,12 +192,12 @@ A thin policy client to ①, and a one-way producer to ③. Runs the openpi
 ```bash
 python -m examples.bi_flexiv_rizon4_rt.main \
     --host <5090-ip> --port 8000 \
-    --forward --forward_uri ws://<play-ip>:9100
+    --subscribe --subscribe_url ws://<play-ip>:9100
 ```
 
 | Path | Role |
 |------|------|
-| `examples/bi_flexiv_rizon4_rt/main.py` | Entry. Wires env + policy client + runtime + subscribers; `--forward` enables forwarding |
+| `examples/bi_flexiv_rizon4_rt/main.py` | Entry. Wires env + policy client + runtime + subscribers; `--subscribe` enables forwarding |
 | `examples/bi_flexiv_rizon4_rt/env.py` (`BiFlexivRizon4RTEnvironment`) | Talks to the dual Flexiv Rizon4 + cameras; `get_observation()` / `apply_action()` |
 | **`examples/bi_flexiv_rizon4_rt/forward.py` (`ForwardSubscriber`)** | **The detection-data sender**: head stream + state → ③, configurable `subscribe_hz`, zero-copy, never blocks control |
 | `examples/bi_flexiv_rizon4_rt/recorder.py` | Optional LeRobot dataset recorder (subscriber) |
@@ -243,15 +252,16 @@ Open `http://<play-ip>:8080` on the display. All clips play muted &
 looping underneath; a switch is a pure opacity crossfade — no load, no seek, so
 it's imperceptible. Cross-platform because it's just a browser (Chrome/Safari).
 
-**Robot laptop** — add the forward flags to the usual launch:
+**Robot laptop** — add the subscribe flags to the usual launch. `--subscribe`
+blocks at startup until this obs server is up (handshake), so start ③ first:
 
 ```bash
 python -m examples.bi_flexiv_rizon4_rt.main \
     --host 192.168.142.158 --port 8000 \
     --bi_mount_type side --inner_control_hz 1000 \
     --interpolate_cmds --runtime_hz 30 --rtc_enabled \
-    --forward \
-    --forward_uri ws://<play-ip>:9100
+    --subscribe \
+    --subscribe_url ws://<play-ip>:9100
 ```
 
 The forwarder ships only the **two channels the detector needs — head camera
@@ -259,12 +269,14 @@ stream + robot state** — taken *by reference* from the laptop's observation
 buffer (zero-copy; all msgpack + socket work runs on a daemon thread, so the
 30 Hz control loop pays ~zero). Useful flags:
 
-- `--forward_hz 10` — cap the stream to 10 frames/s (raw head 640×480 @30 Hz
+- `--subscribe_hz 10` — cap the stream to 10 frames/s (raw head 640×480 @30 Hz
   ≈ 27 MB/s, so throttle for bandwidth). `0` (default) = forward every step.
-- `--forward_cameras head` — which raw cameras (default: head only).
-- `--forward_state` — forward the 20-D robot state (on by default; the gripper detector needs it).
-- `--forward_action` — also send the model action (debug overlay; off by default).
-- `--forward_stride N` — integer every-Nth-step subsample (alternative to `--forward_hz`).
+- `--subscribe_cameras head` — which raw cameras (default: head only).
+- `--subscribe_state` — forward the 20-D robot state (on by default; the gripper detector needs it).
+- `--subscribe_action` — also send the model action (debug overlay; off by default).
+- `--subscribe_stride N` — integer every-Nth-step subsample (alternative to `--subscribe_hz`).
+- `--subscribe_handshake_timeout S` — startup handshake gives up and aborts after `S`
+  seconds if ③ is unreachable. `0` (default) = wait forever, retrying (like the VLA client).
 
 ## Develop the detector on a LeRobot dataset (before the robot exists)
 
