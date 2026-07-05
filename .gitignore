@@ -190,3 +190,36 @@ white_shoe_*.mp4
 .vscode/
 # Local dewu demo scene videos (large, product-specific)
 dewu-*.mp4
+
+# ---- Media assets: images & videos ----
+# No image/video binaries are checked into this repo; keep them all out of git
+# (product clips, camera frames, annotated debug dumps like dewu_blue_*/*.jpg, etc.).
+# Commit vector/source art (*.svg) normally — it is intentionally excluded below.
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+*.tif
+*.tiff
+*.ico
+*.heic
+# Videos
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.m4v
+*.flv
+*.wmv
+
+# ---- Local dewu detector debug output (regenerable) ----
+# JSONL snapshot logs written by examples/dewu_video_switch/app.py (default) and
+# replay_debug.py, plus the blue-detection frame-dump directories. Per-run, litter
+# the repo root; never commit them.
+dewu_debug_*.jsonl
+dewu_blue_*/
+dewu_*_debug/
