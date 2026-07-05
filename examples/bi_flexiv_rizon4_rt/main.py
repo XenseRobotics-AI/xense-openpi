@@ -56,9 +56,9 @@ from xense_client.runtime import runtime as _runtime
 from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.bi_flexiv_rizon4_rt.env as _env
-import examples.bi_flexiv_rizon4_rt.forward as _forward
 import examples.bi_flexiv_rizon4_rt.intervention as _intervention
 import examples.bi_flexiv_rizon4_rt.recorder as _recorder
+import examples.bi_flexiv_rizon4_rt.subscribe as _subscribe
 
 logger = get_logger("BiFlexivRizon4RTMain")
 
@@ -300,7 +300,7 @@ def main(args: Args) -> None:
         # require_handshake blocks here until the video-playback laptop is up and
         # greets us — so, like the VLA policy client waiting for the inference server,
         # we never proceed to inference while the screen PC is unreachable.
-        forwarder = _forward.make_forward_subscriber(
+        obs_subscriber = _subscribe.make_obs_subscriber(
             uri=args.subscribe_url,
             cameras=tuple(args.subscribe_cameras),
             send_state=args.subscribe_state,
@@ -310,7 +310,7 @@ def main(args: Args) -> None:
             require_handshake=True,
             handshake_timeout_s=args.subscribe_handshake_timeout,
         )
-        subscribers.append(forwarder)
+        subscribers.append(obs_subscriber)
         logger.info(f"Subscribing obs to detection machine: {args.subscribe_url}")
 
     # In decoupled mode the broker is popped at action_hz, not runtime_hz —

@@ -3,7 +3,7 @@
 
 Purpose: develop and test the detection algorithm on REAL recorded data before
 the robot client exists. This replays one episode's {state, head image} frames
-through the exact production path — the real ForwardSubscriber → the detection
+through the exact production path — the real ObsSubscriber → the detection
 app (:9100) → detector → SceneController → browser switch — at the dataset's
 native frame rate.
 
@@ -32,9 +32,9 @@ import time
 import numpy as np
 import torch
 
-# Auto: real ForwardSubscriber on the robot laptop, vendored ws sender on a dev /
+# Auto: real ObsSubscriber on the robot laptop, vendored ws sender on a dev /
 # display machine that has no xense_client (see ws_sender.py).
-from examples.dewu_video_switch.ws_sender import make_forward_subscriber_auto
+from examples.dewu_video_switch.ws_sender import make_obs_subscriber_auto
 
 DEFAULT_REPO = "Xense/newbalance_shoe_insole_retrieval_and_packing_0611"
 
@@ -48,8 +48,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
             "LIVE integration test: stream one recorded LeRobot episode's {state, head image} into a "
-            "running detection app (machine ③) over the real forward path, at the dataset frame rate. "
-            "On the robot laptop this uses the production ForwardSubscriber; on a box without "
+            "running detection app (machine ③) over the real obs-stream path, at the dataset frame rate. "
+            "On the robot laptop this uses the production ObsSubscriber; on a box without "
             "xense_client it transparently falls back to the vendored ws sender (ws_sender.py)."
         ),
         epilog="Start `python -m examples.dewu_video_switch.app` first, then run this against its --uri.",
@@ -71,11 +71,11 @@ def main() -> None:
     )
     ap.add_argument(
         "--camera", default="head",
-        help="Camera to forward, i.e. observation.images.<camera>. The detector uses the head image.",
+        help="Camera to stream, i.e. observation.images.<camera>. The detector uses the head image.",
     )
     ap.add_argument(
         "--no-state", action="store_true",
-        help="Do NOT forward observation.state. The gripper detector needs the state, so leave this off for it.",
+        help="Do NOT stream observation.state. The gripper detector needs the state, so leave this off for it.",
     )
     ap.add_argument("--max-frames", type=int, default=0, help="Cap the number of frames streamed; 0 = the whole episode.")
     ap.add_argument("--loop", action="store_true", help="Replay the episode repeatedly until Ctrl+C (good for a kiosk demo).")
@@ -101,7 +101,7 @@ def main() -> None:
     n = end - start
     print(f"Episode {args.episode}: frames [{start},{end}) = {n} frames, streaming to {args.uri} at {fps:.0f} Hz")
 
-    sub = make_forward_subscriber_auto(args.uri, cameras=(args.camera,), send_state=not args.no_state)
+    sub = make_obs_subscriber_auto(args.uri, cameras=(args.camera,), send_state=not args.no_state)
     sub.on_episode_start()
 
     period = 1.0 / fps

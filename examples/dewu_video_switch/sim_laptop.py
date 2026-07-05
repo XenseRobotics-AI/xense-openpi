@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Link test: drive the REAL ForwardSubscriber against a running detection app,
+"""Link test: drive the REAL ObsSubscriber against a running detection app,
 WITHOUT the inference server or the robot.
 
-This exercises the exact production class (examples.bi_flexiv_rizon4_rt.forward
-.ForwardSubscriber) by feeding it synthetic observations shaped like
+This exercises the exact production class (examples.bi_flexiv_rizon4_rt.subscribe
+.ObsSubscriber) by feeding it synthetic observations shaped like
 env.get_observation() output: {"state": (20,), "images_raw": {"head": HWC}}.
 It only needs xense_client importable (already present on the robot laptop) —
 it does NOT import the robot SDK or connect to the policy server.
@@ -27,20 +27,20 @@ import time
 
 import numpy as np
 
-# Auto: real ForwardSubscriber on the robot laptop, vendored ws sender on a dev /
+# Auto: real ObsSubscriber on the robot laptop, vendored ws sender on a dev /
 # display machine that has no xense_client (see ws_sender.py).
-from examples.dewu_video_switch.ws_sender import make_forward_subscriber_auto
+from examples.dewu_video_switch.ws_sender import make_obs_subscriber_auto
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
-            "Synthetic link test for the forward path — no inference server, no robot, no dataset. "
+            "Synthetic link test for the obs-stream path — no inference server, no robot, no dataset. "
             "Sends frames that alternate between two synthetic states (low/high gripper + dark/bright "
             "head image), so the app flips scene_a <-> scene_b whichever detector it runs (gripper or "
             "stub). Confirms ports, firewall, msgpack codec, and the whole switch path end-to-end."
         ),
-        epilog="Uses the production ForwardSubscriber if xense_client is present, else the vendored ws sender.",
+        epilog="Uses the production ObsSubscriber if xense_client is present, else the vendored ws sender.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument(
@@ -52,7 +52,7 @@ def main() -> None:
     ap.add_argument("--seconds", type=float, default=0.0, help="Total run time in seconds; 0 = run until Ctrl+C.")
     args = ap.parse_args()
 
-    sub = make_forward_subscriber_auto(args.uri)
+    sub = make_obs_subscriber_auto(args.uri)
     sub.on_episode_start()
 
     period = 1.0 / args.hz

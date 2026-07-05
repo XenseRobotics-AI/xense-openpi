@@ -1,8 +1,8 @@
-"""Forward selected observation channels to a downstream video-playback laptop.
+"""Stream selected observation channels to a downstream video-playback laptop.
 
 Plan B: the detection + seamless video-switching runs on a SEPARATE machine
 (the video-playback computer). This subscriber lives in the robot host laptop's
-control process and forwards only the two channels that machine needs — the
+control process and streams only the two channels that machine needs — the
 **head camera stream** and the **robot state** — over a websocket, at a
 configurable rate (subscribe_hz). All detection/render cost stays off the laptop,
 and the per-step cost on the laptop is kept ~zero (see on_step).
@@ -18,7 +18,7 @@ subscriber.on_step INSIDE the control loop):
 - Optional STARTUP handshake (require_handshake): before the control loop starts,
   block until the video-playback laptop's obs server is reachable and greets us —
   mirroring the VLA policy client (WebsocketClientPolicy._wait_for_server), which
-  waits for the inference server before running. This is the ONE place forwarding
+  waits for the inference server before running. This is the ONE place this subscriber
   may block, and only at construction — never in on_step. Once running, the
   swallow-all-errors / never-block contract above still holds.
 
@@ -38,10 +38,10 @@ from xense_client import msgpack_numpy
 from xense_client.logger import get_logger
 from xense_client.runtime import subscriber as _subscriber
 
-logger = get_logger("ForwardSubscriber")
+logger = get_logger("ObsSubscriber")
 
 
-class ForwardSubscriber(_subscriber.Subscriber):
+class ObsSubscriber(_subscriber.Subscriber):
     """Push a slim per-step payload to a downstream websocket receiver.
 
     Connects OUT to the video-playback laptop (which runs the websocket server), so
@@ -68,17 +68,17 @@ class ForwardSubscriber(_subscriber.Subscriber):
 
         Args:
             uri: ws URI of the video-playback laptop, e.g. "ws://192.168.1.50:9100".
-            cameras: which raw cameras to forward from observation["images_raw"].
+            cameras: which raw cameras to stream from observation["images_raw"].
                 Defaults to the head camera only — head video + state is all the
                 detector needs; wrists are dropped to save bandwidth.
-            send_state: forward the 20-D robot state (observation["state"]).
-            send_action: also forward the model action (observation/debug only —
+            send_state: stream the 20-D robot state (observation["state"]).
+            send_action: also stream the model action (observation/debug only —
                 the detector does not use it). Off by default to stay lean.
-            subscribe_hz: cap the forward rate to this many frames/sec via a
+            subscribe_hz: cap the stream rate to this many frames/sec via a
                 wall-clock throttle, independent of the control loop's runtime_hz.
-                0 = forward on every step. e.g. 10 streams the head at 10 Hz while
+                0 = stream on every step. e.g. 10 streams the head at 10 Hz while
                 control still runs at 30 Hz.
-            send_stride: forward every Nth step (1 = every step). Integer
+            send_stride: send every Nth step (1 = every step). Integer
                 subsample; prefer subscribe_hz to target an actual rate.
             connect_timeout_s: per-attempt websocket connect timeout.
             require_handshake: if True, block in __init__ until the receiver is up
@@ -115,11 +115,11 @@ class ForwardSubscriber(_subscriber.Subscriber):
         if require_handshake:
             self._ws = self._wait_for_receiver(handshake_timeout_s)
 
-        self._worker = threading.Thread(target=self._run, name="forward-sender", daemon=True)
+        self._worker = threading.Thread(target=self._run, name="obs-sender", daemon=True)
         self._worker.start()
         rate = f"{subscribe_hz:g} Hz" if self._min_period > 0.0 else f"every {self._send_stride} step(s)"
         logger.info(
-            f"ForwardSubscriber → {uri} (cameras={cameras}, state={send_state}, action={send_action}, rate={rate})"
+            f"ObsSubscriber → {uri} (cameras={cameras}, state={send_state}, action={send_action}, rate={rate})"
         )
 
     # ----- Subscriber API (runs in the control loop; keep it cheap) -----
@@ -178,7 +178,7 @@ class ForwardSubscriber(_subscriber.Subscriber):
     @override
     def on_episode_end(self) -> None:
         # Don't tear down the socket between episodes; the detector keeps running.
-        logger.info(f"ForwardSubscriber episode end: sent={self._sent}, dropped(stale)={self._dropped}")
+        logger.info(f"ObsSubscriber episode end: sent={self._sent}, dropped(stale)={self._dropped}")
 
     def close(self) -> None:
         self._stop.set()
@@ -203,7 +203,7 @@ class ForwardSubscriber(_subscriber.Subscriber):
                 self._ws.send(self._packer.pack(payload))
                 self._sent += 1
             except Exception as e:
-                logger.warning(f"forward send failed ({e}); reconnecting")
+                logger.warning(f"obs send failed ({e}); reconnecting")
                 self._reconnect()
         self._safe_close_ws()
 
@@ -220,7 +220,7 @@ class ForwardSubscriber(_subscriber.Subscriber):
         while not self._stop.is_set():
             ws = self._connect_and_greet()
             if ws is not None:
-                logger.info(f"ForwardSubscriber handshake OK with {self._uri}")
+                logger.info(f"ObsSubscriber handshake OK with {self._uri}")
                 return ws
             attempt += 1
             now = time.monotonic()
@@ -233,7 +233,7 @@ class ForwardSubscriber(_subscriber.Subscriber):
             logger.info(f"Still waiting for video-playback laptop at {self._uri} (attempt {attempt})...")
             backoff = 3.0 if deadline is None else min(3.0, max(0.0, deadline - now))
             self._stop.wait(backoff)  # interruptible backoff (Ctrl-C / close() breaks out)
-        raise ConnectionError(f"ForwardSubscriber handshake to {self._uri} aborted before connecting")
+        raise ConnectionError(f"ObsSubscriber handshake to {self._uri} aborted before connecting")
 
     def _connect_and_greet(self):
         """One handshake attempt: open the ws and wait for the receiver's hello frame.
@@ -248,12 +248,12 @@ class ForwardSubscriber(_subscriber.Subscriber):
                 open_timeout=self._connect_timeout_s,
             )
         except Exception as e:
-            logger.debug(f"forward connect failed ({e})")
+            logger.debug(f"obs connect failed ({e})")
             return None
         try:
             msg = ws.recv(timeout=self._connect_timeout_s)
             hello = msgpack_numpy.unpackb(msg) if isinstance(msg, (bytes, bytearray)) else msg
-            logger.info(f"ForwardSubscriber greeted by receiver: {hello}")
+            logger.info(f"ObsSubscriber greeted by receiver: {hello}")
             return ws
         except Exception as e:
             logger.debug(f"connected to {self._uri} but got no handshake hello ({e}); retrying")
@@ -269,11 +269,11 @@ class ForwardSubscriber(_subscriber.Subscriber):
                 max_size=None,
                 open_timeout=self._connect_timeout_s,
             )
-            logger.info(f"ForwardSubscriber connected to {self._uri}")
+            logger.info(f"ObsSubscriber connected to {self._uri}")
             return True
         except Exception as e:
             self._ws = None
-            logger.debug(f"forward connect failed ({e}); will retry")
+            logger.debug(f"obs connect failed ({e}); will retry")
             return False
 
     def _reconnect(self) -> None:
@@ -293,7 +293,7 @@ class ForwardSubscriber(_subscriber.Subscriber):
             self._ws = None
 
 
-def make_forward_subscriber(
+def make_obs_subscriber(
     uri: str,
     *,
     cameras: tuple[str, ...] = ("head",),
@@ -303,9 +303,9 @@ def make_forward_subscriber(
     send_stride: int = 1,
     require_handshake: bool = False,
     handshake_timeout_s: float = 0.0,
-) -> ForwardSubscriber:
+) -> ObsSubscriber:
     """Convenience factory mirroring make_recorder_subscriber's style."""
-    return ForwardSubscriber(
+    return ObsSubscriber(
         uri,
         cameras=cameras,
         send_state=send_state,

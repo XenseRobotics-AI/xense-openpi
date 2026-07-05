@@ -3,7 +3,7 @@
 
 Topology
 --------
-    robot laptop (examples.bi_flexiv_rizon4_rt.main --forward)
+    robot laptop (examples.bi_flexiv_rizon4_rt.main --subscribe)
         │  ws push  {state, head image}  (msgpack)
         ▼
     THIS PROCESS  (the video-playback laptop)
@@ -341,7 +341,7 @@ def main() -> None:
     p = argparse.ArgumentParser(
         description=(
             "Detection + seamless video-switch app for the video-playback laptop (machine ③). "
-            "Receives forwarded robot obs (head image + state) from the robot laptop, runs the "
+            "Receives streamed robot obs (head image + state) from the robot laptop, runs the "
             "detector + scene debounce, and pushes scene switches to the in-browser player."
         ),
         epilog=(
@@ -354,7 +354,7 @@ def main() -> None:
     )
     p.add_argument(
         "--obs-port", type=int, default=9100,
-        help="TCP port of the obs WebSocket server the robot laptop's ForwardSubscriber pushes frames into.",
+        help="TCP port of the obs WebSocket server the robot laptop's ObsSubscriber pushes frames into.",
     )
     p.add_argument(
         "--switch-port", type=int, default=9101,

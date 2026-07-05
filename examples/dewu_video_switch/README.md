@@ -2,7 +2,7 @@
 
 Runs the detection + the seamless video player on the **video-playback laptop**
 (Windows / macOS / Linux), separate from the robot host laptop. The laptop only
-forwards a slim obs payload and spends zero extra cycles on detection or
+streams a slim obs payload and spends zero extra cycles on detection or
 rendering, and the **switch decision is computed on the playback laptop** and
 pushed to its own browser over localhost.
 
@@ -52,7 +52,7 @@ python -m examples.dewu_video_switch.app \
 python -m examples.dewu_video_switch.replay_lerobot \
     --repo-id Xense/newbalance_shoe_insole_retrieval_and_packing_0611 --episode 0
 
-# 3b) LIVE on the robot laptop: add the forwarder to the usual launch instead of 3a
+# 3b) LIVE on the robot laptop: add the obs subscriber to the usual launch instead of 3a
 python -m examples.bi_flexiv_rizon4_rt.main --host <5090-ip> --port 8000 \
     --subscribe --subscribe_url ws://<play-ip>:9100
 ```
@@ -79,7 +79,7 @@ that same pipeline.
 
 Three processes collaborate: ① the openpi inference server — a dedicated **5090
 GPU server** running the VLA (the laptop does **not** infer; it is a thin policy
-client), ② the robot host laptop (runs the control loop **and** forwards the
+client), ② the robot host laptop (runs the control loop **and** streams the
 detection-necessary data), and ③ the video-playback laptop (detection +
 switching + display).
 
@@ -97,7 +97,7 @@ switching + display).
         │                                                 ▼
    WebsocketClientPolicy ──▶ (RTC) ActionChunkBroker ──▶ Runtime ──▶ subscribers[]
                                                                       │
-   ForwardSubscriber ◀───────────────────────────────────────────────┘
+   ObsSubscriber ◀───────────────────────────────────────────────┘
    (daemon thread · single-slot drop-oldest · swallows all errors ·
     NEVER blocks the 30 Hz control loop or the home-on-exit motion)
 ────────────────────────────────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ Inside ③ (in-process): obs ws → `LatestFrame` → `detector` (thread pool) �
 `SceneController` → switch broadcast. The robot ↔ laptop link inside ② is the
 robot SDK (1000 Hz inner control) + cameras, not a network channel.
 
-The forwarder (`ForwardSubscriber`) lives in the laptop's **control** process as
+The obs subscriber (`ObsSubscriber`) lives in the laptop's **control** process as
 a `Subscriber` (`runtime.Runtime` calls it after each step) — the laptop is a
 thin policy client; inference itself is on the 5090 server. Per step it does
 ~nothing: cheap rate gates, then stash *references* to the head frame + state
@@ -147,7 +147,7 @@ playback laptop or a slow link can **never** disturb the robot's 30 Hz control
 loop or its home-on-exit motion.
 
 **Startup handshake.** The one exception to "never blocks" is *before* the control
-loop starts: with `--subscribe`, `ForwardSubscriber` waits at construction until ③'s
+loop starts: with `--subscribe`, `ObsSubscriber` waits at construction until ③'s
 obs server is up and greets it (③ sends a `dewu_obs_hello` on connect), then proceeds
 — exactly like the VLA policy client (`WebsocketClientPolicy._wait_for_server`) waits
 for the inference server before running. So a launch with `--subscribe` will **not**
@@ -182,7 +182,7 @@ python scripts/serve_policy.py policy:checkpoint \
 | `src/openpi/policies/bi_flexiv_policy.py` | Input/output transforms for this bi-arm robot (robot obs ↔ model format) |
 | `src/openpi/training/config.py` + `configs/` | The named `TrainConfig` that defines the model + norm stats the server loads |
 
-### ② robot host laptop — real-time control loop + forwards detection data
+### ② robot host laptop — real-time control loop + streams detection data
 
 A thin policy client to ①, and a one-way producer to ③. Runs the openpi
 `examples/bi_flexiv_rizon4_rt/*` against the installed `xense_client` SDK.
@@ -197,9 +197,9 @@ python -m examples.bi_flexiv_rizon4_rt.main \
 
 | Path | Role |
 |------|------|
-| `examples/bi_flexiv_rizon4_rt/main.py` | Entry. Wires env + policy client + runtime + subscribers; `--subscribe` enables forwarding |
+| `examples/bi_flexiv_rizon4_rt/main.py` | Entry. Wires env + policy client + runtime + subscribers; `--subscribe` enables obs streaming |
 | `examples/bi_flexiv_rizon4_rt/env.py` (`BiFlexivRizon4RTEnvironment`) | Talks to the dual Flexiv Rizon4 + cameras; `get_observation()` / `apply_action()` |
-| **`examples/bi_flexiv_rizon4_rt/forward.py` (`ForwardSubscriber`)** | **The detection-data sender**: head stream + state → ③, configurable `subscribe_hz`, zero-copy, never blocks control |
+| **`examples/bi_flexiv_rizon4_rt/subscribe.py` (`ObsSubscriber`)** | **The detection-data sender**: head stream + state → ③, configurable `subscribe_hz`, zero-copy, never blocks control |
 | `examples/bi_flexiv_rizon4_rt/recorder.py` | Optional LeRobot dataset recorder (subscriber) |
 | `examples/bi_flexiv_rizon4_rt/intervention.py` | Optional Pico4 human-in-the-loop teleop |
 | `xense_client` (installed SDK, not in this repo) | `runtime.Runtime` (loop that calls subscribers), `WebsocketClientPolicy` (→ ①), `ActionChunkBroker` / `rtc_action_chunk_broker` (chunking + RTC), `msgpack_numpy` |
@@ -264,15 +264,15 @@ python -m examples.bi_flexiv_rizon4_rt.main \
     --subscribe_url ws://<play-ip>:9100
 ```
 
-The forwarder ships only the **two channels the detector needs — head camera
+The obs subscriber ships only the **two channels the detector needs — head camera
 stream + robot state** — taken *by reference* from the laptop's observation
 buffer (zero-copy; all msgpack + socket work runs on a daemon thread, so the
 30 Hz control loop pays ~zero). Useful flags:
 
 - `--subscribe_hz 10` — cap the stream to 10 frames/s (raw head 640×480 @30 Hz
-  ≈ 27 MB/s, so throttle for bandwidth). `0` (default) = forward every step.
+  ≈ 27 MB/s, so throttle for bandwidth). `0` (default) = stream every step.
 - `--subscribe_cameras head` — which raw cameras (default: head only).
-- `--subscribe_state` — forward the 20-D robot state (on by default; the gripper detector needs it).
+- `--subscribe_state` — stream the 20-D robot state (on by default; the gripper detector needs it).
 - `--subscribe_action` — also send the model action (debug overlay; off by default).
 - `--subscribe_stride N` — integer every-Nth-step subsample (alternative to `--subscribe_hz`).
 - `--subscribe_handshake_timeout S` — startup handshake gives up and aborts after `S`
@@ -315,8 +315,8 @@ python -m examples.dewu_video_switch.replay_lerobot --repo-id Xense/pack_6_cosme
 ```
 
 `replay_lerobot.py` pulls each frame's `observation.state` (+ `observation.images.head`)
-and forwards it at the dataset fps. On the robot laptop it uses the production
-`ForwardSubscriber`; on a machine without `xense_client` it transparently falls
+and streams it at the dataset fps. On the robot laptop it uses the production
+`ObsSubscriber`; on a machine without `xense_client` it transparently falls
 back to the vendored ws sender (`ws_sender.py`), so both replay scripts and
 `sim_laptop.py` run locally with just the detection-app deps. Its default repo is
 the (not-yet-public) shoe-insole dataset — pass `--repo-id` to use one you have.

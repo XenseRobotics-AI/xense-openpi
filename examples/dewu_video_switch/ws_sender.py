@@ -1,15 +1,15 @@
 """Dependency-free websocket sender for local testing (no xense_client).
 
 `replay_lerobot.py` and `sim_laptop.py` are meant to run the *exact* production
-path via examples.bi_flexiv_rizon4_rt.forward.ForwardSubscriber — but that
+path via examples.bi_flexiv_rizon4_rt.subscribe.ObsSubscriber — but that
 imports `xense_client`, which only exists on the robot laptop. On a dev / display
 machine (which by design carries only the detection-app deps in
 requirements.txt) that import fails.
 
 This module provides a drop-in fallback that speaks the identical wire format
 (msgpack payload ``{step, state, images:{cam:arr}, action}``) using only the
-vendored `msgpack_numpy` + `websockets`. `make_forward_subscriber_auto` returns
-the real ForwardSubscriber when available and this vendored sender otherwise, so
+vendored `msgpack_numpy` + `websockets`. `make_obs_subscriber_auto` returns
+the real ObsSubscriber when available and this vendored sender otherwise, so
 the same script works on the robot laptop and on the playback PC unchanged.
 
 It is synchronous (sends inside on_step) — fine for a standalone replay/sim
@@ -30,8 +30,8 @@ except ImportError:  # standalone copy on the dev machine
     import msgpack_numpy  # type: ignore
 
 
-class VendoredForwardSender:
-    """Mirror of ForwardSubscriber's payload, minus the robot-SDK dependency."""
+class VendoredObsSender:
+    """Mirror of ObsSubscriber's payload, minus the robot-SDK dependency."""
 
     def __init__(
         self,
@@ -114,20 +114,20 @@ class VendoredForwardSender:
         self._ws = None
 
 
-def make_sender(uri: str, **kwargs) -> VendoredForwardSender:
-    return VendoredForwardSender(uri, **kwargs)
+def make_sender(uri: str, **kwargs) -> VendoredObsSender:
+    return VendoredObsSender(uri, **kwargs)
 
 
-def make_forward_subscriber_auto(uri: str, **kwargs):
-    """Real ForwardSubscriber if xense_client is importable, else vendored sender.
+def make_obs_subscriber_auto(uri: str, **kwargs):
+    """Real ObsSubscriber if xense_client is importable, else vendored sender.
 
     Both expose the same on_episode_start / on_step / on_episode_end / close API
     and the same msgpack wire format, so callers don't care which they get.
     """
     try:
-        from examples.bi_flexiv_rizon4_rt.forward import make_forward_subscriber
+        from examples.bi_flexiv_rizon4_rt.subscribe import make_obs_subscriber
 
-        return make_forward_subscriber(uri, **kwargs)
+        return make_obs_subscriber(uri, **kwargs)
     except Exception as e:
-        print(f"[sender] production ForwardSubscriber unavailable ({e}); using vendored sender")
+        print(f"[sender] production ObsSubscriber unavailable ({e}); using vendored sender")
         return make_sender(uri, **kwargs)
