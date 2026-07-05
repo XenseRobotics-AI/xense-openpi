@@ -55,48 +55,59 @@ const els = {};        // scene id -> <video>
 let activeScene = null;
 let zTop = 0;          // running z-index so each switch lands on top
 
-// Preload every clip muted so it's warm and a switch is instant (no load/seek).
-// Content clips autoplay & loop; the standby clip is held frozen on frame 0.
-// (Muted autoplay is allowed without a gesture on Chrome & Safari -> Windows and
-// macOS alike.)
+// Preload every clip muted and PARK it decoded on a paused frame 0. A switch is then a
+// pure reveal — play() from an already-decoded frame — with NO seek at show time. (A
+// seek at show time is exactly what caused the switch flash: the clip was revealed on
+// its stale last-played frame, then jumped to frame 0 as the async seek landed a moment
+// later.) Muted autoplay/seek is allowed without a gesture on Chrome & Safari.
 for (const [scene, src] of Object.entries(SCENES)) {
   const v = document.createElement("video");
   v.src = src;
   v.muted = true;
   v.playsInline = true;
   v.preload = "auto";
-  const isStandby = (scene === "standby");
-  v.loop = !isStandby;
-  v.autoplay = !isStandby;
+  // No looping: an active clip that finishes before its switch signal HOLDS on its last
+  // frame (HTML video stays on the final frame when it ends) and waits — so a slow robot
+  // never makes the video auto-advance.
+  v.loop = false;
   stage.appendChild(v);
   els[scene] = v;
-  if (isStandby) {
-    // freeze on the first frame
-    v.addEventListener("loadeddata", () => { try { v.pause(); v.currentTime = 0; } catch (e) {} }, { once: true });
-  } else {
-    v.play().catch(() => {/* will start once data is ready */});
-  }
+  // Park on a decoded frame 0, paused — ready for an instant, flash-free reveal.
+  v.addEventListener("loadeddata", () => { try { v.pause(); v.currentTime = 0; } catch (e) {} }, { once: true });
 }
 
 function show(scene) {
   if (!(scene in els)) { console.warn("unknown scene", scene); return; }
   if (scene === activeScene) return;
+  const prev = activeScene ? els[activeScene] : null;
   const v = els[scene];
 
-  // Instant seamless cut: raise the incoming clip above everything and show it at
-  // full opacity in one frame. The outgoing clip stays opaque underneath until
-  // now, so there is never a transparent instant -> no flash/dip, no fade.
-  if (scene === "standby") {
-    try { v.pause(); v.currentTime = 0; } catch (e) {}   // frozen first frame
-  } else {
-    try { v.currentTime = 0; } catch (e) {}              // (re)start this phase's clip
-    v.play().catch(() => {});
-  }
+  // The incoming clip is already sitting on a decoded frame 0 (preloaded, or rewound
+  // when it was last switched away from), so this is a pure reveal in a single paint:
+  // no seek, no black frame, no jump. Raise it above everything at full opacity; the
+  // outgoing clip stays opaque underneath until this instant, so the composite never
+  // goes transparent (no dip/fade either).
   v.style.zIndex = String(++zTop);
   v.style.opacity = "1";
+  if (scene === "standby") {
+    try { v.pause(); v.currentTime = 0; } catch (e) {}   // idle: hold frame 0
+  } else {
+    const p = v.play();
+    if (p) p.catch(() => {  // shown before it finished loading -> play as soon as it can
+      v.addEventListener("canplay", () => { if (activeScene === scene) v.play().catch(() => {}); }, { once: true });
+    });
+  }
 
   activeScene = scene;
   statusEl.textContent = "scene: " + scene;
+
+  // Rewind the outgoing clip to a decoded frame 0 for its next reuse (scenes repeat:
+  // 1-1 / 2-1 show again for shoes 3 / 4). It is now fully hidden behind the incoming
+  // clip, so this seek is invisible on screen — the flash only ever happened because
+  // the rewind used to run on the clip WHILE it was becoming visible.
+  if (prev && prev !== v) {
+    try { prev.pause(); prev.currentTime = 0; } catch (e) {}
+  }
 }
 
 show(DEFAULT_SCENE);
