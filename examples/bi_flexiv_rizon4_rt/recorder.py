@@ -22,6 +22,8 @@ import numpy as np
 from typing_extensions import override
 from xense_client.runtime import subscriber as _subscriber
 
+import examples.bi_flexiv_rizon4_rt.keyboard_control as _keyboard_control
+
 logger = get_logger("BiFlexivRecorder")
 
 # Feature names matching Xense/pack_6_cosmetic_bottles_into_carton and all bi_flexiv datasets.
@@ -58,6 +60,8 @@ def make_bi_flexiv_dataset_features(
     image_height: int = 480,
     image_width: int = 640,
     use_videos: bool = True,
+    include_intervention: bool = False,
+    include_success: bool = False,
 ) -> dict:
     """Build the LeRobot features dict for a bi_flexiv_rizon4_rt dataset."""
     dtype = "video" if use_videos else "image"
@@ -79,6 +83,18 @@ def make_bi_flexiv_dataset_features(
             "shape": (image_height, image_width, 3),
             "names": ["height", "width", "channels"],
         }
+    if include_intervention:
+        features["observation.is_intervention"] = {
+            "dtype": "float32",
+            "shape": (1,),
+            "names": ["is_intervention"],
+        }
+    if include_success:
+        features["observation.is_success"] = {
+            "dtype": "float32",
+            "shape": (1,),
+            "names": ["is_success"],
+        }
     return features
 
 
@@ -98,9 +114,19 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         "actions": np.ndarray (20,) — absolute action after output transforms
     """
 
-    def __init__(self, dataset: LeRobotDataset, task: str):
+    def __init__(
+        self,
+        dataset: LeRobotDataset,
+        task: str,
+        controller: _keyboard_control.KeyboardEpisodeController | None = None,
+        record_intervention: bool = False,
+        confirm_success: bool = False,
+    ):
         self._dataset = dataset
         self._task = task
+        self._controller = controller
+        self._record_intervention = record_intervention
+        self._confirm_success = confirm_success
         self._step_count = 0
 
     @override
@@ -117,6 +143,15 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
             "action": np.asarray(action["actions"], dtype=np.float32),
             "task": self._task,
         }
+        if self._record_intervention:
+            frame["observation.is_intervention"] = np.asarray(
+                [float(action.get("is_intervention", False))],
+                dtype=np.float32,
+            )
+        if self._confirm_success:
+            # Placeholder; backfilled with the keyboard-confirmed value in
+            # on_episode_end (NaN means "unconfirmed").
+            frame["observation.is_success"] = np.asarray([np.nan], dtype=np.float32)
         for cam in _POLICY_CAMERAS:
             if cam in images_raw:
                 frame[f"observation.images.{cam}"] = np.asarray(images_raw[cam], dtype=np.uint8)
@@ -131,12 +166,49 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         if self._step_count == 0:
             logger.warning("Episode ended with 0 steps — not saving")
             return
+
+        end_reason = None
+        if self._controller is not None:
+            end_reason = self._controller.consume_end_reason()
+
+        if end_reason in (
+            _keyboard_control.EpisodeEndReason.DISCARD,
+            _keyboard_control.EpisodeEndReason.EXIT,
+        ):
+            logger.info(f"Discarding episode ({self._step_count} steps)...")
+            self._dataset.clear_episode_buffer()
+            return
+
+        if self._confirm_success and "observation.is_success" in self._dataset.features:
+            success = None
+            if end_reason == _keyboard_control.EpisodeEndReason.SUCCESS:
+                success = 1.0
+            elif end_reason == _keyboard_control.EpisodeEndReason.FAILURE:
+                success = 0.0
+            self._backfill_success(success)
+
         logger.info(f"Saving episode ({self._step_count} steps)...")
         self._dataset.save_episode()
         logger.info(
             f"Episode saved. Total episodes: {self._dataset.meta.total_episodes}, "
             f"total frames: {self._dataset.meta.total_frames}"
         )
+
+    def _backfill_success(self, value: float | None) -> None:
+        """Replace the per-frame is_success placeholders with the confirmed value.
+
+        ``value=None`` keeps the NaN placeholders (episode ended via right
+        arrow without a success confirmation). Works on the dataset's in-memory
+        episode buffer before ``save_episode`` stacks it into parquet; no
+        changes to lerobot itself are required.
+        """
+        buffer = self._dataset.episode_buffer
+        if buffer is None or "observation.is_success" not in buffer:
+            return
+        if value is None:
+            return
+        fill = np.asarray([float(value)], dtype=np.float32)
+        buffer["observation.is_success"] = [fill.copy() for _ in range(buffer["size"])]
 
 
 def make_recorder_subscriber(
@@ -148,6 +220,9 @@ def make_recorder_subscriber(
     image_width: int = 640,
     use_videos: bool = True,
     image_writer_threads: int = 4,
+    controller: _keyboard_control.KeyboardEpisodeController | None = None,
+    record_intervention: bool = False,
+    confirm_success: bool = False,
 ) -> LeRobotRecorderSubscriber:
     """Create a LeRobotRecorderSubscriber for a new dataset.
 
@@ -170,10 +245,22 @@ def make_recorder_subscriber(
     dataset = LeRobotDataset.create(
         repo_id=repo_id,
         fps=fps,
-        features=make_bi_flexiv_dataset_features(image_height, image_width, use_videos),
+        features=make_bi_flexiv_dataset_features(
+            image_height,
+            image_width,
+            use_videos,
+            include_intervention=record_intervention,
+            include_success=confirm_success,
+        ),
         root=local_dir,
         robot_type="bi_flexiv_rizon4_rt",
         use_videos=use_videos,
         image_writer_threads=image_writer_threads,
     )
-    return LeRobotRecorderSubscriber(dataset=dataset, task=task)
+    return LeRobotRecorderSubscriber(
+        dataset=dataset,
+        task=task,
+        controller=controller,
+        record_intervention=record_intervention,
+        confirm_success=confirm_success,
+    )

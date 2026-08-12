@@ -25,15 +25,31 @@ Example usage:
         --record_repo_id Xense/my_new_dataset \\
         --task "pack 6 cosmetic bottles into the carton"
 
-    # Inference + stream head camera & state to the video-playback laptop at 10 Hz
-    # (off-laptop detection + seamless video switching; never blocks control)
+    # Keyboard-delimited episodes (lerobot style): right arrow starts / ends
+    # and saves an episode; left arrow discards and re-records; ESC exits.
+    # Add --confirm_success to mark each episode with Enter (success) or
+    # Backspace (failure) at frame level (observation.is_success).
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --host 192.168.2.100 --port 8000 \\
-        --subscribe --subscribe_url ws://192.168.2.50:9100 --subscribe_hz 10
+        --record \\
+        --record_repo_id Xense/my_new_dataset \\
+        --task "pack 6 cosmetic bottles into the carton" \\
+        --keyboard_control --confirm_success
 
     # Inference with Pico4 human intervention (both grips held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --host 192.168.2.100 --port 8000 --pico4_intervention
+
+    # Inference with Pico4 intervention + simultaneous recording. Recording
+    # under --pico4_intervention automatically adds a frame-level
+    # observation.is_intervention flag (1 = human takeover frame, 0 = policy),
+    # so the recorded dataset can identify which frames were teleoperated.
+    python -m examples.bi_flexiv_rizon4_rt.main \\
+        --host 192.168.2.100 --port 8000 \\
+        --pico4_intervention \\
+        --record \\
+        --record_repo_id Xense/my_new_dataset \\
+        --task "pack 6 cosmetic bottles into the carton"
 """
 
 from dataclasses import dataclass
@@ -57,8 +73,8 @@ from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.bi_flexiv_rizon4_rt.env as _env
 import examples.bi_flexiv_rizon4_rt.intervention as _intervention
+import examples.bi_flexiv_rizon4_rt.keyboard_control as _keyboard_control
 import examples.bi_flexiv_rizon4_rt.recorder as _recorder
-import examples.bi_flexiv_rizon4_rt.subscribe as _subscribe
 
 logger = get_logger("BiFlexivRizon4RTMain")
 
@@ -197,36 +213,24 @@ class Args:
     action_hz: float = 0.0
     paced_queue_size: int = 50
 
-    # Enable the obs subscriber that streams observations to the downstream
-    # video-playback laptop (③) for off-laptop detection + seamless video switching.
-    # One-way ws push on a daemon thread; never blocks the 30 Hz control loop.
-    # (Inference is on the separate 5090 server, set via --host/--port.)
-    # NB: distinct from --bi_mount_type forward — this is the detection-data stream.
-    subscribe: bool = False
-    # obs ws URL of the video-playback laptop's app (its --obs_port, default 9100).
-    subscribe_url: str = "ws://127.0.0.1:9100"
-    # Which raw cameras to stream from observation["images_raw"]; the detector uses head.
-    subscribe_cameras: tuple[str, ...] = ("head",)
-    # Stream the 20-D robot state — the gripper detector needs it.
-    subscribe_state: bool = True
-    # Also stream the 20-D model action (debug/overlay only; the detector ignores it).
-    subscribe_action: bool = False
-    # Cap the stream rate to this many frames/sec (wall-clock throttle, independent of
-    # runtime_hz). 0 = stream on every control step. e.g. 10 = stream the head at 10 Hz.
-    subscribe_hz: float = 0.0
-    # Stream every Nth step (integer subsample); prefer subscribe_hz to target a rate.
-    subscribe_stride: int = 1
-    # Startup handshake: when --subscribe is set, block until the video-playback laptop
-    # is reachable before running (like the VLA client waits for the inference server),
-    # so we never run inference with the screen unreachable. Give up after this many
-    # seconds; 0 = wait forever (retry), matching the VLA client.
-    subscribe_handshake_timeout: float = 0.0
-
     # Recording (LeRobot format, raw 640x480 images + absolute actions)
     record: bool = False
     record_repo_id: str = "Xense/recorded_dataset"
     record_root: str | None = None  # local save path, defaults to ~/.cache/huggingface/lerobot
     task: str = "pack 6 cosmetic bottles into the carton"
+    # Record a frame-level observation.is_intervention flag when pico4
+    # intervention is active (auto-enabled with --pico4_intervention; pass
+    # explicitly to override).
+    record_intervention_flag: bool | None = None
+
+    # Keyboard-controlled episode delimiting (lerobot style):
+    #   Right arrow: start episode / end + save
+    #   Left arrow : discard current episode and re-record
+    #   Enter      : end + save with is_success=True (needs --confirm_success)
+    #   Backspace  : end + save with is_success=False (needs --confirm_success)
+    #   ESC        : discard current episode and exit
+    keyboard_control: bool = False
+    confirm_success: bool = False
 
     # Pico4 human-in-the-loop intervention (hold both grips to take over)
     pico4_intervention: bool = False
@@ -235,6 +239,15 @@ class Args:
 
 
 def main(args: Args) -> None:
+    if args.keyboard_control and args.action_hz > 0:
+        # KeyboardControlledEnvironmentWrapper blocks in get_observation,
+        # which deadlocks the decoupled runtime's action thread. Refuse the
+        # combo rather than hanging the robot.
+        raise SystemExit(
+            "--keyboard_control is not supported with --action_hz > 0 in this release. "
+            "Run with --action_hz 0 (synchronous runtime), or disable keyboard control."
+        )
+
     if args.pico4_intervention and args.rtc_enabled:
         # RTCActionChunkBroker owns an execution queue + blending; its reset
         # semantics differ from ActionChunkBroker. A correct RTC handoff needs
@@ -274,12 +287,28 @@ def main(args: Args) -> None:
         render_width=args.render_width,
         setup_robot=True,
     )
+    environment = base_environment
 
     if args.dry_run:
         logger.info("DRY RUN mode: actions will be printed, not executed")
-        environment = DryRunEnvironmentWrapper(base_environment)
-    else:
-        environment = base_environment
+        environment = DryRunEnvironmentWrapper(environment)
+
+    keyboard_controller: _keyboard_control.KeyboardEpisodeController | None = None
+    if args.keyboard_control:
+        keyboard_controller = _keyboard_control.KeyboardEpisodeController(
+            confirm_success=args.confirm_success
+        )
+        keyboard_controller.start()
+        logger.info(
+            "Keyboard episode control enabled. "
+            "Right arrow toggles recording; left arrow re-records; "
+            "ESC exits."
+        )
+        # Episodes are delimited by keyboard input, not by a fixed count or
+        # step budget: run a practically unbounded number of episodes and let
+        # the operator end each one.
+        args.num_episodes = 10_000
+        args.max_episode_steps = 0
 
     subscribers = []
     if args.record:
@@ -287,31 +316,22 @@ def main(args: Args) -> None:
             logger.warning(
                 "Recording is enabled in dry-run mode — state/action data will be from policy output only (no real robot motion)"
             )
+        record_intervention = args.record_intervention_flag
+        if record_intervention is None:
+            record_intervention = args.pico4_intervention
+        if args.pico4_intervention and record_intervention:
+            logger.info("Recording frame-level observation.is_intervention flag (pico4 intervention).")
         recorder = _recorder.make_recorder_subscriber(
             repo_id=args.record_repo_id,
             task=args.task,
             fps=int(args.runtime_hz),
             root=args.record_root,
+            controller=keyboard_controller,
+            record_intervention=record_intervention,
+            confirm_success=args.confirm_success,
         )
         subscribers.append(recorder)
         logger.info(f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}'")
-
-    if args.subscribe:
-        # require_handshake blocks here until the video-playback laptop is up and
-        # greets us — so, like the VLA policy client waiting for the inference server,
-        # we never proceed to inference while the screen PC is unreachable.
-        obs_subscriber = _subscribe.make_obs_subscriber(
-            uri=args.subscribe_url,
-            cameras=tuple(args.subscribe_cameras),
-            send_state=args.subscribe_state,
-            send_action=args.subscribe_action,
-            subscribe_hz=args.subscribe_hz,
-            send_stride=args.subscribe_stride,
-            require_handshake=True,
-            handshake_timeout_s=args.subscribe_handshake_timeout,
-        )
-        subscribers.append(obs_subscriber)
-        logger.info(f"Subscribing obs to detection machine: {args.subscribe_url}")
 
     # In decoupled mode the broker is popped at action_hz, not runtime_hz —
     # RTC's internal delay/blend math reads frequency_hz to estimate
@@ -379,6 +399,9 @@ def main(args: Args) -> None:
     else:
         agent = _policy_agent.PolicyAgent(policy=policy)
 
+    if keyboard_controller is not None:
+        environment = _env.KeyboardControlledEnvironmentWrapper(environment, keyboard_controller)
+
     if decoupled_mode:
         logger.info(
             f"Decoupled runtime: obs at ~{args.runtime_hz} Hz (camera-bound), " f"action at {args.action_hz} Hz"
@@ -438,6 +461,8 @@ def main(args: Args) -> None:
 
     try:
         runtime.run()
+    except _keyboard_control.KeyboardExit:
+        logger.info("Keyboard exit requested — shutting down cleanly")
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt")
     except Exception as e:
