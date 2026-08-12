@@ -134,6 +134,13 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
     @override
     def on_episode_start(self) -> None:
         self._step_count = 0
+        # Warm up streaming encoders before the first frame so encoder
+        # initialization doesn't overrun it. Only available in newer
+        # lerobot-xense; older versions auto-start the encoder on the
+        # first add_frame instead.
+        prepare = getattr(self._dataset, "prepare_episode_recording", None)
+        if prepare is not None:
+            prepare()
         logger.info("Episode recording started")
 
     @override
@@ -249,6 +256,8 @@ def make_recorder_subscriber(
     record_intervention: bool = False,
     confirm_success: bool = False,
     resume: bool = False,
+    vcodec: str = "auto",
+    streaming_encoding: bool = True,
 ) -> LeRobotRecorderSubscriber:
     """Create a LeRobotRecorderSubscriber for a new dataset.
 
@@ -261,6 +270,11 @@ def make_recorder_subscriber(
         image_width: Raw image width in pixels (default 640).
         use_videos: Encode images as video (True) or individual frames (False).
         image_writer_threads: Async image writer thread count.
+        vcodec: Video codec passed to LeRobotDataset. "auto" resolves to a
+            hardware encoder (e.g. h264_nvenc) when available, else libsvtav1.
+        streaming_encoding: Encode video frames in background threads during
+            recording (near-instant save, smaller files) instead of buffering
+            PNGs and encoding after each episode.
         resume: If True, open the existing dataset at repo_id/root and append
             new episodes to it instead of creating a fresh dataset. Episode
             numbering continues from the existing dataset, and fps/features/
@@ -284,6 +298,8 @@ def make_recorder_subscriber(
             image_width=image_width,
             record_intervention=record_intervention,
             confirm_success=confirm_success,
+            vcodec=vcodec,
+            streaming_encoding=streaming_encoding,
         )
     else:
         logger.info(f"Creating dataset repo_id={repo_id}" + (f" root={local_dir}" if local_dir else ""))
@@ -301,6 +317,8 @@ def make_recorder_subscriber(
             robot_type="bi_flexiv_rizon4_rt",
             use_videos=use_videos,
             image_writer_threads=image_writer_threads,
+            vcodec=vcodec,
+            streaming_encoding=streaming_encoding,
         )
     return LeRobotRecorderSubscriber(
         dataset=dataset,
@@ -321,6 +339,8 @@ def _open_dataset_for_resume(
     image_width: int,
     record_intervention: bool,
     confirm_success: bool,
+    vcodec: str = "auto",
+    streaming_encoding: bool = True,
 ) -> tuple[LeRobotDataset, bool, bool]:
     """Open an existing dataset for appending new episodes.
 
@@ -341,7 +361,13 @@ def _open_dataset_for_resume(
             "Use --resume only when a dataset already exists at --record_root/--record_repo_id."
         )
 
-    dataset = LeRobotDataset(repo_id=repo_id, root=root, batch_encoding_size=1)
+    dataset = LeRobotDataset(
+        repo_id=repo_id,
+        root=root,
+        batch_encoding_size=1,
+        vcodec=vcodec,
+        streaming_encoding=streaming_encoding,
+    )
     logger.info(
         f"Resuming dataset repo_id={repo_id} root={root}: "
         f"episodes={dataset.meta.total_episodes}, frames={dataset.meta.total_frames}"

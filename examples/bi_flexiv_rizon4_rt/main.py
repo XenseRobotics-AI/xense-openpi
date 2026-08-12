@@ -239,6 +239,13 @@ class Args:
     # intervention is active (auto-enabled with --pico4_intervention; pass
     # explicitly to override).
     record_intervention_flag: bool | None = None
+    # Video encoding for --record (lerobot-style): "auto" picks a hardware
+    # encoder (e.g. h264_nvenc) when available, falling back to libsvtav1;
+    # streaming encodes frames during recording instead of after each
+    # episode, so saving is near-instant and files are much smaller than
+    # the post-hoc software encode with GOP=2.
+    record_vcodec: str = "auto"
+    record_streaming_encoding: bool = True
 
     # Keyboard-controlled episode delimiting (lerobot style):
     #   Right arrow: start episode / end + save
@@ -350,9 +357,14 @@ def main(args: Args) -> None:
             record_intervention=record_intervention,
             confirm_success=args.confirm_success,
             resume=args.resume,
+            vcodec=args.record_vcodec,
+            streaming_encoding=args.record_streaming_encoding,
         )
         subscribers.append(recorder)
-        logger.info(f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}'")
+        logger.info(
+            f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}', "
+            f"vcodec={args.record_vcodec}, streaming_encoding={args.record_streaming_encoding}"
+        )
 
     # In decoupled mode the broker is popped at action_hz, not runtime_hz —
     # RTC's internal delay/blend math reads frequency_hz to estimate
