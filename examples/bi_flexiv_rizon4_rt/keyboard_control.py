@@ -54,11 +54,17 @@ class KeyboardEpisodeController:
       ESC sets a pending exit request. ``consume_start`` / ``consume_exit``
       are polled by the environment wrapper while it blocks waiting.
     * RUNNING: an episode is being recorded. Any of right/left/enter/
-      backspace/esc ends it and records the corresponding end reason.
+      backspace/esc records a pending end reason. ``_running`` stays True
+      while the reason is pending: the runtime's next step reads an
+      observation *before* checking ``is_episode_complete``, so flipping to
+      IDLE immediately would make ``get_observation`` block in
+      ``_wait_for_start`` and swallow the reason. The episode only returns
+      to IDLE when the recorder consumes the reason in ``on_episode_end``.
 
     End reasons are peeked (without consuming) by the environment wrapper's
     ``is_episode_complete`` and consumed exactly once by the recorder in
-    ``on_episode_end``.
+    ``on_episode_end`` (or drained by the wrapper's reset when no recorder
+    is attached).
     """
 
     def __init__(self, confirm_success: bool = False) -> None:
@@ -125,7 +131,6 @@ class KeyboardEpisodeController:
     def _handle_right(self) -> None:
         with self._lock:
             if self._running:
-                self._running = False
                 self._end_reason = EpisodeEndReason.SAVE
                 logger.info("Right arrow: ending episode (save)")
             else:
@@ -135,7 +140,6 @@ class KeyboardEpisodeController:
     def _handle_left(self) -> None:
         with self._lock:
             if self._running:
-                self._running = False
                 self._end_reason = EpisodeEndReason.DISCARD
                 logger.info("Left arrow: discarding current episode (re-record)")
             else:
@@ -144,7 +148,6 @@ class KeyboardEpisodeController:
     def _handle_enter(self) -> None:
         with self._lock:
             if self._running:
-                self._running = False
                 if self._confirm_success:
                     self._end_reason = EpisodeEndReason.SUCCESS
                     logger.info("Enter: ending episode (is_success=True)")
@@ -157,7 +160,6 @@ class KeyboardEpisodeController:
     def _handle_backspace(self) -> None:
         with self._lock:
             if self._running:
-                self._running = False
                 if self._confirm_success:
                     self._end_reason = EpisodeEndReason.FAILURE
                     logger.info("Backspace: ending episode (is_success=False)")
@@ -170,7 +172,6 @@ class KeyboardEpisodeController:
     def _handle_esc(self) -> None:
         with self._lock:
             if self._running:
-                self._running = False
                 # Lerobot semantics: ESC ends the in-progress episode and
                 # saves it (data is never lost), then requests a clean exit.
                 self._end_reason = EpisodeEndReason.SAVE
@@ -210,8 +211,16 @@ class KeyboardEpisodeController:
             return self._end_reason
 
     def consume_end_reason(self) -> Optional[EpisodeEndReason]:
-        """Consume the end reason exactly once (called by the recorder)."""
+        """Consume the pending end reason exactly once.
+
+        Called by the recorder in ``on_episode_end`` (or drained by the
+        environment wrapper's reset when no recorder is attached). Returning
+        a reason also transitions back to IDLE (``_running=False``), so the
+        next episode blocks in the environment wrapper until a new start key.
+        """
         with self._lock:
             reason = self._end_reason
-            self._end_reason = None
+            if reason is not None:
+                self._end_reason = None
+                self._running = False
             return reason

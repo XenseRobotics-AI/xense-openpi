@@ -17,7 +17,7 @@ Usage:
 import pathlib
 import shutil
 
-from lerobot.datasets.utils import DEFAULT_IMAGE_PATH
+from lerobot.datasets.utils import DEFAULT_FEATURES, DEFAULT_IMAGE_PATH
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
@@ -248,6 +248,7 @@ def make_recorder_subscriber(
     controller: _keyboard_control.KeyboardEpisodeController | None = None,
     record_intervention: bool = False,
     confirm_success: bool = False,
+    resume: bool = False,
 ) -> LeRobotRecorderSubscriber:
     """Create a LeRobotRecorderSubscriber for a new dataset.
 
@@ -260,28 +261,47 @@ def make_recorder_subscriber(
         image_width: Raw image width in pixels (default 640).
         use_videos: Encode images as video (True) or individual frames (False).
         image_writer_threads: Async image writer thread count.
+        resume: If True, open the existing dataset at repo_id/root and append
+            new episodes to it instead of creating a fresh dataset. Episode
+            numbering continues from the existing dataset, and fps/features/
+            robot_type must match. Optional per-frame features
+            (is_intervention / is_success) are auto-disabled when the existing
+            dataset's schema does not contain them.
 
     Returns:
         A configured LeRobotRecorderSubscriber ready to attach to Runtime.
     """
     local_dir = pathlib.Path(root) if root else None
 
-    logger.info(f"Creating dataset repo_id={repo_id}" + (f" root={local_dir}" if local_dir else ""))
-    dataset = LeRobotDataset.create(
-        repo_id=repo_id,
-        fps=fps,
-        features=make_bi_flexiv_dataset_features(
-            image_height,
-            image_width,
-            use_videos,
-            include_intervention=record_intervention,
-            include_success=confirm_success,
-        ),
-        root=local_dir,
-        robot_type="bi_flexiv_rizon4_rt",
-        use_videos=use_videos,
-        image_writer_threads=image_writer_threads,
-    )
+    if resume:
+        dataset, record_intervention, confirm_success = _open_dataset_for_resume(
+            repo_id=repo_id,
+            root=local_dir,
+            fps=fps,
+            image_writer_threads=image_writer_threads,
+            use_videos=use_videos,
+            image_height=image_height,
+            image_width=image_width,
+            record_intervention=record_intervention,
+            confirm_success=confirm_success,
+        )
+    else:
+        logger.info(f"Creating dataset repo_id={repo_id}" + (f" root={local_dir}" if local_dir else ""))
+        dataset = LeRobotDataset.create(
+            repo_id=repo_id,
+            fps=fps,
+            features=make_bi_flexiv_dataset_features(
+                image_height,
+                image_width,
+                use_videos,
+                include_intervention=record_intervention,
+                include_success=confirm_success,
+            ),
+            root=local_dir,
+            robot_type="bi_flexiv_rizon4_rt",
+            use_videos=use_videos,
+            image_writer_threads=image_writer_threads,
+        )
     return LeRobotRecorderSubscriber(
         dataset=dataset,
         task=task,
@@ -289,3 +309,105 @@ def make_recorder_subscriber(
         record_intervention=record_intervention,
         confirm_success=confirm_success,
     )
+
+
+def _open_dataset_for_resume(
+    repo_id: str,
+    root: pathlib.Path | None,
+    fps: int,
+    image_writer_threads: int,
+    use_videos: bool,
+    image_height: int,
+    image_width: int,
+    record_intervention: bool,
+    confirm_success: bool,
+) -> tuple[LeRobotDataset, bool, bool]:
+    """Open an existing dataset for appending new episodes.
+
+    The lerobot-xense fork supports incremental recording by constructing
+    ``LeRobotDataset`` directly (there is no ``resume=`` kwarg on ``create()``);
+    its ``save_episode`` appends to the latest parquet/video chunk files and
+    episode numbering continues from ``meta.total_episodes``.
+
+    Returns the opened dataset plus the adjusted feature flags (derived from
+    the dataset's existing schema so recorded frames never violate it).
+    """
+    if root is None:
+        root = pathlib.Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
+    info_path = root / "meta" / "info.json"
+    if not info_path.is_file():
+        raise FileNotFoundError(
+            f"Cannot resume: no dataset found at {root} (missing {info_path}). "
+            "Use --resume only when a dataset already exists at --record_root/--record_repo_id."
+        )
+
+    dataset = LeRobotDataset(repo_id=repo_id, root=root, batch_encoding_size=1)
+    logger.info(
+        f"Resuming dataset repo_id={repo_id} root={root}: "
+        f"episodes={dataset.meta.total_episodes}, frames={dataset.meta.total_frames}"
+    )
+
+    # Adjust optional per-frame features to the dataset's existing schema.
+    if record_intervention and "observation.is_intervention" not in dataset.features:
+        logger.warning(
+            "Existing dataset has no 'observation.is_intervention' feature; "
+            "recording without the intervention flag."
+        )
+        record_intervention = False
+    if confirm_success and "observation.is_success" not in dataset.features:
+        logger.warning(
+            "Existing dataset has no 'observation.is_success' feature; "
+            "--confirm_success will only end episodes (no success column)."
+        )
+        confirm_success = False
+
+    # Hard compatibility checks: robot type / fps / schema must match.
+    if dataset.meta.robot_type != "bi_flexiv_rizon4_rt":
+        raise ValueError(
+            f"Cannot resume: dataset robot_type is {dataset.meta.robot_type!r}, "
+            "expected 'bi_flexiv_rizon4_rt'."
+        )
+    if dataset.fps != fps:
+        raise ValueError(
+            f"Cannot resume: dataset fps is {dataset.fps}, requested {fps}. "
+            "Use --runtime_hz to match the existing dataset."
+        )
+
+    expected_features = {
+        **make_bi_flexiv_dataset_features(
+            image_height,
+            image_width,
+            use_videos,
+            include_intervention=record_intervention,
+            include_success=confirm_success,
+        ),
+        **DEFAULT_FEATURES,
+    }
+    _check_features_match(dataset.features, expected_features)
+
+    if image_writer_threads:
+        dataset.start_image_writer(num_processes=0, num_threads=image_writer_threads)
+
+    return dataset, record_intervention, confirm_success
+
+
+def _check_features_match(existing: dict, expected: dict) -> None:
+    """Compare feature schemas, ignoring per-video codec info."""
+
+    def normalize(features: dict) -> dict:
+        return {
+            name: {k: v for k, v in ft.items() if k != "info"}
+            for name, ft in features.items()
+        }
+
+    existing_n = normalize(existing)
+    expected_n = normalize(expected)
+    if existing_n != expected_n:
+        raise ValueError(
+            "Cannot resume: dataset features do not match this recording setup.\n"
+            f"Only in dataset: {sorted(set(existing_n) - set(expected_n))}\n"
+            f"Only in this run: {sorted(set(expected_n) - set(existing_n))}\n"
+            "Record into a new dataset (drop --resume or use a new --record_repo_id), "
+            "or match the original recording options (cameras, image size, "
+            "is_success/is_intervention flags)."
+        )

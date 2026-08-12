@@ -152,7 +152,10 @@ class KeyboardControlledEnvironmentWrapper(_environment.Environment):
       environment at the start of every episode.
     * RUNNING: any of right/left/enter/backspace/esc ends the episode; the
       reason is peeked by ``is_episode_complete`` (without consuming) and
-      consumed exactly once by the recorder in ``on_episode_end``.
+      consumed exactly once by the recorder in ``on_episode_end``. The
+      controller keeps ``is_running`` True while a reason is pending so the
+      runtime's next step (which reads an observation before checking
+      ``is_episode_complete``) never blocks and never drops the reason.
 
     This keeps all keyboard decisions inside the Environment interface, so the
     shared ``Runtime`` class needs no changes. Only works with the synchronous
@@ -170,6 +173,9 @@ class KeyboardControlledEnvironmentWrapper(_environment.Environment):
 
     @override
     def reset(self) -> None:
+        # Drain any end reason the recorder did not consume (e.g. keyboard
+        # control without --record), so the next episode starts cleanly IDLE.
+        self._controller.consume_end_reason()
         # Move the robot back to its initial pose; the next get_observation
         # will block in IDLE until the operator starts a new episode.
         self._wrapped_env.reset()

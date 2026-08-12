@@ -37,6 +37,18 @@ Example usage:
         --task "pack 6 cosmetic bottles into the carton" \\
         --keyboard_control --confirm_success
 
+    # Resume recording into an existing dataset: keeps episode numbering and
+    # appends to the same parquet/video files. fps/features/robot_type must
+    # match the existing dataset (use the same --record_repo_id/--record_root
+    # and --runtime_hz as the original run).
+    python -m examples.bi_flexiv_rizon4_rt.main \\
+        --host 192.168.2.100 --port 8000 \\
+        --record \\
+        --record_repo_id Xense/my_new_dataset \\
+        --record_root ~/.cache/huggingface/lerobot \\
+        --task "pack 6 cosmetic bottles into the carton" \\
+        --resume
+
     # Inference with Pico4 human intervention (both grips held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --host 192.168.2.100 --port 8000 --pico4_intervention
@@ -219,6 +231,10 @@ class Args:
     record_repo_id: str = "Xense/recorded_dataset"
     record_root: str | None = None  # local save path, defaults to ~/.cache/huggingface/lerobot
     task: str = "pack 6 cosmetic bottles into the carton"
+    # Resume recording into an existing dataset (append new episodes to
+    # --record_repo_id/--record_root instead of creating a fresh one).
+    # Episode numbering continues; fps/features/robot_type must match.
+    resume: bool = False
     # Record a frame-level observation.is_intervention flag when pico4
     # intervention is active (auto-enabled with --pico4_intervention; pass
     # explicitly to override).
@@ -240,6 +256,9 @@ class Args:
 
 
 def main(args: Args) -> None:
+    if args.resume and not args.record:
+        raise SystemExit("--resume requires --record (it appends episodes to an existing dataset).")
+
     if args.keyboard_control and args.action_hz > 0:
         # KeyboardControlledEnvironmentWrapper blocks in get_observation,
         # which deadlocks the decoupled runtime's action thread. Refuse the
@@ -330,6 +349,7 @@ def main(args: Args) -> None:
             controller=keyboard_controller,
             record_intervention=record_intervention,
             confirm_success=args.confirm_success,
+            resume=args.resume,
         )
         subscribers.append(recorder)
         logger.info(f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}'")
