@@ -5,13 +5,14 @@ recording episodes with the keyboard, mirroring lerobot's record-loop events:
 
     Right arrow : start a new episode (IDLE) or end + save it (RUNNING)
     Left arrow  : discard the current episode and re-record it immediately
-    Enter       : end + save the episode with is_success=True
-    Backspace   : end + save the episode with is_success=False
-    ESC         : discard the current episode (if any) and exit cleanly
+    Enter       : end + save the episode (is_success=True with --confirm_success)
+    Backspace   : end + save the episode (is_success=False with --confirm_success)
+    ESC         : end + save the current episode (if any) and exit cleanly
 
-Enter/Backspace only take effect when ``confirm_success`` is enabled; the
-episode then carries a frame-level ``observation.is_success`` column that is
-backfilled with the confirmed value before the episode is saved.
+Enter/Backspace always end + save the episode. ``confirm_success`` only
+controls whether the frame-level ``observation.is_success`` column is recorded
+and backfilled with the confirmed value. ESC follows lerobot semantics: the
+in-progress episode is saved (not discarded), then the program exits.
 
 The controller is edge-triggered (press only), so holding a key does not
 repeat. All shared state is guarded by a lock because the pynput callback
@@ -95,10 +96,11 @@ class KeyboardEpisodeController:
         print("Keyboard episode control:")
         print("  Right arrow: start a new episode / end and save the current one")
         print("  Left arrow : discard the current episode and re-record it")
+        print("  Enter      : end and save the current episode")
         if self._confirm_success:
-            print("  Enter      : end episode with is_success=True")
+            print("               (with --confirm_success: Enter = is_success=True)")
             print("  Backspace  : end episode with is_success=False")
-        print("  ESC        : stop recording and exit cleanly")
+        print("  ESC        : end and save the current episode, then exit")
 
     # ------------------------------------------------------------------
     # Key callbacks (pynput thread)
@@ -140,24 +142,28 @@ class KeyboardEpisodeController:
                 logger.info("Left arrow: no episode in progress to discard")
 
     def _handle_enter(self) -> None:
-        if not self._confirm_success:
-            return
         with self._lock:
             if self._running:
                 self._running = False
-                self._end_reason = EpisodeEndReason.SUCCESS
-                logger.info("Enter: ending episode (is_success=True)")
+                if self._confirm_success:
+                    self._end_reason = EpisodeEndReason.SUCCESS
+                    logger.info("Enter: ending episode (is_success=True)")
+                else:
+                    self._end_reason = EpisodeEndReason.SAVE
+                    logger.info("Enter: ending episode (save)")
             else:
                 logger.info("Enter: no episode in progress")
 
     def _handle_backspace(self) -> None:
-        if not self._confirm_success:
-            return
         with self._lock:
             if self._running:
                 self._running = False
-                self._end_reason = EpisodeEndReason.FAILURE
-                logger.info("Backspace: ending episode (is_success=False)")
+                if self._confirm_success:
+                    self._end_reason = EpisodeEndReason.FAILURE
+                    logger.info("Backspace: ending episode (is_success=False)")
+                else:
+                    self._end_reason = EpisodeEndReason.SAVE
+                    logger.info("Backspace: ending episode (save)")
             else:
                 logger.info("Backspace: no episode in progress")
 
@@ -165,7 +171,10 @@ class KeyboardEpisodeController:
         with self._lock:
             if self._running:
                 self._running = False
-                self._end_reason = EpisodeEndReason.EXIT
+                # Lerobot semantics: ESC ends the in-progress episode and
+                # saves it (data is never lost), then requests a clean exit.
+                self._end_reason = EpisodeEndReason.SAVE
+                logger.info("ESC: ending episode (save) and exiting")
             self._exit_requested = True
             logger.info("ESC: stop recording and exit")
 

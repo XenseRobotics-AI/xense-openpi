@@ -26,8 +26,9 @@ Example usage:
         --task "pack 6 cosmetic bottles into the carton"
 
     # Keyboard-delimited episodes (lerobot style): right arrow starts / ends
-    # and saves an episode; left arrow discards and re-records; ESC exits.
-    # Add --confirm_success to mark each episode with Enter (success) or
+    # and saves an episode; left arrow discards and re-records; Enter also
+    # ends + saves; ESC saves the current episode and exits. Add
+    # --confirm_success to annotate each episode with Enter (success) or
     # Backspace (failure) at frame level (observation.is_success).
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --host 192.168.2.100 --port 8000 \\
@@ -226,9 +227,9 @@ class Args:
     # Keyboard-controlled episode delimiting (lerobot style):
     #   Right arrow: start episode / end + save
     #   Left arrow : discard current episode and re-record
-    #   Enter      : end + save with is_success=True (needs --confirm_success)
-    #   Backspace  : end + save with is_success=False (needs --confirm_success)
-    #   ESC        : discard current episode and exit
+    #   Enter      : end + save (is_success=True with --confirm_success)
+    #   Backspace  : end + save (is_success=False with --confirm_success)
+    #   ESC        : end + save current episode and exit
     keyboard_control: bool = False
     confirm_success: bool = False
 
@@ -302,7 +303,7 @@ def main(args: Args) -> None:
         logger.info(
             "Keyboard episode control enabled. "
             "Right arrow toggles recording; left arrow re-records; "
-            "ESC exits."
+            "Enter saves; ESC saves and exits."
         )
         # Episodes are delimited by keyboard input, not by a fixed count or
         # step budget: run a practically unbounded number of episodes and let

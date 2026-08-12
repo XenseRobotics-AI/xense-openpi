@@ -15,7 +15,9 @@ Usage:
 """
 
 import pathlib
+import shutil
 
+from lerobot.datasets.utils import DEFAULT_IMAGE_PATH
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
@@ -171,11 +173,9 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         if self._controller is not None:
             end_reason = self._controller.consume_end_reason()
 
-        if end_reason in (
-            _keyboard_control.EpisodeEndReason.DISCARD,
-            _keyboard_control.EpisodeEndReason.EXIT,
-        ):
+        if end_reason == _keyboard_control.EpisodeEndReason.DISCARD:
             logger.info(f"Discarding episode ({self._step_count} steps)...")
+            self._discard_episode_images()
             self._dataset.clear_episode_buffer()
             return
 
@@ -193,6 +193,31 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
             f"Episode saved. Total episodes: {self._dataset.meta.total_episodes}, "
             f"total frames: {self._dataset.meta.total_frames}"
         )
+
+    def _discard_episode_images(self) -> None:
+        """Remove the discarded episode's temp PNG frames.
+
+        lerobot-xense's ``clear_episode_buffer(delete_images=...)`` only cleans
+        features with dtype "image"; for video-typed datasets (``use_videos``)
+        ``meta.image_keys`` is empty, so discarded frames would otherwise linger
+        as orphaned PNGs (images on disk but no mp4). Remove them explicitly so
+        the dataset directory stays consistent.
+        """
+        buffer = self._dataset.episode_buffer
+        if buffer is None:
+            return
+        episode_index = buffer.get("episode_index")
+        if isinstance(episode_index, np.ndarray):
+            episode_index = episode_index.item() if episode_index.size == 1 else episode_index[0]
+        if not isinstance(episode_index, int):
+            return
+        for cam_key in self._dataset.meta.camera_keys:
+            fpath = DEFAULT_IMAGE_PATH.format(
+                image_key=cam_key, episode_index=episode_index, frame_index=0
+            )
+            img_dir = (self._dataset.root / fpath).parent
+            if img_dir.is_dir():
+                shutil.rmtree(img_dir)
 
     def _backfill_success(self, value: float | None) -> None:
         """Replace the per-frame is_success placeholders with the confirmed value.
