@@ -16,6 +16,69 @@ from lerobot.robots.utils import make_robot_from_config
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
 
+try:
+    from lerobot.utils.robot_utils import emergency_stop_flexiv_rt_robot
+except ImportError:
+    # lerobot-xense removed this helper in its "strip vendor + policy"
+    # refactor (commit cf82e7c8), but the example was written against the
+    # fork that still had it. Vendor the same best-effort implementation so
+    # the disconnect fallback works regardless of which lerobot is installed.
+    def emergency_stop_flexiv_rt_robot(robot, logger=None) -> bool:
+        """Best-effort emergency stop for Flexiv RT robots and wrappers.
+
+        Supports:
+        - raw ``flexiv_rt.Robot`` objects
+        - single-arm wrappers exposing ``_robot``
+        - bimanual wrappers exposing ``_left_robot`` / ``_right_robot``
+
+        Returns:
+            True if any emergency-stop path was triggered successfully.
+        """
+        if robot is None:
+            return False
+
+        stopped_any = False
+        seen_ids: set[int] = set()
+
+        def _log(level: str, message: str) -> None:
+            if logger is None:
+                return
+            getattr(logger, level)(message)
+
+        if hasattr(robot, "trigger_estop"):
+            try:
+                robot.trigger_estop()
+                stopped_any = True
+                _log("warning", "Triggered Flexiv RT e-stop.")
+            except Exception as e:
+                _log("error", f"Failed to trigger Flexiv RT e-stop: {e}")
+
+        candidates = [
+            ("robot", robot if hasattr(robot, "Stop") else None),
+            ("robot", getattr(robot, "_robot", None)),
+            ("left arm", getattr(robot, "_left_robot", None)),
+            ("right arm", getattr(robot, "_right_robot", None)),
+        ]
+
+        for label, raw_robot in candidates:
+            if raw_robot is None:
+                continue
+            raw_id = id(raw_robot)
+            if raw_id in seen_ids:
+                continue
+            seen_ids.add(raw_id)
+            if not hasattr(raw_robot, "Stop"):
+                continue
+            try:
+                raw_robot.Stop()
+                stopped_any = True
+                _log("warning", f"Called Stop() on Flexiv RT {label}.")
+            except Exception as e:
+                _log("error", f"Failed to call Stop() on Flexiv RT {label}: {e}")
+
+        return stopped_any
+
+
 logger = get_logger("BiFlexivRizon4RTRealEnv")
 
 # Policy-facing camera names (must match BiFlexivInputs.EXPECTED_CAMERAS)
@@ -115,12 +178,12 @@ class BiFlexivRizon4RTRealEnv:
                 t0 = time.time()
                 while not self.robot.rt_moving:
                     if time.time() - t0 > 1.0:
-                        logger.warning("RT trajectory never started, proceeding anyway")
+                        logger.warn("RT trajectory never started, proceeding anyway")
                         break
                     time.sleep(0.001)
                 while self.robot.rt_moving:
                     if time.time() - t0 > 15.0:
-                        logger.warning("Reset trajectory timeout, proceeding anyway")
+                        logger.warn("Reset trajectory timeout, proceeding anyway")
                         break
                     time.sleep(0.05)
                 logger.info("BiFlexiv Rizon4 RT reset completed")
@@ -210,4 +273,6 @@ class BiFlexivRizon4RTRealEnv:
                 time.sleep(1)
                 logger.info("BiFlexiv Rizon4 RT disconnected")
             except Exception as e:
-                logger.warning(f"Error during disconnect: {e}")
+                logger.warn(f"Error during disconnect: {e}")
+                if emergency_stop_flexiv_rt_robot(self.robot, logger):
+                    logger.warn("Emergency stop fallback completed for BiFlexiv Rizon4 RT")
