@@ -178,12 +178,12 @@ class BiFlexivRizon4RTRealEnv:
                 t0 = time.time()
                 while not self.robot.rt_moving:
                     if time.time() - t0 > 1.0:
-                        logger.warning("RT trajectory never started, proceeding anyway")
+                        logger.warn("RT trajectory never started, proceeding anyway")
                         break
                     time.sleep(0.001)
                 while self.robot.rt_moving:
                     if time.time() - t0 > 15.0:
-                        logger.warning("Reset trajectory timeout, proceeding anyway")
+                        logger.warn("Reset trajectory timeout, proceeding anyway")
                         break
                     time.sleep(0.05)
                 logger.info("BiFlexiv Rizon4 RT reset completed")
@@ -273,6 +273,6 @@ class BiFlexivRizon4RTRealEnv:
                 time.sleep(1)
                 logger.info("BiFlexiv Rizon4 RT disconnected")
             except Exception as e:
-                logger.warning(f"Error during disconnect: {e}")
+                logger.warn(f"Error during disconnect: {e}")
                 if emergency_stop_flexiv_rt_robot(self.robot, logger):
-                    logger.warning("Emergency stop fallback completed for BiFlexiv Rizon4 RT")
+                    logger.warn("Emergency stop fallback completed for BiFlexiv Rizon4 RT")

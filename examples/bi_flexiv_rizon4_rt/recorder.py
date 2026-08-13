@@ -14,10 +14,18 @@ Usage:
     runtime = Runtime(..., subscribers=[subscriber])
 """
 
+import os
 import pathlib
 import shutil
+from contextlib import contextmanager
 
-from lerobot.datasets.utils import DEFAULT_FEATURES, DEFAULT_IMAGE_PATH
+from lerobot.datasets.utils import (
+    DEFAULT_FEATURES,
+    DEFAULT_IMAGE_PATH,
+    DEFAULT_TASKS_PATH,
+    EPISODES_DIR,
+    INFO_PATH,
+)
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
@@ -130,6 +138,7 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         self._record_intervention = record_intervention
         self._confirm_success = confirm_success
         self._step_count = 0
+        self._finalized = False
 
     @override
     def on_episode_start(self) -> None:
@@ -165,7 +174,7 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
             if cam in images_raw:
                 frame[f"observation.images.{cam}"] = np.asarray(images_raw[cam], dtype=np.uint8)
             else:
-                logger.warning(f"Camera '{cam}' missing from images_raw, skipping frame image")
+                logger.warn(f"Camera '{cam}' missing from images_raw, skipping frame image")
 
         self._dataset.add_frame(frame)
         self._step_count += 1
@@ -173,7 +182,7 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
     @override
     def on_episode_end(self) -> None:
         if self._step_count == 0:
-            logger.warning("Episode ended with 0 steps — not saving")
+            logger.warn("Episode ended with 0 steps — not saving")
             return
 
         end_reason = None
@@ -200,6 +209,44 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
             f"Episode saved. Total episodes: {self._dataset.meta.total_episodes}, "
             f"total frames: {self._dataset.meta.total_frames}"
         )
+
+    def finalize(self) -> None:
+        """Flush any unfinished episode and close LeRobot writers.
+
+        This is intended to run in ``main``'s ``finally`` block *before* the
+        robot is disconnected.  It must be safe to call after a normal
+        shutdown (where ``on_episode_end`` already saved and cleared the
+        buffer) as well as after an unexpected exception in ``runtime.run()``.
+        In the latter case the current in-memory episode buffer may still
+        contain unsaved frames; save it first so the partial episode is not
+        lost, then finalize the parquet writers so the dataset can be resumed
+        or loaded from disk later.
+        """
+        if self._finalized:
+            return
+
+        buffer = self._dataset.episode_buffer
+        if self._step_count > 0 and buffer is not None and int(buffer.get("size", 0)) > 0:
+            logger.warn(
+                f"Finalizing recorder with {int(buffer.get('size', 0))} unsaved frames "
+                "— saving partial episode."
+            )
+            try:
+                self._dataset.save_episode()
+            except Exception as e:
+                logger.error(f"Failed to save partial episode during finalize: {e}")
+
+        try:
+            self._dataset.finalize()
+        except Exception as e:
+            logger.error(f"Failed to finalize LeRobotDataset: {e}")
+
+        try:
+            self._dataset.stop_image_writer()
+        except Exception as e:
+            logger.error(f"Failed to stop image writer during finalize: {e}")
+
+        self._finalized = True
 
     def _discard_episode_images(self) -> None:
         """Remove the discarded episode's temp PNG frames.
@@ -361,13 +408,21 @@ def _open_dataset_for_resume(
             "Use --resume only when a dataset already exists at --record_root/--record_repo_id."
         )
 
-    dataset = LeRobotDataset(
-        repo_id=repo_id,
-        root=root,
-        batch_encoding_size=1,
-        vcodec=vcodec,
-        streaming_encoding=streaming_encoding,
-    )
+    _validate_local_resume_dataset(root)
+
+    # LeRobotDataset.__init__ falls back to downloading from the Hub whenever
+    # its local parquet loader raises FileNotFoundError/NotADirectoryError.
+    # For resume we already know the dataset should be local; prevent a
+    # missing/incomplete local dataset from turning into a remote fetch (or a
+    # confusing "repository not found / connection failed" error).
+    with _offline_huggingface():
+        dataset = LeRobotDataset(
+            repo_id=repo_id,
+            root=root,
+            batch_encoding_size=1,
+            vcodec=vcodec,
+            streaming_encoding=streaming_encoding,
+        )
     logger.info(
         f"Resuming dataset repo_id={repo_id} root={root}: "
         f"episodes={dataset.meta.total_episodes}, frames={dataset.meta.total_frames}"
@@ -375,13 +430,13 @@ def _open_dataset_for_resume(
 
     # Adjust optional per-frame features to the dataset's existing schema.
     if record_intervention and "observation.is_intervention" not in dataset.features:
-        logger.warning(
+        logger.warn(
             "Existing dataset has no 'observation.is_intervention' feature; "
             "recording without the intervention flag."
         )
         record_intervention = False
     if confirm_success and "observation.is_success" not in dataset.features:
-        logger.warning(
+        logger.warn(
             "Existing dataset has no 'observation.is_success' feature; "
             "--confirm_success will only end episodes (no success column)."
         )
@@ -415,6 +470,58 @@ def _open_dataset_for_resume(
         dataset.start_image_writer(num_processes=0, num_threads=image_writer_threads)
 
     return dataset, record_intervention, confirm_success
+
+
+def _validate_local_resume_dataset(root: pathlib.Path) -> None:
+    """Verify all required local LeRobot files are present before resuming.
+
+    This is intentionally stricter than just checking ``meta/info.json``:
+    ``LeRobotDatasetMetadata`` also loads tasks/episodes, and
+    ``LeRobotDataset`` loads frame parquet files. If any of those are missing
+    the normal constructor interprets it as "dataset not cached yet" and
+    downloads from Hugging Face, which is exactly what we want to avoid for a
+    resume-only workflow.
+    """
+    required_files = [
+        root / INFO_PATH,
+        root / DEFAULT_TASKS_PATH,
+    ]
+    required_parquet_dirs = [
+        root / EPISODES_DIR,
+        root / "data",
+    ]
+
+    missing_files = [str(path.relative_to(root)) for path in required_files if not path.is_file()]
+    missing_dirs = []
+    for directory in required_parquet_dirs:
+        if not any(directory.glob("*/*.parquet")):
+            missing_dirs.append(str(directory.relative_to(root)))
+
+    if missing_files or missing_dirs:
+        details = []
+        if missing_files:
+            details.append("missing files: " + ", ".join(missing_files))
+        if missing_dirs:
+            details.append("missing parquet files under: " + ", ".join(missing_dirs))
+        raise FileNotFoundError(
+            f"Cannot resume: local dataset at {root} is incomplete ({'; '.join(details)}). "
+            "Run the original recording again without --resume, or record into a new dataset."
+        )
+
+
+@contextmanager
+def _offline_huggingface():
+    """Temporarily force huggingface_hub to stay offline."""
+    key = "HF_HUB_OFFLINE"
+    previous = os.environ.get(key)
+    os.environ[key] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = previous
 
 
 def _check_features_match(existing: dict, expected: dict) -> None:

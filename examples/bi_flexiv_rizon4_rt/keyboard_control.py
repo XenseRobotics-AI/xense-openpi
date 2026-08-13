@@ -126,7 +126,7 @@ class KeyboardEpisodeController:
             elif key == keyboard.Key.esc:
                 self._handle_esc()
         except Exception as e:
-            logger.warning(f"Error handling key press: {e}")
+            logger.warn(f"Error handling key press: {e}")
 
     def _handle_right(self) -> None:
         with self._lock:

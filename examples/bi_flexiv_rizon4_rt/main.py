@@ -338,9 +338,10 @@ def main(args: Args) -> None:
         args.max_episode_steps = 0
 
     subscribers = []
+    recorder: _recorder.LeRobotRecorderSubscriber | None = None
     if args.record:
         if args.dry_run:
-            logger.warning(
+            logger.warn(
                 "Recording is enabled in dry-run mode — state/action data will be from policy output only (no real robot motion)"
             )
         record_intervention = args.record_intervention_flag
@@ -463,7 +464,7 @@ def main(args: Args) -> None:
             if intervention_controller is not None:
                 intervention_controller.disconnect()
         except Exception as e:
-            logger.warning(f"Error disconnecting Pico4: {e}")
+            logger.warn(f"Error disconnecting Pico4: {e}")
         try:
             actual_env = environment
             if isinstance(actual_env, _intervention.InterventionEnvironmentWrapper):
@@ -472,7 +473,7 @@ def main(args: Args) -> None:
                 actual_env = actual_env._wrapped_env
             actual_env.disconnect()
         except Exception as e:
-            logger.warning(f"Error disconnecting: {e}")
+            logger.warn(f"Error disconnecting: {e}")
 
     # SIGINT handling: first press asks the runtime to wind down threads
     # cleanly (DecoupledRuntime joins its action + obs threads here, ~0.5 s);
@@ -484,7 +485,7 @@ def main(args: Args) -> None:
 
     def signal_handler(sig, frame):
         if _shutdown_in_progress.is_set():
-            logger.warning("Second Ctrl+C — forcing exit. Arms may not return home cleanly.")
+            logger.warn("Second Ctrl+C — forcing exit. Arms may not return home cleanly.")
             os._exit(1)
         _shutdown_in_progress.set()
         logger.info("Ctrl+C — stopping runtime gracefully " "(press Ctrl+C again to force exit)")
@@ -505,6 +506,11 @@ def main(args: Args) -> None:
         traceback.print_exc()
         raise
     finally:
+        if recorder is not None:
+            try:
+                recorder.finalize()
+            except Exception as e:
+                logger.warn(f"Error finalizing recorder: {e}")
         safe_disconnect()
 
 
