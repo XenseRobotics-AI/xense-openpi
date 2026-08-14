@@ -614,11 +614,13 @@ python -m examples.bi_arx5_real.main \
     --args.dry_run \
     --args.enable_tactile_sensors
 
-# BiFlexiv RT side mount with RTC enabled
+# BiFlexiv RT with RTC enabled. --args.robot-recipe names the physical bench;
+# it replaced --args.bi-mount-type, which indexed a stations/ table lerobot
+# removed. Names resolve against examples/bi_flexiv_rizon4_rt/recipes/.
 python -m examples.bi_flexiv_rizon4_rt.main \
+    --args.robot-recipe forward-04 \
     --args.host 192.168.142.158 \
     --args.port 8000 \
-    --args.bi-mount-type side \
     --args.inner-control-hz 1000 \
     --args.interpolate-cmds \
     --args.runtime-hz 30 \
@@ -666,14 +668,14 @@ python -m examples.dewu_video_switch.app \
 # --args.subscribe / --args.subscribe-url wire the robot's head camera + state to
 # the screen PC (②) so the on-screen scene video switches with the real inspection.
 # (Note: --args.subscribe is the detection-data stream — unrelated to the
-# --args.bi-mount-type forward-05 arm-mount option below.)
+# --args.robot-recipe bench selection below.)
 # --args.subscribe BLOCKS at startup until ② is reachable (handshake, like the
 # VLA client waits for the inference server), so start ② before this. Add
 # --args.subscribe-handshake-timeout <s> to abort instead of waiting forever.
 python -m examples.bi_flexiv_rizon4_rt.main \
+ --args.robot-recipe forward-05 \
  --args.host 192.168.5.87 \
  --args.port 8000 \
- --args.bi-mount-type forward-05 \
  --args.inner-control-hz 1000 \
  --args.interpolate-cmds \
  --args.runtime-hz 30 \
@@ -683,6 +685,12 @@ python -m examples.bi_flexiv_rizon4_rt.main \
  --args.subscribe-hz 10 \
  --args.dry-run
 ```
+
+python -m examples.bi_flexiv_rizon4_rt.main  --args.robot-recipe forward-05  --args.host 192.168.5.87  --args.port 8000  --args.inner-control-hz 1000  --args.interpolate-cmds  --args.runtime-hz 30  --args.rtc-enabled  --args.subscribe  --args.subscribe-url ws://192.168.5.35:9100  --args.subscribe-hz 10 2>&1 | tee ~/rt_diag_$(date +%F_%H%M).log
+
+
+python -m examples.bi_flexiv_rizon4_rt.main <args...> \
+    2>&1 | tee ~/rt_diag_$(date +%F_%H%M).log
 
 ---
 

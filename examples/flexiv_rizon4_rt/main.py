@@ -7,27 +7,35 @@ for deterministic streaming Cartesian motion force control.
 Only RT_CARTESIAN_MOTION_FORCE mode is supported (no joint impedance).
 Action space: 10D [tcp.x, tcp.y, tcp.z, tcp.r1-r6, gripper.pos]
 
+--robot_recipe picks the bench: a name resolves against
+examples/flexiv_rizon4_rt/recipes/, a path loads any recipe YAML. It carries the
+arm SN, start pose, cameras and the typed gripper block. See recipes/README.md —
+the flat gripper_* knobs and the flare_gripper backend are gone upstream, and
+this driver does no camera auto-discovery, so the wrist camera is pinned there.
+
 Example usage:
     # Basic inference (non-RTC mode)
     python -m examples.flexiv_rizon4_rt.main \\
+        --robot_recipe default \\
         --host 192.168.2.215 \\
         --port 8000
 
     # With RTC enabled
     python -m examples.flexiv_rizon4_rt.main \\
+        --robot_recipe default \\
         --host 192.168.2.215 \\
         --port 8000 \\
         --rtc_enabled
 
     # Dry run (robot connected but actions not executed)
     python -m examples.flexiv_rizon4_rt.main \\
+        --robot_recipe default \\
         --host 192.168.2.215 \\
         --port 8000 \\
         --dry_run
 """
 
 from dataclasses import dataclass
-from dataclasses import field
 import signal
 import sys
 
@@ -42,6 +50,7 @@ from xense_client.runtime import runtime as _runtime
 from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.flexiv_rizon4_rt.env as _env
+import examples.flexiv_rizon4_rt.recipe as _recipe
 
 logger = get_logger("FlexivRizon4RTMain")
 
@@ -106,29 +115,32 @@ class DryRunEnvironmentWrapper(_environment.Environment):
 
 @dataclass
 class Args:
-    """Arguments for Flexiv Rizon4 RT inference."""
+    """Arguments for Flexiv Rizon4 RT inference.
+
+    The bench comes from --robot_recipe; everything else here is run tuning,
+    applied on top of the decoded recipe, so a flag always wins:
+    dataclass default < recipe YAML < --args.* flag.
+    """
+
+    # Which physical bench to drive. A name resolves against
+    # examples/flexiv_rizon4_rt/recipes/; a path loads any recipe YAML. The
+    # recipe carries the arm SN, start pose, cameras and the typed gripper
+    # block. Required: connecting to the wrong bench is not a safe default.
+    robot_recipe: str
 
     # Policy server connection
     host: str = "localhost"
     port: int = 8000
 
-    # Robot configuration
-    robot_sn: str = "Rizon4-063423"
-    use_gripper: bool = True
+    # Robot run tuning
     use_force: bool = False
     go_to_start: bool = False
     log_level: str = "INFO"
 
-    # Gripper settings
-    gripper_type: str = "flare_gripper"
-    gripper_mac_addr: str = "e2b26adbb104"
-    gripper_cam_size: tuple[int, int] = (640, 480)
-    gripper_rectify_size: tuple[int, int] = (400, 700)
-    gripper_max_pos: float = 85.0
-
     # RT-specific settings
     stiffness_ratio: float = 0.2
-    start_position_degree: list[float] = field(default_factory=lambda: [-1.70, 4.48, 1.54, 136.22, 0.12, 41.74, -0.18])
+    # None = use the recipe's start_position_degree.
+    start_position_degree: list[float] | None = None
     zero_ft_sensor_on_connect: bool = True
     # inner_control_hz: how often the C++ RT callback (1 kHz) consumes a new
     #   Python command. Range [1, 1000]. Default=1000 (every 1 ms cycle).
@@ -160,6 +172,11 @@ class Args:
 
 
 def main(args: Args) -> None:
+    # Resolve the bench before connecting: WebsocketClientPolicy blocks until the
+    # policy server answers, and a typo'd recipe name should not cost that wait.
+    recipe_path = _recipe.resolve_recipe_path(args.robot_recipe)
+    logger.info(f"Robot recipe: {recipe_path}")
+
     ws_client_policy = _websocket_client_policy.WebsocketClientPolicy(
         host=args.host,
         port=args.port,
@@ -169,24 +186,18 @@ def main(args: Args) -> None:
     logger.info(f"Server metadata: {metadata}")
 
     base_environment = _env.FlexivRizon4RTEnvironment(
-        robot_sn=args.robot_sn,
-        use_gripper=args.use_gripper,
+        robot_recipe=args.robot_recipe,
         use_force=args.use_force,
         go_to_start=args.go_to_start,
         log_level=args.log_level,
-        render_height=args.render_height,
-        render_width=args.render_width,
-        setup_robot=True,
-        gripper_type=args.gripper_type,
-        gripper_mac_addr=args.gripper_mac_addr,
-        gripper_cam_size=args.gripper_cam_size,
-        gripper_rectify_size=args.gripper_rectify_size,
-        gripper_max_pos=args.gripper_max_pos,
         stiffness_ratio=args.stiffness_ratio,
         start_position_degree=args.start_position_degree,
         zero_ft_sensor_on_connect=args.zero_ft_sensor_on_connect,
         inner_control_hz=args.inner_control_hz,
         interpolate_cmds=args.interpolate_cmds,
+        render_height=args.render_height,
+        render_width=args.render_width,
+        setup_robot=True,
     )
 
     if args.dry_run:

@@ -1,0 +1,79 @@
+# Inference recipe template — single-arm Flexiv Rizon4 RT.
+#   python -m examples.flexiv_rizon4_rt.main --args.robot-recipe default ...
+#
+# ⚠️ TEMPLATE, NOT A BENCH. The values below are the lerobot dataclass defaults
+# plus a plausible gripper block. There is no committed single-arm bench in
+# lerobot-xense's recipes/ to transcribe from, so nothing here has been verified
+# against hardware: `robot_sn` is the dataclass default (it happens to be
+# diagonal-02's left arm), the camera paths are placeholders, and the gripper
+# backend is a guess. Copy this file to <bench>.yaml, fill in what is actually
+# bolted to your bench, and pass that name.
+#
+# Bench hardware only; run tuning stays on the CLI (see recipes/README.md).
+
+robot:
+  type: flexiv_rizon4_rt
+
+  # ── Arm ─────────────────────────────────────────────────────────────────────
+  robot_sn: Rizon4-063423
+  # Joint angles in DEGREES (J1..J7), the units flexiv_rt takes.
+  start_position_degree: [-1.70, 4.48, 1.54, 136.22, 0.12, 41.74, -0.18]
+
+  # ── Cameras ─────────────────────────────────────────────────────────────────
+  # Pin every camera the policy needs. Unlike the bimanual driver, this one does
+  # NO USB-hub auto-discovery, and neither gripper backend carries a camera —
+  # the wrist camera that used to arrive with the Flare gripper is now an
+  # ordinary entry here. The key `wrist_cam` is what env.py maps to the policy's
+  # observation/wrist_image_left.
+  cameras:
+    wrist_cam:
+      type: opencv
+      index_or_path: /dev/video0   # ⚠️ placeholder — use the real device
+      fourcc: MJPG
+      fps: 30
+      width: 640
+      height: 480
+      warmup_s: 1
+    # A scene camera, if the policy was trained with one:
+    # head:
+    #   type: intelrealsense
+    #   serial_number_or_name: "000000000000"
+    #   fps: 30
+    #   width: 640
+    #   height: 480
+    #   warmup_s: 1
+    #   use_depth: false
+    # Tactile sensors, if the policy consumes them:
+    # left_tactile_0:
+    #   type: xense
+    #   serial_number: OG000000
+    #   fps: 30
+
+  # ── Gripper ─────────────────────────────────────────────────────────────────
+  # One typed block, decoded through lerobot.grippers.GripperConfig. A single arm
+  # has no side to infer, so the serial backend needs `side` (or `port` / `sn`)
+  # to find its board. Delete the whole block to run without a gripper — then
+  # `gripper.pos` drops out of the feature schema and the action space is 9D.
+  gripper:
+    type: serial
+    side: left              # parity discovery: odd board SN -> left
+    gripper_v_max: 100.0    # mm/s
+    gripper_f_max: 40.0     # N
+    gripper_min_pos: 0.0    # mm — fully closed
+    gripper_max_pos: 85.0   # mm — fully open
+    serial_timeout: 1.0
+    init_open: true
+    # Inert on this driver — only the bimanual one injects discovered cameras.
+    # Off, so the recipe stays the single source of truth for `cameras:`.
+    auto_discover_cameras: false
+    # port: ""              # explicit /dev path; overrides sn + side
+    # sn: null              # board SN; scanned across ports when port unset
+  #
+  # The other backend, for a centric TacCap gripper:
+  # gripper:
+  #   type: taccap_follower
+  #   side: left
+  #   kp: 8.0                   # MIT impedance stiffness (Nm/rad)
+  #   kd: 1.0                   # damping (Nm·s/rad)
+  #   feedforward_torque: 0.0   # Nm; negative = clamp harder. |ff| <= 3.5
+  #   control_hz: 200

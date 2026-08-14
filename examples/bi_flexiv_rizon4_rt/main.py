@@ -1,26 +1,37 @@
 #!/usr/bin/env python
 """Main script for BiFlexiv Rizon4 RT dual-arm robot inference with OpenPI.
 
+--robot_recipe picks the physical bench: a name resolves against
+examples/bi_flexiv_rizon4_rt/recipes/, a path loads any recipe YAML. It carries
+the arm SNs, start/home poses, head camera and gripper block — the lerobot
+config dataclass stopped carrying bench hardware when `stations/` was folded
+into recipes upstream. See recipes/README.md.
+
 Example usage:
     # Basic inference
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --host 192.168.2.100 --port 8000
+        --robot_recipe forward-05 --host 192.168.2.100 --port 8000
 
     # With RTC enabled
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --host 192.168.2.100 --port 8000 --rtc_enabled
+        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 --rtc_enabled
 
-    # Side-mount configuration
+    # A different bench (taccap grippers)
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --host 192.168.2.100 --port 8000 --bi_mount_type side
+        --robot_recipe forward-04 --host 192.168.2.100 --port 8000
+
+    # A recipe from the lerobot-xense tree
+    python -m examples.bi_flexiv_rizon4_rt.main \\
+        --robot_recipe ~/lerobot-xense/recipes/teleop/bi_flexiv_rizon4_rt/forward-04.yaml \\
+        --host 192.168.2.100 --port 8000
 
     # Dry run (robot connected but actions not sent)
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --host 192.168.2.100 --port 8000 --dry_run
+        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 --dry_run
 
     # Inference + simultaneous recording in LeRobot format
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --host 192.168.2.100 --port 8000 \\
+        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 \\
         --record \\
         --record_repo_id Xense/my_new_dataset \\
         --task "pack 6 cosmetic bottles into the carton"
@@ -28,12 +39,12 @@ Example usage:
     # Inference + stream head camera & state to the video-playback laptop at 10 Hz
     # (off-laptop detection + seamless video switching; never blocks control)
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --host 192.168.2.100 --port 8000 \\
+        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 \\
         --subscribe --subscribe_url ws://192.168.2.50:9100 --subscribe_hz 10
 
     # Inference with Pico4 human intervention (both grips held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --host 192.168.2.100 --port 8000 --pico4_intervention
+        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 --pico4_intervention
 """
 
 from dataclasses import dataclass
@@ -57,6 +68,7 @@ from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.bi_flexiv_rizon4_rt.env as _env
 import examples.bi_flexiv_rizon4_rt.intervention as _intervention
+import examples.bi_flexiv_rizon4_rt.recipe as _recipe
 import examples.bi_flexiv_rizon4_rt.recorder as _recorder
 import examples.bi_flexiv_rizon4_rt.subscribe as _subscribe
 
@@ -152,14 +164,26 @@ class DryRunEnvironmentWrapper(_environment.Environment):
 
 @dataclass
 class Args:
-    """Arguments for BiFlexiv Rizon4 RT inference."""
+    """Arguments for BiFlexiv Rizon4 RT inference.
+
+    The bench comes from --robot_recipe; everything else here is run tuning,
+    applied on top of the decoded recipe, so a flag always wins:
+    dataclass default < recipe YAML < --args.* flag.
+    """
+
+    # Which physical bench to drive. A name resolves against
+    # examples/bi_flexiv_rizon4_rt/recipes/ (forward-01, forward-04, forward-05,
+    # forward-06, diagonal-02); a path loads any recipe YAML, including one from
+    # the lerobot-xense tree. The recipe carries the arm SNs, start/home poses,
+    # head camera and gripper block — the lerobot config dataclass no longer
+    # does. Required: connecting to the wrong bench is not a safe default.
+    robot_recipe: str
 
     # Policy server
     host: str = "localhost"
     port: int = 8000
 
-    # Robot configuration
-    bi_mount_type: str = "side"  # "forward" or "side"
+    # Robot run tuning
     use_force: bool = False
     go_to_start: bool = True
     stiffness_ratio: float = 0.2
@@ -185,7 +209,7 @@ class Args:
 
     # RTC config
     rtc_enabled: bool = False
-    action_queue_size_to_get_new_actions: int = 30
+    action_queue_size_to_get_new_actions: int = 20
     execution_horizon: int = 50
     blend_steps: int = 0
     default_delay: int = 4
@@ -201,7 +225,7 @@ class Args:
     # video-playback laptop (③) for off-laptop detection + seamless video switching.
     # One-way ws push on a daemon thread; never blocks the 30 Hz control loop.
     # (Inference is on the separate 5090 server, set via --host/--port.)
-    # NB: distinct from --bi_mount_type forward — this is the detection-data stream.
+    # NB: distinct from --robot_recipe — this is the detection-data stream.
     subscribe: bool = False
     # obs ws URL of the video-playback laptop's app (its --obs_port, default 9100).
     subscribe_url: str = "ws://127.0.0.1:9100"
@@ -255,6 +279,11 @@ def main(args: Args) -> None:
             "Run with --action_hz 0 (synchronous runtime) when intervention is needed."
         )
 
+    # Resolve the bench before connecting: WebsocketClientPolicy blocks until the
+    # policy server answers, and a typo'd recipe name should not cost that wait.
+    recipe_path = _recipe.resolve_recipe_path(args.robot_recipe)
+    logger.info(f"Robot recipe: {recipe_path}")
+
     ws_client_policy = _websocket_client_policy.WebsocketClientPolicy(
         host=args.host,
         port=args.port,
@@ -262,7 +291,7 @@ def main(args: Args) -> None:
     logger.info(f"Server metadata: {ws_client_policy.get_server_metadata()}")
 
     base_environment = _env.BiFlexivRizon4RTEnvironment(
-        bi_mount_type=args.bi_mount_type,
+        robot_recipe=args.robot_recipe,
         use_force=args.use_force,
         go_to_start=args.go_to_start,
         stiffness_ratio=args.stiffness_ratio,

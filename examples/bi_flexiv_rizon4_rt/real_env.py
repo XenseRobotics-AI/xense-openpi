@@ -1,6 +1,8 @@
 """Real environment for BiFlexiv Rizon4 RT dual-arm robot.
 
-Wraps lerobot BiFlexivRizon4RT for use with OpenPI inference.
+Wraps lerobot BiFlexivRizon4RT for use with OpenPI inference. The bench it
+drives comes from a recipe YAML (see ``recipe.py`` and ``recipes/README.md``);
+run tuning comes from the CLI.
 
 State/action format (20D):
     [left_tcp.x/y/z/r1-r6 (0-8), right_tcp.x/y/z/r1-r6 (9-17),
@@ -11,10 +13,11 @@ import collections
 import time
 
 import dm_env
-from lerobot.robots.bi_flexiv_rizon4_rt.config_bi_flexiv_rizon4_rt import BiFlexivRizon4RTConfig
 from lerobot.robots.utils import make_robot_from_config
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
+
+import examples.bi_flexiv_rizon4_rt.recipe as _recipe
 
 logger = get_logger("BiFlexivRizon4RTRealEnv")
 
@@ -35,18 +38,30 @@ class BiFlexivRizon4RTRealEnv:
 
     def __init__(
         self,
-        bi_mount_type: str = "forward",
-        use_force: bool = False,
-        go_to_start: bool = True,
-        stiffness_ratio: float = 0.2,
-        inner_control_hz: int = 1000,
-        interpolate_cmds: bool = True,
-        enable_tactile_sensors: bool = True,
-        log_level: str = "INFO",
+        robot_recipe: str,
+        use_force: bool | None = None,
+        go_to_start: bool | None = None,
+        stiffness_ratio: float | None = None,
+        inner_control_hz: int | None = None,
+        interpolate_cmds: bool | None = None,
+        enable_tactile_sensors: bool | None = None,
+        log_level: str | None = None,
         setup_robot: bool = True,
     ):
-        self.config = BiFlexivRizon4RTConfig(
-            bi_mount_type=bi_mount_type,
+        """Build the robot from a bench recipe plus run-tuning overrides.
+
+        Args:
+            robot_recipe: Recipe name under ``recipes/`` (e.g. ``"forward-05"``)
+                or a path to a recipe YAML. It supplies the bench hardware —
+                arm SNs, start/home poses, head camera, gripper block — which
+                the lerobot config dataclass no longer carries.
+            setup_robot: Connect immediately.
+
+        Every other argument is a run-tuning override applied on top of the
+        recipe; ``None`` leaves the recipe (or dataclass) value alone.
+        """
+        self.config = _recipe.load_robot_config(
+            robot_recipe,
             use_force=use_force,
             go_to_start=go_to_start,
             stiffness_ratio=stiffness_ratio,
@@ -62,7 +77,11 @@ class BiFlexivRizon4RTRealEnv:
 
     def setup_robot(self) -> None:
         """Connect and initialize both arms."""
-        logger.info("Connecting to BiFlexiv Rizon4 RT robot...")
+        logger.info(
+            f"Connecting to BiFlexiv Rizon4 RT robot "
+            f"(left={self.config.left_robot_sn}, right={self.config.right_robot_sn}, "
+            f"gripper={self.config.gripper.type if self.config.gripper else None})..."
+        )
         try:
             self.robot.connect(calibrate=False, go_to_start=self.config.go_to_start)
             logger.info("BiFlexiv Rizon4 RT connected and ready")
