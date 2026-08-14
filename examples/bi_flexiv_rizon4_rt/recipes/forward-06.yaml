@@ -1,0 +1,53 @@
+# Inference recipe — bimanual Flexiv Rizon4 RT, forward mount, bench 06.
+#   python -m examples.bi_flexiv_rizon4_rt.main --args.robot-recipe forward-06 ...
+#
+# Bench hardware only; run tuning stays on the CLI (see recipes/README.md).
+# Hardware transcribed from lerobot-xense
+# recipes/record/bi_flexiv_rizon4_rt/assemble_box.yaml — keep the two in sync.
+# That is the bench the assemble_box dataset was recorded on.
+
+robot:
+  type: bi_flexiv_rizon4_rt
+
+  # ── Bench hardware (forward-06) ─────────────────────────────────────────────
+  left_robot_sn: Rizon4s-062412
+  right_robot_sn: Rizon4s-062881
+  # Joint angles in DEGREES (J1..J7), the units flexiv_rt takes.
+  left_start_position_degree: [88.79, 74.96, 22.75, 112.75, -0.39, 86.74, 1.24]
+  right_start_position_degree: [-24.41, 71.36, -4.67, 118.53, 3.91, 96.15, 3.6]
+  left_home_position_degree: [88.79, 74.96, 22.75, 112.75, -0.39, 86.74, 1.24]
+  right_home_position_degree: [-24.41, 71.36, -4.67, 118.53, 3.91, 96.15, 3.6]
+
+  # ── Cameras ─────────────────────────────────────────────────────────────────
+  # Only the head is pinned: the gripper sniffs its own wrist + tactile cameras
+  # off its USB hub at connect (gripper.auto_discover_cameras).
+  cameras:
+    head:
+      type: intelrealsense
+      serial_number_or_name: "254322071102"
+      fps: 30
+      width: 640
+      height: 480
+      warmup_s: 1
+      use_depth: false
+    # What this bench had pinned before discovery took over, for cross-checking
+    # the first run:
+    #   left_tactile_0: OG001323    left_tactile_1: OG001324   left_wrist: XC000035
+    #   right_tactile_0: OG001325   right_tactile_1: OG001326  right_wrist: XC000036
+
+  # ── Gripper ── One block for both arms; `side` is stamped per arm at build time.
+  gripper:
+    type: serial
+    gripper_v_max: 100.0    # mm/s
+    gripper_f_max: 40.0     # N
+    gripper_min_pos: 0.0    # mm — fully closed
+    gripper_max_pos: 85.0   # mm — fully open
+    serial_timeout: 1.0
+    init_open: true
+    # Everything else worth tuning, at its default — uncomment to change.
+    # auto_discover_cameras: true   # sniff wrist + tactile off this gripper's USB hub
+    # port: ""                      # explicit /dev path; overrides sn + side
+    # sn: null                      # board SN; scanned across ports when port unset
+    # side: null                    # stamped automatically per arm — do not set here
+  left_use_gripper: true
+  right_use_gripper: true

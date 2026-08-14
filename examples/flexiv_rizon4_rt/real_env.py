@@ -2,8 +2,11 @@
 
 This module wraps the lerobot FlexivRizon4RT (real-time) implementation for use with OpenPI.
 
-Key differences from flexiv_rizon4_real:
-- Uses flexiv_rt backend (C++ RT thread at 1 kHz) instead of NRT flexivrdk
+This is the only Flexiv path left: lerobot removed the NRT driver (flexivrdk)
+and its `flexiv_rizon4` package at d6d02f88, and the `flexiv_rizon4_real`
+example that wrapped it went with it.
+
+- flexiv_rt backend: C++ RT thread at 1 kHz
 - Only supports RT_CARTESIAN_MOTION_FORCE mode (no joint impedance)
 - Action space: always 10D [x, y, z, r1-r6, gripper]
 - reset_to_initial_position() is non-blocking (RT trajectory)
@@ -13,10 +16,11 @@ import collections
 import time
 
 import dm_env
-from lerobot.robots.flexiv_rizon4_rt.config_flexiv_rizon4_rt import FlexivRizon4RTConfig
 from lerobot.robots.utils import make_robot_from_config
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
+
+import examples.flexiv_rizon4_rt.recipe as _recipe
 
 logger = get_logger("FlexivRizon4RTRealEnv")
 
@@ -44,48 +48,41 @@ class FlexivRizon4RTRealEnv:
 
     def __init__(
         self,
-        robot_sn: str = "Rizon4-063423",
-        use_gripper: bool = True,
-        use_force: bool = False,
-        go_to_start: bool = True,
-        log_level: str = "INFO",
-        setup_robot: bool = True,
-        # Gripper settings
-        gripper_type: str = "flare_gripper",
-        gripper_mac_addr: str = "e2b26adbb104",
-        gripper_cam_size: tuple[int, int] = (640, 480),
-        gripper_rectify_size: tuple[int, int] = (400, 700),
-        gripper_max_pos: float = 85.0,
-        # RT-specific settings
-        stiffness_ratio: float = 0.2,
+        robot_recipe: str,
+        use_force: bool | None = None,
+        go_to_start: bool | None = None,
+        log_level: str | None = None,
+        stiffness_ratio: float | None = None,
         start_position_degree: list[float] | None = None,
-        zero_ft_sensor_on_connect: bool = True,
-        inner_control_hz: int = 1000,
-        interpolate_cmds: bool = True,
-        # External cameras (scene cameras)
-        cameras: dict | None = None,
+        zero_ft_sensor_on_connect: bool | None = None,
+        inner_control_hz: int | None = None,
+        interpolate_cmds: bool | None = None,
+        setup_robot: bool = True,
     ):
-        config_kwargs = {
-            "robot_sn": robot_sn,
-            "use_gripper": use_gripper,
-            "use_force": use_force,
-            "go_to_start": go_to_start,
-            "log_level": log_level,
-            "gripper_type": gripper_type,
-            "gripper_mac_addr": gripper_mac_addr,
-            "gripper_cam_size": gripper_cam_size,
-            "gripper_rectify_size": gripper_rectify_size,
-            "gripper_max_pos": gripper_max_pos,
-            "stiffness_ratio": stiffness_ratio,
-            "zero_ft_sensor_on_connect": zero_ft_sensor_on_connect,
-            "inner_control_hz": inner_control_hz,
-            "interpolate_cmds": interpolate_cmds,
-            "cameras": cameras or {},
-        }
-        if start_position_degree is not None:
-            config_kwargs["start_position_degree"] = start_position_degree
+        """Build the robot from a bench recipe plus run-tuning overrides.
 
-        self.config = FlexivRizon4RTConfig(**config_kwargs)
+        Args:
+            robot_recipe: Recipe name under ``recipes/`` or a path to a recipe
+                YAML. It supplies the arm SN, start pose, cameras and the typed
+                ``gripper:`` block — the flat ``gripper_*`` config fields this
+                example used to pass no longer exist, and neither does the
+                ``flare_gripper`` backend they configured.
+            setup_robot: Connect immediately.
+
+        Every other argument is a run-tuning override applied on top of the
+        recipe; ``None`` leaves the recipe (or dataclass) value alone.
+        """
+        self.config = _recipe.load_robot_config(
+            robot_recipe,
+            use_force=use_force,
+            go_to_start=go_to_start,
+            log_level=log_level,
+            stiffness_ratio=stiffness_ratio,
+            start_position_degree=start_position_degree,
+            zero_ft_sensor_on_connect=zero_ft_sensor_on_connect,
+            inner_control_hz=inner_control_hz,
+            interpolate_cmds=interpolate_cmds,
+        )
 
         self.robot = make_robot_from_config(self.config)
 
@@ -114,10 +111,14 @@ class FlexivRizon4RTRealEnv:
         return np.array(position + rotation + gripper, dtype=np.float32)
 
     def get_images(self, obs: dict) -> dict:
-        """Get camera images from observation."""
+        """Get camera images from observation.
+
+        Every camera is a configured one now: neither gripper backend carries a
+        camera, so the wrist and tactile feeds the Flare gripper used to inject
+        are ordinary `cameras:` entries in the recipe.
+        """
         images = {}
-        camera_names = ["wrist_cam", "left_tactile", "right_tactile"]
-        camera_names.extend(self.config.cameras.keys())
+        camera_names = list(self.config.cameras.keys())
 
         for cam_name in camera_names:
             if cam_name in obs:

@@ -257,8 +257,9 @@ blocks at startup until this obs server is up (handshake), so start ③ first:
 
 ```bash
 python -m examples.bi_flexiv_rizon4_rt.main \
+    --robot_recipe forward-05 \
     --host 192.168.142.158 --port 8000 \
-    --bi_mount_type side --inner_control_hz 1000 \
+    --inner_control_hz 1000 \
     --interpolate_cmds --runtime_hz 30 --rtc_enabled \
     --subscribe \
     --subscribe_url ws://<play-ip>:9100

@@ -51,20 +51,44 @@ python scripts/serve_policy.py policy:checkpoint \
 
 ### Terminal 2: Run Robot Client
 
+`--robot_recipe` is required — it names the physical bench.
+
 ```bash
 cd ~/openpi
 mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
+    --robot_recipe forward-05 \
     --host 10.142.1.1 \
     --port 8000
 ```
 
+#### Picking a bench
+
+The bench's arm SNs, start/home poses, head camera and gripper block come from a
+recipe under [`recipes/`](recipes/): `forward-01`, `forward-04`, `forward-05`,
+`forward-06`, `diagonal-02`. A path works too, so a recipe from the lerobot-xense
+tree can be used directly:
+
+```bash
+--robot_recipe ~/lerobot-xense/recipes/teleop/bi_flexiv_rizon4_rt/forward-04.yaml
+```
+
+This replaced `--bi_mount_type <name>`, which indexed a `stations/` table inside
+lerobot. That table was removed upstream (`3b964bc6`) — the config dataclass no
+longer carries bench hardware at all, so the caller supplies it, and recipes are
+the mechanism lerobot's own CLIs use. See [`recipes/README.md`](recipes/README.md)
+for what belongs in a recipe versus on the command line, and for the warning
+about keeping the two repos' copies of a bench in sync.
+
 #### Common options
+
+Precedence is `dataclass default < recipe YAML < --args.* flag`, so any flag
+below overrides what the recipe says.
 
 | Flag | Default | Description |
 |---|---|---|
+| `--robot_recipe` | — (required) | Bench recipe name under `recipes/`, or a path |
 | `--host` | `localhost` | Policy server host |
 | `--port` | `8000` | Policy server port |
-| `--bi_mount_type` | `forward` | Robot mount: `forward` or `side` |
 | `--stiffness_ratio` | `0.2` | Cartesian stiffness (0–1) |
 | `--inner_control_hz` | `1000` | How often each 1 kHz RT loop consumes a new Python command |
 | `--interpolate_cmds` | `True` | Enable linear interpolation between consumed commands |
@@ -81,6 +105,7 @@ mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
 
 ```bash
 mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
+    --robot_recipe forward-05 \
     --host 10.142.1.1 --port 8000 \
     --rtc_enabled \
     --action_queue_size_to_get_new_actions 40 \
@@ -92,6 +117,7 @@ mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
 
 ```bash
 mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
+    --robot_recipe forward-05 \
     --host 10.142.1.1 --port 8000 \
     --dry_run
 ```
@@ -113,6 +139,7 @@ Prerequisites:
 
 ```bash
 mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
+    --robot_recipe forward-05 \
     --host 10.142.1.1 --port 8000 \
     --pico4_intervention
 ```
@@ -148,6 +175,7 @@ absolute actions — same format as the training data).
 
 ```bash
 mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
+    --robot_recipe forward-05 \
     --host 10.142.1.1 --port 8000 \
     --record \
     --record_repo_id Xense/my_new_dataset \
