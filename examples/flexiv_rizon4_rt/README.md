@@ -13,8 +13,9 @@ memory instead of ~10 ms per NRT call.
 
 - Flexiv Rizon4 7-DOF collaborative robot
 - A gripper — `serial` (USB-serial parallel jaw) or `taccap_follower` (centric
-  TacCap). Optional; drop the `gripper:` block to run without one. The old
-  `flare_gripper` backend no longer exists.
+  TacCap). Required: this example's state and action vectors are 10D ending in
+  `gripper.pos`, and lerobot omits that key when no gripper is configured. The
+  old `flare_gripper` backend no longer exists.
 - Any camera the policy consumes, pinned in the recipe. **Nothing comes through
   the gripper any more** — neither backend carries a camera, and this driver
   (unlike the bimanual one) does no USB-hub auto-discovery.
@@ -41,7 +42,7 @@ python scripts/serve_policy.py \
 
 ## Pick a bench
 
-`--robot_recipe` is required. It names a recipe under
+`--args.robot-recipe` is required. It names a recipe under
 [`recipes/`](recipes/) — or a path to any recipe YAML — that carries the arm SN,
 start pose, cameras and the typed `gripper:` block. The lerobot config dataclass
 no longer holds bench hardware, so something has to supply it, and recipes are
@@ -55,59 +56,63 @@ copy per bench, not a real bench.
 
 ```bash
 python -m examples.flexiv_rizon4_rt.main \
-    --robot_recipe default \
-    --host 192.168.2.215 \
-    --port 8000
+    --args.robot-recipe default \
+    --args.host 192.168.2.215 \
+    --args.port 8000
 ```
 
 ### With RTC Enabled
 
 ```bash
 python -m examples.flexiv_rizon4_rt.main \
-    --robot_recipe default \
-    --host 192.168.2.215 \
-    --port 8000 \
-    --rtc_enabled \
-    --execution_horizon 20 \
-    --runtime_hz 25
+    --args.robot-recipe default \
+    --args.host 192.168.2.215 \
+    --args.port 8000 \
+    --args.rtc-enabled \
+    --args.execution-horizon 20 \
+    --args.runtime-hz 25
 ```
 
 ### Dry Run (print actions without executing)
 
 ```bash
 python -m examples.flexiv_rizon4_rt.main \
-    --robot_recipe default \
-    --host 192.168.2.215 \
-    --port 8000 \
-    --dry_run
+    --args.robot-recipe default \
+    --args.host 192.168.2.215 \
+    --args.port 8000 \
+    --args.dry-run
 ```
 
 ## Configuration Options
 
-Precedence is `dataclass default < recipe YAML < --args.* flag`, so any flag
-below overrides what the recipe says.
+The recipe carries bench hardware; the CLI owns run tuning outright. Every
+tuning flag has a concrete default, so it is **always** applied on top of the
+decoded recipe — a tuning key written into a recipe (or already present in an
+upstream lerobot teleop/record recipe you point at by path) loses to the flag.
+The loader logs each key it overrides, so the swap is visible rather than
+silent.
 
 ### Robot
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `robot_recipe` | — (required) | Bench recipe name under `recipes/`, or a path |
-| `host` | localhost | Policy server IP |
-| `port` | 8000 | Policy server port |
-| `use_force` | False | Enable force control axes |
-| `go_to_start` | False | Move to start position on connect |
-| `runtime_hz` | 20.0 | Control loop frequency (Hz) |
-| `dry_run` | False | Print actions without executing |
+| `--args.robot-recipe` | — (required) | Bench recipe name under `recipes/`, or a path |
+| `--args.host` | localhost | Policy server IP |
+| `--args.port` | 8000 | Policy server port |
+| `--args.use-force` | False | Enable force control axes |
+| `--args.go-to-start` | False | Move to start position on connect |
+| `--args.runtime-hz` | 20.0 | Control loop frequency (Hz) |
+| `--args.dry-run` | False | Print actions without executing |
 
 ### RT-specific
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `stiffness_ratio` | 0.2 | Cartesian stiffness multiplier (×K_x_nom) |
-| `inner_control_hz` | 1000 | How often the 1 kHz RT loop consumes a new Python command |
-| `interpolate_cmds` | True | Enable linear interpolation between consumed commands |
-| `start_position_degree` | None | Start joint angles (deg); None = use the recipe's |
-| `zero_ft_sensor_on_connect` | True | Zero FT sensor on startup |
+| `--args.stiffness-ratio` | 0.2 | Cartesian stiffness multiplier (×K_x_nom) |
+| `--args.inner-control-hz` | 1000 | How often the 1 kHz RT loop consumes a new Python command |
+| `--args.interpolate-cmds` | True | Enable linear interpolation between consumed commands |
+| `--args.start-position-degree` | None | Start joint angles (deg); None = use the recipe's |
+| `--args.zero-ft-sensor-on-connect` | True | Zero FT sensor on startup |
 
 ### Gripper — recipe only
 
@@ -132,16 +137,16 @@ explicit `port`/`sn`) to find its board. See
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `rtc_enabled` | False | Enable RTC mode |
-| `execution_horizon` | 30 | Execution window size (< action_horizon) |
-| `action_queue_size_to_get_new_actions` | 20 | Queue threshold for new inference |
-| `blend_steps` | 5 | Steps for blending old/new actions |
-| `default_delay` | 2 | Default inference delay (steps) |
+| `--args.rtc-enabled` | False | Enable RTC mode |
+| `--args.execution-horizon` | 50 | Execution window size (< action_horizon) |
+| `--args.action-queue-size-to-get-new-actions` | 20 | Queue threshold for new inference |
+| `--args.blend-steps` | 3 | Steps for blending old/new actions |
+| `--args.default-delay` | 2 | Default inference delay (steps) |
 
 ## Control Architecture
 
 ```
-Python main.py (25 Hz)
+Python main.py (runtime_hz, default 20 Hz)
   └─ ActionChunkBroker / RTCActionChunkBroker
       └─ WebsocketClientPolicy  →  Policy Server (GPU)
           └─ FlexivRizon4RTEnvironment
@@ -154,7 +159,7 @@ Python main.py (25 Hz)
 ## Safety Notes
 
 1. Always ensure the robot workspace is clear before running
-2. The robot moves to the recipe's start position on connect only with `--go_to_start` (default: off)
-3. Use `--dry_run` to verify action values without robot movement
+2. The robot moves to the recipe's start position on connect only with `--args.go-to-start` (default: off)
+3. Use `--args.dry-run` to verify action values without robot movement
 4. Press Ctrl+C for graceful shutdown — RT thread stops, robot returns to home
 5. `stiffness_ratio=0.2` (20% nominal) provides compliant behaviour; increase for stiffer tracking

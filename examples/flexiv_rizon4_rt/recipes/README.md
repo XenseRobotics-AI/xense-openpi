@@ -48,8 +48,10 @@ The key `wrist_cam` is the one `env.py` maps to the policy's
 **CLI = run tuning.** `--args.use-force`, `--args.go-to-start`,
 `--args.stiffness-ratio`, `--args.inner-control-hz`,
 `--args.interpolate-cmds`, `--args.zero-ft-sensor-on-connect`,
-`--args.log-level`. They are applied on top of the decoded config:
+`--args.log-level`.
 
-```
-dataclass default  <  recipe YAML  <  --args.* flag
-```
+The CLI owns them outright: each has a concrete default, so it is **always**
+applied on top of the decoded config, and a tuning key written into a recipe
+loses to the flag. The loader logs every key it overrides so the swap is
+visible. The one exception is `--args.start-position-degree`, which defaults to
+`None` and therefore leaves the recipe's start pose alone unless you pass it.

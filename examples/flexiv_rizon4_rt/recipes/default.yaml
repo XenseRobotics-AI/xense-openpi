@@ -52,8 +52,13 @@ robot:
   # ── Gripper ─────────────────────────────────────────────────────────────────
   # One typed block, decoded through lerobot.grippers.GripperConfig. A single arm
   # has no side to infer, so the serial backend needs `side` (or `port` / `sn`)
-  # to find its board. Delete the whole block to run without a gripper — then
-  # `gripper.pos` drops out of the feature schema and the action space is 9D.
+  # to find its board.
+  #
+  # Required for this example: its state and action vectors are 10D ending in
+  # gripper.pos, and lerobot only emits that key when a gripper is configured.
+  # (The lerobot driver itself tolerates none — its feature schema still lists
+  # gripper.pos, but get_observation() omits it. real_env.py rejects that up
+  # front rather than letting the first observation KeyError.)
   gripper:
     type: serial
     side: left              # parity discovery: odd board SN -> left

@@ -37,15 +37,19 @@ bench regardless of which policy is running.
 **CLI = run tuning.** `--args.inner-control-hz`, `--args.interpolate-cmds`,
 `--args.stiffness-ratio`, `--args.use-force`, `--args.go-to-start`,
 `--args.enable-tactile-sensors`, `--args.log-level`. These stay flags because
-they change between runs on the same bench, and they are applied **on top of**
-the decoded config:
+they change between runs on the same bench.
+
+The CLI owns them outright: each has a concrete default, so it is **always**
+applied on top of the decoded config. A tuning key written into a recipe — or
+already present in an upstream lerobot teleop/record recipe you point at by
+path — loses to the flag. The loader logs every key it overrides, e.g.
 
 ```
-dataclass default  <  recipe YAML  <  --args.* flag
+[warning] CLI flags override forward-04.yaml: enable_tactile_sensors: True -> False, log_level: 'INFO' -> 'DEBUG'
 ```
 
-A tuning key written into a recipe is therefore still overridden by its flag.
-The recipes here leave those keys out so there is nothing to be confused by.
+The recipes here leave tuning keys out entirely, so nothing is shadowed when
+you use one of them.
 
 Note `enable_tactile_sensors` defaults to **off** for inference: the policy
 consumes `head`, `left_wrist` and `right_wrist` only, so the four tactile

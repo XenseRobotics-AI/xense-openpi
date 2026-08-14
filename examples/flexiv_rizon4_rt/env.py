@@ -3,6 +3,7 @@
 from typing import ClassVar
 
 import einops
+from lerobot.robots.flexiv_rizon4_rt.config_flexiv_rizon4_rt import FlexivRizon4RTConfig
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
 from typing_extensions import override
@@ -32,29 +33,13 @@ class FlexivRizon4RTEnvironment(_environment.Environment):
 
     def __init__(
         self,
-        robot_recipe: str,
-        use_force: bool | None = None,
-        go_to_start: bool | None = None,
-        log_level: str | None = None,
-        stiffness_ratio: float | None = None,
-        start_position_degree: list[float] | None = None,
-        zero_ft_sensor_on_connect: bool | None = None,
-        inner_control_hz: int | None = None,
-        interpolate_cmds: bool | None = None,
+        robot_config: FlexivRizon4RTConfig,
         render_height: int = 224,
         render_width: int = 224,
         setup_robot: bool = True,
     ) -> None:
         self._env = _real_env.FlexivRizon4RTRealEnv(
-            robot_recipe=robot_recipe,
-            use_force=use_force,
-            go_to_start=go_to_start,
-            log_level=log_level,
-            stiffness_ratio=stiffness_ratio,
-            start_position_degree=start_position_degree,
-            zero_ft_sensor_on_connect=zero_ft_sensor_on_connect,
-            inner_control_hz=inner_control_hz,
-            interpolate_cmds=interpolate_cmds,
+            robot_config=robot_config,
             setup_robot=setup_robot,
         )
         self._render_height = render_height

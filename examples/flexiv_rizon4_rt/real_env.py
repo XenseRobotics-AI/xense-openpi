@@ -16,11 +16,10 @@ import collections
 import time
 
 import dm_env
+from lerobot.robots.flexiv_rizon4_rt.config_flexiv_rizon4_rt import FlexivRizon4RTConfig
 from lerobot.robots.utils import make_robot_from_config
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
-
-import examples.flexiv_rizon4_rt.recipe as _recipe
 
 logger = get_logger("FlexivRizon4RTRealEnv")
 
@@ -48,41 +47,39 @@ class FlexivRizon4RTRealEnv:
 
     def __init__(
         self,
-        robot_recipe: str,
-        use_force: bool | None = None,
-        go_to_start: bool | None = None,
-        log_level: str | None = None,
-        stiffness_ratio: float | None = None,
-        start_position_degree: list[float] | None = None,
-        zero_ft_sensor_on_connect: bool | None = None,
-        inner_control_hz: int | None = None,
-        interpolate_cmds: bool | None = None,
+        robot_config: FlexivRizon4RTConfig,
         setup_robot: bool = True,
     ):
-        """Build the robot from a bench recipe plus run-tuning overrides.
+        """Wrap an already-decoded robot config.
 
         Args:
-            robot_recipe: Recipe name under ``recipes/`` or a path to a recipe
-                YAML. It supplies the arm SN, start pose, cameras and the typed
-                ``gripper:`` block — the flat ``gripper_*`` config fields this
-                example used to pass no longer exist, and neither does the
-                ``flare_gripper`` backend they configured.
+            robot_config: Built by ``recipe.load_robot_config`` — the recipe
+                supplies the arm SN, start pose, cameras and the typed
+                ``gripper:`` block (the flat ``gripper_*`` fields and the
+                ``flare_gripper`` backend no longer exist), with the CLI's run
+                tuning merged on top.
             setup_robot: Connect immediately.
-
-        Every other argument is a run-tuning override applied on top of the
-        recipe; ``None`` leaves the recipe (or dataclass) value alone.
         """
-        self.config = _recipe.load_robot_config(
-            robot_recipe,
-            use_force=use_force,
-            go_to_start=go_to_start,
-            log_level=log_level,
-            stiffness_ratio=stiffness_ratio,
-            start_position_degree=start_position_degree,
-            zero_ft_sensor_on_connect=zero_ft_sensor_on_connect,
-            inner_control_hz=inner_control_hz,
-            interpolate_cmds=interpolate_cmds,
-        )
+        self.config = robot_config
+
+        # The 10D state/action vector this example speaks ends in gripper.pos,
+        # and lerobot only emits that key when a gripper is configured — so a
+        # recipe with no `gripper:` block would KeyError on the first
+        # observation instead of degrading to 9D. Say so up front.
+        if self.config.gripper is None:
+            raise ValueError(
+                "Recipe configures no gripper, but this example's state and action "
+                "vectors are 10D ending in gripper.pos. Add a `gripper:` block."
+            )
+
+        # Every image the policy sees is a configured camera now: neither
+        # gripper backend carries one, and this driver does no USB-hub
+        # auto-discovery, so an empty `cameras:` means a state-only observation.
+        if not self.config.cameras:
+            logger.warn(
+                "Recipe configures no cameras — the policy will receive state only. "
+                "Pin at least `wrist_cam` in the recipe's `cameras:` block."
+            )
 
         self.robot = make_robot_from_config(self.config)
 
@@ -91,7 +88,11 @@ class FlexivRizon4RTRealEnv:
 
     def setup_robot(self):
         """Connect and initialize robot."""
-        logger.info("Connecting to Flexiv Rizon4 RT robot...")
+        logger.info(
+            f"Connecting to Flexiv Rizon4 RT robot "
+            f"(sn={self.config.robot_sn}, "
+            f"gripper={self.config.gripper.type if self.config.gripper else None})..."
+        )
         try:
             self.robot.connect(calibrate=False, go_to_start=self.config.go_to_start)
             logger.info("Flexiv Rizon4 RT robot connected and ready for inference")
@@ -154,7 +155,7 @@ class FlexivRizon4RTRealEnv:
                 start_time = time.time()
                 while self.robot.rt_moving:
                     if time.time() - start_time > timeout:
-                        logger.warning("Reset trajectory timeout, proceeding anyway")
+                        logger.warn("Reset trajectory timeout, proceeding anyway")
                         break
                     time.sleep(0.05)
                 logger.info("Flexiv Rizon4 RT reset completed")
@@ -208,4 +209,4 @@ class FlexivRizon4RTRealEnv:
                 time.sleep(1)
                 logger.info("Flexiv Rizon4 RT robot disconnected")
             except Exception as e:
-                logger.warning(f"Error during Flexiv Rizon4 RT disconnect: {e}")
+                logger.warn(f"Error during Flexiv Rizon4 RT disconnect: {e}")
