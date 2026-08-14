@@ -53,8 +53,8 @@ python -m examples.dewu_video_switch.replay_lerobot \
     --repo-id Xense/newbalance_shoe_insole_retrieval_and_packing_0611 --episode 0
 
 # 3b) LIVE on the robot laptop: add the obs subscriber to the usual launch instead of 3a
-python -m examples.bi_flexiv_rizon4_rt.main --host <5090-ip> --port 8000 \
-    --subscribe --subscribe_url ws://<play-ip>:9100
+python -m examples.bi_flexiv_rizon4_rt.main --args.host <5090-ip> --args.port 8000 \
+    --args.subscribe --args.subscribe-url ws://<play-ip>:9100
 ```
 
 ### Tune / debug the detector
@@ -191,8 +191,8 @@ A thin policy client to ①, and a one-way producer to ③. Runs the openpi
 
 ```bash
 python -m examples.bi_flexiv_rizon4_rt.main \
-    --host <5090-ip> --port 8000 \
-    --subscribe --subscribe_url ws://<play-ip>:9100
+    --args.host <5090-ip> --args.port 8000 \
+    --args.subscribe --args.subscribe-url ws://<play-ip>:9100
 ```
 
 | Path | Role |
@@ -257,12 +257,12 @@ blocks at startup until this obs server is up (handshake), so start ③ first:
 
 ```bash
 python -m examples.bi_flexiv_rizon4_rt.main \
-    --robot_recipe forward-05 \
-    --host 192.168.142.158 --port 8000 \
-    --inner_control_hz 1000 \
-    --interpolate_cmds --runtime_hz 30 --rtc_enabled \
-    --subscribe \
-    --subscribe_url ws://<play-ip>:9100
+    --args.robot-recipe forward-05 \
+    --args.host 192.168.142.158 --args.port 8000 \
+    --args.inner-control-hz 1000 \
+    --args.interpolate-cmds --args.runtime-hz 30 --args.rtc-enabled \
+    --args.subscribe \
+    --args.subscribe-url ws://<play-ip>:9100
 ```
 
 The obs subscriber ships only the **two channels the detector needs — head camera

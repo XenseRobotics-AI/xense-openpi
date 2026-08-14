@@ -203,7 +203,7 @@ class ObsSubscriber(_subscriber.Subscriber):
                 self._ws.send(self._packer.pack(payload))
                 self._sent += 1
             except Exception as e:
-                logger.warning(f"obs send failed ({e}); reconnecting")
+                logger.warn(f"obs send failed ({e}); reconnecting")
                 self._reconnect()
         self._safe_close_ws()
 

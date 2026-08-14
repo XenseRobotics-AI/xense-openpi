@@ -7,7 +7,7 @@ for deterministic streaming Cartesian motion force control.
 Only RT_CARTESIAN_MOTION_FORCE mode is supported (no joint impedance).
 Action space: 10D [tcp.x, tcp.y, tcp.z, tcp.r1-r6, gripper.pos]
 
---robot_recipe picks the bench: a name resolves against
+--args.robot-recipe picks the bench: a name resolves against
 examples/flexiv_rizon4_rt/recipes/, a path loads any recipe YAML. It carries the
 arm SN, start pose, cameras and the typed gripper block. See recipes/README.md —
 the flat gripper_* knobs and the flare_gripper backend are gone upstream, and
@@ -16,23 +16,23 @@ this driver does no camera auto-discovery, so the wrist camera is pinned there.
 Example usage:
     # Basic inference (non-RTC mode)
     python -m examples.flexiv_rizon4_rt.main \\
-        --robot_recipe default \\
-        --host 192.168.2.215 \\
-        --port 8000
+        --args.robot-recipe default \\
+        --args.host 192.168.2.215 \\
+        --args.port 8000
 
     # With RTC enabled
     python -m examples.flexiv_rizon4_rt.main \\
-        --robot_recipe default \\
-        --host 192.168.2.215 \\
-        --port 8000 \\
-        --rtc_enabled
+        --args.robot-recipe default \\
+        --args.host 192.168.2.215 \\
+        --args.port 8000 \\
+        --args.rtc-enabled
 
     # Dry run (robot connected but actions not executed)
     python -m examples.flexiv_rizon4_rt.main \\
-        --robot_recipe default \\
-        --host 192.168.2.215 \\
-        --port 8000 \\
-        --dry_run
+        --args.robot-recipe default \\
+        --args.host 192.168.2.215 \\
+        --args.port 8000 \\
+        --args.dry-run
 """
 
 from dataclasses import dataclass
@@ -117,9 +117,12 @@ class DryRunEnvironmentWrapper(_environment.Environment):
 class Args:
     """Arguments for Flexiv Rizon4 RT inference.
 
-    The bench comes from --robot_recipe; everything else here is run tuning,
-    applied on top of the decoded recipe, so a flag always wins:
-    dataclass default < recipe YAML < --args.* flag.
+    The bench comes from --args.robot-recipe. Everything else here is run
+    tuning, which the CLI owns outright: every tuning flag has a concrete
+    default, so it is always applied on top of the decoded recipe. A tuning key
+    written into a recipe — or already present in an upstream lerobot
+    teleop/record recipe — loses to the flag; the loader logs each one it
+    overrides so the swap is visible rather than silent.
     """
 
     # Which physical bench to drive. A name resolves against
@@ -172,10 +175,26 @@ class Args:
 
 
 def main(args: Args) -> None:
-    # Resolve the bench before connecting: WebsocketClientPolicy blocks until the
-    # policy server answers, and a typo'd recipe name should not cost that wait.
+    # Build the robot config before connecting: WebsocketClientPolicy blocks
+    # until the policy server answers, and neither a typo'd recipe name nor a
+    # bad key inside one should cost that wait. Decoding here also means the
+    # path logged is provably the file the arm is configured from.
     recipe_path = _recipe.resolve_recipe_path(args.robot_recipe)
-    logger.info(f"Robot recipe: {recipe_path}")
+    robot_config = _recipe.load_robot_config(
+        recipe_path,
+        use_force=args.use_force,
+        go_to_start=args.go_to_start,
+        log_level=args.log_level,
+        stiffness_ratio=args.stiffness_ratio,
+        start_position_degree=args.start_position_degree,
+        zero_ft_sensor_on_connect=args.zero_ft_sensor_on_connect,
+        inner_control_hz=args.inner_control_hz,
+        interpolate_cmds=args.interpolate_cmds,
+    )
+    logger.info(
+        f"Robot recipe: {recipe_path} (sn={robot_config.robot_sn}, "
+        f"gripper={robot_config.gripper.type if robot_config.gripper else None})"
+    )
 
     ws_client_policy = _websocket_client_policy.WebsocketClientPolicy(
         host=args.host,
@@ -186,15 +205,7 @@ def main(args: Args) -> None:
     logger.info(f"Server metadata: {metadata}")
 
     base_environment = _env.FlexivRizon4RTEnvironment(
-        robot_recipe=args.robot_recipe,
-        use_force=args.use_force,
-        go_to_start=args.go_to_start,
-        log_level=args.log_level,
-        stiffness_ratio=args.stiffness_ratio,
-        start_position_degree=args.start_position_degree,
-        zero_ft_sensor_on_connect=args.zero_ft_sensor_on_connect,
-        inner_control_hz=args.inner_control_hz,
-        interpolate_cmds=args.interpolate_cmds,
+        robot_config=robot_config,
         render_height=args.render_height,
         render_width=args.render_width,
         setup_robot=True,
@@ -261,7 +272,7 @@ def main(args: Args) -> None:
                 else:
                     logger.info("Robot not connected, no need to disconnect")
         except Exception as e:
-            logger.warning(f"Error disconnecting robot: {e}")
+            logger.warn(f"Error disconnecting robot: {e}")
 
     def signal_handler(sig, frame):
         logger.info("\n⚠️ Detected user interrupt (Ctrl+C)")

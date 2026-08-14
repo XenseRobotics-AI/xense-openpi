@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Main script for BiFlexiv Rizon4 RT dual-arm robot inference with OpenPI.
 
---robot_recipe picks the physical bench: a name resolves against
+--args.robot-recipe picks the physical bench: a name resolves against
 examples/bi_flexiv_rizon4_rt/recipes/, a path loads any recipe YAML. It carries
 the arm SNs, start/home poses, head camera and gripper block — the lerobot
 config dataclass stopped carrying bench hardware when `stations/` was folded
@@ -10,41 +10,41 @@ into recipes upstream. See recipes/README.md.
 Example usage:
     # Basic inference
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --robot_recipe forward-05 --host 192.168.2.100 --port 8000
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000
 
     # With RTC enabled
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 --rtc_enabled
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 --args.rtc-enabled
 
     # A different bench (taccap grippers)
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --robot_recipe forward-04 --host 192.168.2.100 --port 8000
+        --args.robot-recipe forward-04 --args.host 192.168.2.100 --args.port 8000
 
     # A recipe from the lerobot-xense tree
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --robot_recipe ~/lerobot-xense/recipes/teleop/bi_flexiv_rizon4_rt/forward-04.yaml \\
-        --host 192.168.2.100 --port 8000
+        --args.robot-recipe ~/lerobot-xense/recipes/teleop/bi_flexiv_rizon4_rt/forward-04.yaml \\
+        --args.host 192.168.2.100 --args.port 8000
 
     # Dry run (robot connected but actions not sent)
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 --dry_run
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 --args.dry-run
 
     # Inference + simultaneous recording in LeRobot format
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 \\
-        --record \\
-        --record_repo_id Xense/my_new_dataset \\
-        --task "pack 6 cosmetic bottles into the carton"
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 \\
+        --args.record \\
+        --args.record-repo-id Xense/my_new_dataset \\
+        --args.task "pack 6 cosmetic bottles into the carton"
 
     # Inference + stream head camera & state to the video-playback laptop at 10 Hz
     # (off-laptop detection + seamless video switching; never blocks control)
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 \\
-        --subscribe --subscribe_url ws://192.168.2.50:9100 --subscribe_hz 10
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 \\
+        --args.subscribe --args.subscribe-url ws://192.168.2.50:9100 --args.subscribe-hz 10
 
     # Inference with Pico4 human intervention (both grips held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
-        --robot_recipe forward-05 --host 192.168.2.100 --port 8000 --pico4_intervention
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 --args.pico4-intervention
 """
 
 from dataclasses import dataclass
@@ -166,9 +166,12 @@ class DryRunEnvironmentWrapper(_environment.Environment):
 class Args:
     """Arguments for BiFlexiv Rizon4 RT inference.
 
-    The bench comes from --robot_recipe; everything else here is run tuning,
-    applied on top of the decoded recipe, so a flag always wins:
-    dataclass default < recipe YAML < --args.* flag.
+    The bench comes from --args.robot-recipe. Everything else here is run
+    tuning, which the CLI owns outright: every tuning flag has a concrete
+    default, so it is always applied on top of the decoded recipe. A tuning key
+    written into a recipe — or already present in an upstream lerobot
+    teleop/record recipe — loses to the flag; the loader logs each one it
+    overrides so the swap is visible rather than silent.
     """
 
     # Which physical bench to drive. A name resolves against
@@ -225,7 +228,7 @@ class Args:
     # video-playback laptop (③) for off-laptop detection + seamless video switching.
     # One-way ws push on a daemon thread; never blocks the 30 Hz control loop.
     # (Inference is on the separate 5090 server, set via --host/--port.)
-    # NB: distinct from --robot_recipe — this is the detection-data stream.
+    # NB: distinct from --args.robot-recipe — this is the detection-data stream.
     subscribe: bool = False
     # obs ws URL of the video-playback laptop's app (its --obs_port, default 9100).
     subscribe_url: str = "ws://127.0.0.1:9100"
@@ -279,10 +282,26 @@ def main(args: Args) -> None:
             "Run with --action_hz 0 (synchronous runtime) when intervention is needed."
         )
 
-    # Resolve the bench before connecting: WebsocketClientPolicy blocks until the
-    # policy server answers, and a typo'd recipe name should not cost that wait.
+    # Build the robot config before connecting: WebsocketClientPolicy blocks
+    # until the policy server answers, and neither a typo'd recipe name nor a
+    # bad key inside one should cost that wait. Decoding here also means the
+    # path logged is provably the file the arms are configured from.
     recipe_path = _recipe.resolve_recipe_path(args.robot_recipe)
-    logger.info(f"Robot recipe: {recipe_path}")
+    robot_config = _recipe.load_robot_config(
+        recipe_path,
+        use_force=args.use_force,
+        go_to_start=args.go_to_start,
+        stiffness_ratio=args.stiffness_ratio,
+        inner_control_hz=args.inner_control_hz,
+        interpolate_cmds=args.interpolate_cmds,
+        enable_tactile_sensors=args.enable_tactile_sensors,
+        log_level=args.log_level,
+    )
+    logger.info(
+        f"Robot recipe: {recipe_path} "
+        f"(left={robot_config.left_robot_sn}, right={robot_config.right_robot_sn}, "
+        f"gripper={robot_config.gripper.type if robot_config.gripper else None})"
+    )
 
     ws_client_policy = _websocket_client_policy.WebsocketClientPolicy(
         host=args.host,
@@ -291,14 +310,7 @@ def main(args: Args) -> None:
     logger.info(f"Server metadata: {ws_client_policy.get_server_metadata()}")
 
     base_environment = _env.BiFlexivRizon4RTEnvironment(
-        robot_recipe=args.robot_recipe,
-        use_force=args.use_force,
-        go_to_start=args.go_to_start,
-        stiffness_ratio=args.stiffness_ratio,
-        inner_control_hz=args.inner_control_hz,
-        interpolate_cmds=args.interpolate_cmds,
-        enable_tactile_sensors=args.enable_tactile_sensors,
-        log_level=args.log_level,
+        robot_config=robot_config,
         render_height=args.render_height,
         render_width=args.render_width,
         setup_robot=True,
@@ -313,7 +325,7 @@ def main(args: Args) -> None:
     subscribers = []
     if args.record:
         if args.dry_run:
-            logger.warning(
+            logger.warn(
                 "Recording is enabled in dry-run mode — state/action data will be from policy output only (no real robot motion)"
             )
         recorder = _recorder.make_recorder_subscriber(
@@ -436,7 +448,7 @@ def main(args: Args) -> None:
             if intervention_controller is not None:
                 intervention_controller.disconnect()
         except Exception as e:
-            logger.warning(f"Error disconnecting Pico4: {e}")
+            logger.warn(f"Error disconnecting Pico4: {e}")
         try:
             actual_env = environment
             if isinstance(actual_env, _intervention.InterventionEnvironmentWrapper):
@@ -445,7 +457,7 @@ def main(args: Args) -> None:
                 actual_env = actual_env._wrapped_env
             actual_env.disconnect()
         except Exception as e:
-            logger.warning(f"Error disconnecting: {e}")
+            logger.warn(f"Error disconnecting: {e}")
 
     # SIGINT handling: first press asks the runtime to wind down threads
     # cleanly (DecoupledRuntime joins its action + obs threads here, ~0.5 s);
@@ -457,7 +469,7 @@ def main(args: Args) -> None:
 
     def signal_handler(sig, frame):
         if _shutdown_in_progress.is_set():
-            logger.warning("Second Ctrl+C — forcing exit. Arms may not return home cleanly.")
+            logger.warn("Second Ctrl+C — forcing exit. Arms may not return home cleanly.")
             os._exit(1)
         _shutdown_in_progress.set()
         logger.info("Ctrl+C — stopping runtime gracefully " "(press Ctrl+C again to force exit)")

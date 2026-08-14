@@ -1,6 +1,7 @@
 """OpenPI Environment wrapper for BiFlexiv Rizon4 RT dual-arm robot."""
 
 import einops
+from lerobot.robots.bi_flexiv_rizon4_rt.config_bi_flexiv_rizon4_rt import BiFlexivRizon4RTConfig
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
 from typing_extensions import override
@@ -58,27 +59,13 @@ class BiFlexivRizon4RTEnvironment(_environment.Environment):
 
     def __init__(
         self,
-        robot_recipe: str,
-        use_force: bool | None = None,
-        go_to_start: bool | None = None,
-        stiffness_ratio: float | None = None,
-        inner_control_hz: int | None = None,
-        interpolate_cmds: bool | None = None,
-        enable_tactile_sensors: bool | None = None,
-        log_level: str | None = None,
+        robot_config: BiFlexivRizon4RTConfig,
         render_height: int = 224,
         render_width: int = 224,
         setup_robot: bool = True,
     ) -> None:
         self._env = _real_env.BiFlexivRizon4RTRealEnv(
-            robot_recipe=robot_recipe,
-            use_force=use_force,
-            go_to_start=go_to_start,
-            stiffness_ratio=stiffness_ratio,
-            inner_control_hz=inner_control_hz,
-            interpolate_cmds=interpolate_cmds,
-            enable_tactile_sensors=enable_tactile_sensors,
-            log_level=log_level,
+            robot_config=robot_config,
             setup_robot=setup_robot,
         )
         self._render_height = render_height

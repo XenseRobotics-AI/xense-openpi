@@ -121,7 +121,7 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
             if cam in images_raw:
                 frame[f"observation.images.{cam}"] = np.asarray(images_raw[cam], dtype=np.uint8)
             else:
-                logger.warning(f"Camera '{cam}' missing from images_raw, skipping frame image")
+                logger.warn(f"Camera '{cam}' missing from images_raw, skipping frame image")
 
         self._dataset.add_frame(frame)
         self._step_count += 1
@@ -129,7 +129,7 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
     @override
     def on_episode_end(self) -> None:
         if self._step_count == 0:
-            logger.warning("Episode ended with 0 steps — not saving")
+            logger.warn("Episode ended with 0 steps — not saving")
             return
         logger.info(f"Saving episode ({self._step_count} steps)...")
         self._dataset.save_episode()
