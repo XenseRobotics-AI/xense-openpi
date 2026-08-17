@@ -1,0 +1,19 @@
+# Bench check for an XTac-UMI checkpoint on the bimanual Rizon4 RT: connect, read
+# the wrist cameras, run the policy, print the actions instead of executing them.
+#   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.main --args.run dry-run --args.host <server>
+#
+# Keys are the CLI field names; anything you pass on the command line wins.
+
+# forward-04 is the taccap-gripper bench, resolved from
+# examples/bi_flexiv_rizon4_rt/recipes/ — this example ships no recipes of its own.
+robot_recipe: forward-04
+dry_run: true
+
+host: localhost
+port: 8000
+
+# 30 Hz is what XTac-UMI data was recorded at; main.py warns if you drift off it.
+runtime_hz: 30.0
+num_episodes: 1
+max_episode_steps: 200
+log_level: DEBUG

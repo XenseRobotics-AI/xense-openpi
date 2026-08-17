@@ -1,0 +1,34 @@
+# XTac-UMI bimanual dataset, recorded on the handheld bi_taccap_gripper rig.
+#
+# State/action are 20D in the rig's own per-side-grouped feature order:
+#   [left_tcp(0-8), left_gripper(9), right_tcp(10-18), right_gripper(19)]
+# No head camera: base_0_rgb is black with image_mask=False; the two wrist
+# cameras stay in their matching wrist slots.
+#
+# Deploy target: bi_flexiv (dual Flexiv Rizon4 RT with taccap grippers), which
+# assembles the same per-side-grouped order — see
+# examples/xtac_umi_bi_flexiv_rizon4_rt and src/openpi/policies/xtac_umi_policy.py.
+model:
+  type: Pi0Config
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  # enable_training_time_rtc: true
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotXTacUmiDataConfig
+  repo_id: TacVerse/taccap-g1-sort-defective-parts-0710
+  use_delta_cartesian_actions: true
+  # use_head_camera: true   # only for a bench that actually recorded one
+  base_config:
+    prompt_from_task: true
+  default_prompt: Pick up the parts one by one and place each part into its matching bin,
+    sorting the parts by whether they have defects or oxidation until all the defective
+    parts and the intact parts are separated into their own bins
+batch_size: 256
+num_workers: 64
+num_train_steps: 80000
+fsdp_devices: 8
