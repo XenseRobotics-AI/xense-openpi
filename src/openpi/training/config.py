@@ -1,4 +1,9 @@
-"""See _CONFIGS for the list of available configs."""
+"""Training config schema and lookup.
+
+This module defines the dataclasses a config is made of (`TrainConfig`, `DataConfig`,
+the `DataConfigFactory` family). The configs themselves are YAML files under
+`configs/` - see `configs/README.md` and `get_config` below for the lookup order.
+"""
 
 import abc
 from collections.abc import Sequence
@@ -6,16 +11,14 @@ import dataclasses
 import difflib
 import logging
 import pathlib
-from typing import Any, Literal, Protocol, TypeAlias
+from typing import Any, Literal, Protocol, TypeAlias, override
 
 import etils.epath as epath
 import flax.nnx as nnx
-from typing_extensions import override
 import tyro
 
 import openpi.models.model as _model
 import openpi.models.pi0_config as pi0_config
-import openpi.models.pi0_fast as pi0_fast
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.bi_flexiv_policy as bi_flexiv_policy
@@ -348,6 +351,29 @@ class RLDSDroidDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class DroidInferenceDataConfig(DataConfigFactory):
+    """Data config for serving a DROID policy (no repack; the client sends model keys).
+
+    This is the YAML-expressible replacement for the `SimpleDataConfig(data_transforms=
+    lambda model: ...)` form the DROID inference configs used to carry. The lambda's only
+    dynamic input was the model type, and `create()` already receives the model config -
+    so reading `model_config.model_type` here does the same job without a closure, which
+    is what lets these configs live in YAML.
+    """
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            data_transforms=_transforms.Group(
+                inputs=[droid_policy.DroidInputs(model_type=model_config.model_type)],
+                outputs=[droid_policy.DroidOutputs()],
+            ),
+            model_transforms=ModelTransformFactory()(model_config),
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class LeRobotDROIDDataConfig(DataConfigFactory):
     """
     Example data config for custom DROID dataset in LeRobot format.
@@ -599,336 +625,6 @@ class TrainConfig:
             raise ValueError("Cannot resume and overwrite at the same time.")
 
 
-# Use `get_config` if you need to get a config by name in your code.
-_CONFIGS = [
-    #
-    #
-    # Inference DROID configs.
-    #
-    TrainConfig(
-        name="pi0_droid",
-        model=pi0_config.Pi0Config(action_horizon=10),
-        data=SimpleDataConfig(
-            assets=AssetsConfig(asset_id="droid"),
-            data_transforms=lambda model: _transforms.Group(
-                inputs=[droid_policy.DroidInputs(model_type=ModelType.PI0)],
-                outputs=[droid_policy.DroidOutputs()],
-            ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-    ),
-    TrainConfig(
-        name="pi0_fast_droid",
-        model=pi0_fast.Pi0FASTConfig(action_dim=8, action_horizon=10),
-        data=SimpleDataConfig(
-            assets=AssetsConfig(asset_id="droid"),
-            data_transforms=lambda model: _transforms.Group(
-                inputs=[droid_policy.DroidInputs(model_type=ModelType.PI0_FAST)],
-                outputs=[droid_policy.DroidOutputs()],
-            ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-    ),
-    TrainConfig(
-        name="pi05_droid",
-        model=pi0_config.Pi0Config(action_horizon=15, pi05=True),
-        data=SimpleDataConfig(
-            assets=AssetsConfig(asset_id="droid"),
-            data_transforms=lambda model: _transforms.Group(
-                inputs=[droid_policy.DroidInputs(model_type=ModelType.PI05)],
-                outputs=[droid_policy.DroidOutputs()],
-            ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-    ),
-    TrainConfig(
-        name="tie_shoes_50_episodes_lora_no_adjust_training_time_rtc_0202",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b_lora",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotAlohaDataConfig(
-            repo_id="Vertax/xense_bi_arx5_tie_white_shoelaces_1030_no_adjust",
-            adapt_to_pi=False,
-            repack_transforms=_transforms.Group(
-                inputs=[
-                    _transforms.RepackTransform(
-                        {
-                            "images": {
-                                "cam_high": "observation.images.head",
-                                "cam_left_wrist": "observation.images.left_wrist",
-                                "cam_right_wrist": "observation.images.right_wrist",
-                            },
-                            "state": "observation.state",
-                            "actions": "action",
-                            "prompt": "prompt",
-                        }
-                    )
-                ]
-            ),
-            base_config=DataConfig(
-                prompt_from_task=True,  # Set to True for prompt by task_name
-            ),
-        ),
-        freeze_filter=pi0_config.Pi0Config(
-            pi05=True,
-            paligemma_variant="gemma_2b_lora",
-        ).get_freeze_filter(),
-        ema_decay=None,
-        batch_size=64,  # the total batch_size not pre_gpu batch_size
-        weight_loader=weight_loaders.CheckpointWeightLoader(
-            "/home/ubuntu/openpi/checkpoints/tie_shoes_50_episodes_lora_no_adjust_1101/tie_shoes_50_episodes_lora_no_adjust_1103_40000/16000/params"
-        ),
-        num_train_steps=40_000,  # 20000
-        num_workers=2,  # default 2
-        fsdp_devices=1,  # refer line 359
-    ),
-    TrainConfig(
-        name="pi05_base_bi_flexiv_pack_6_cosmetic_bottles_lora",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b_lora",
-            action_expert_variant="gemma_300m_lora",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotBiFlexivDataConfig(
-            repo_id="Xense/pack_6_cosmetic_bottles_into_carton",
-            use_delta_cartesian_actions=True,
-            default_prompt="Pick up six cosmetic bottles one by one and pack them into the carton box. The box is narrow, so align each bottle carefully and insert it precisely.",
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-        ema_decay=None,
-        freeze_filter=pi0_config.Pi0Config(
-            pi05=True,
-            paligemma_variant="gemma_2b_lora",
-            action_expert_variant="gemma_300m_lora",
-        ).get_freeze_filter(),
-        batch_size=64,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=20_000,
-        num_workers=2,
-        fsdp_devices=1,
-    ),
-    TrainConfig(
-        name="pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0430_merged_fixed_h100",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b",
-            action_expert_variant="gemma_300m",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotBiFlexivDataConfig(
-            repo_id="Xense/assemble_box_with_phone_stand0430_merged",
-            use_delta_cartesian_actions=True,
-            default_prompt="Assemble the packaging by folding the flat box into shape, placing the metal phone stand inside, and closing the box properly.",
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-        ema_decay=None,
-        batch_size=256,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=80000,
-        num_workers=64,
-        fsdp_devices=8,
-    ),
-    TrainConfig(
-        name="pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0422_merged_fixed_h100",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b",
-            action_expert_variant="gemma_300m",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotBiFlexivDataConfig(
-            repo_id="Xense/assemble_box_with_phone_stand0410_merged_fixed",
-            use_delta_cartesian_actions=True,
-            default_prompt="Assemble the packaging by folding the flat box into shape, placing the metal phone stand inside, and closing the box properly.",
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-        ema_decay=None,
-        batch_size=256,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=80_000,
-        num_workers=64,
-        fsdp_devices=8,
-    ),
-    TrainConfig(
-        name="tie_shoes_50_episodes_no_adjust_training_time_rtc_0426_h100",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b",
-            action_expert_variant="gemma_300m",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotAlohaDataConfig(
-            repo_id="Vertax/xense_bi_arx5_tie_white_shoelaces_1030_no_adjust",
-            adapt_to_pi=False,
-            repack_transforms=_transforms.Group(
-                inputs=[
-                    _transforms.RepackTransform(
-                        {
-                            "images": {
-                                "cam_high": "observation.images.head",
-                                "cam_left_wrist": "observation.images.left_wrist",
-                                "cam_right_wrist": "observation.images.right_wrist",
-                            },
-                            "state": "observation.state",
-                            "actions": "action",
-                            "prompt": "prompt",
-                        }
-                    )
-                ]
-            ),
-            base_config=DataConfig(
-                prompt_from_task=True,  # Set to True for prompt by task_name
-            ),
-        ),
-        save_interval=2000,
-        keep_period=10000,
-        ema_decay=None,
-        batch_size=256,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=20000,
-        num_workers=64,
-        fsdp_devices=8,
-    ),
-    TrainConfig(
-        name="pi05_base_bi_flexiv_earbuds_case_insertion_teleop_rtc_0520_a100",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b",
-            action_expert_variant="gemma_300m",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotBiFlexivDataConfig(
-            repo_id="Xense/earbud_case_insertion_teleop_0515",
-            use_delta_cartesian_actions=True,
-            default_prompt="Pick up each earbud case from the left stands, insert the matching earbuds, close the lid, and place the case in the box.",
-            base_config=DataConfig(
-                prompt_from_task=True,  # Set to True for prompt by task_name
-            ),
-        ),
-        save_interval=5000,
-        keep_period=20000,
-        ema_decay=None,
-        batch_size=256,
-        weight_loader=weight_loaders.CheckpointWeightLoader("/home/li/hubo/xense-openpi/checkpoints/20000/params"),
-        num_train_steps=20000,
-        num_workers=64,
-        fsdp_devices=8,
-    ),
-    TrainConfig(
-        name="pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0515_h100",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b",
-            action_expert_variant="gemma_300m",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotBiFlexivDataConfig(
-            repo_id="Xense/shoe_insole_retrieval_and_packing0515",
-            use_delta_cartesian_actions=True,
-            default_prompt="Open the shoe tongue, take the insole out of the shoe, put the insole back into the shoe, and pack the shoe into the shoebox.",
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-        ema_decay=None,
-        batch_size=256,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=40_000,
-        num_workers=64,
-        fsdp_devices=8,
-    ),
-    TrainConfig(
-        name="pi05_base_bi_flexiv_newbalacne_shoe_insole_retrieval_and_packing_0616_h100",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b",
-            action_expert_variant="gemma_300m",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotBiFlexivDataConfig(
-            repo_id="Xense/newbalance_shoe_insole_retrieval_and_packing_0611",
-            use_delta_cartesian_actions=True,
-            default_prompt="Take the shoe out of the shoebox, open the shoe tongue, remove and reinsert the insole, then place the shoe into the shoebox.",
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-        ema_decay=None,
-        batch_size=256,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=60_000,
-        num_workers=64,
-        fsdp_devices=8,
-    ),
-    TrainConfig(
-        name="pi05_base_bi_flexiv_bag_inspection_0611_h100",
-        model=pi0_config.Pi0Config(
-            paligemma_variant="gemma_2b",
-            action_expert_variant="gemma_300m",
-            pi05=True,
-            enable_training_time_rtc=True,
-            max_delay=10,
-        ),
-        data=LeRobotBiFlexivDataConfig(
-            repo_id="Xense/dewu_bag_inspection_0611",
-            use_delta_cartesian_actions=True,
-            default_prompt="Pick up the bag, open it, inspect its contents, close it, and place it on the opposite side.",
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
-        ),
-        ema_decay=None,
-        batch_size=256,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=60_000,
-        num_workers=64,
-        fsdp_devices=8,
-    ),
-    TrainConfig(
-        name="debug_pi05",
-        model=pi0_config.Pi0Config(pi05=True, paligemma_variant="dummy", action_expert_variant="dummy"),
-        data=FakeDataConfig(),
-        batch_size=2,
-        num_train_steps=10,
-        overwrite=True,
-        exp_name="debug_pi05",
-        wandb_enabled=False,
-    ),
-    #
-    # RoboArena configs.
-    #
-    *roboarena_config.get_roboarena_configs(),
-]
-
-if len({config.name for config in _CONFIGS}) != len(_CONFIGS):
-    raise ValueError("Config names must be unique.")
-
-_CONFIGS_DICT = {config.name: config for config in _CONFIGS}
-
-
 # YAML lookup paths, in priority order. First match wins.
 # - configs/<name>.yaml         per-user, gitignored, for your in-flight experiments
 # - configs/_examples/<name>.yaml  checked into git, canonical examples for the team
@@ -948,28 +644,67 @@ def _find_yaml_config(config_name: str) -> pathlib.Path | None:
     return None
 
 
-def _known_config_names() -> list[str]:
-    """All names available via either _CONFIGS or YAML files. For 'did you mean' hints."""
-    names = set(_CONFIGS_DICT.keys())
+def _yaml_config_paths() -> dict[str, pathlib.Path]:
+    """Every config YAML on disk, keyed by config name (the file stem).
+
+    Files whose name starts with `_` are documentation aids (`_FULL_REFERENCE.yaml`),
+    not configs, so they are left out of listings and out of the CLI's choices.
+    """
     repo_root = pathlib.Path(__file__).resolve().parents[3]
-    for relative in _YAML_SEARCH_DIRS:
+    paths: dict[str, pathlib.Path] = {}
+    # Reversed so the higher-priority directory (configs/) overwrites the lower one.
+    for relative in reversed(_YAML_SEARCH_DIRS):
         directory = repo_root / relative
         if directory.is_dir():
-            names.update(p.stem for p in directory.glob("*.yaml"))
-    return sorted(names)
+            paths.update({p.stem: p for p in sorted(directory.glob("*.yaml")) if not p.name.startswith("_")})
+    return paths
+
+
+def _generated_configs() -> dict[str, TrainConfig]:
+    """Configs built in Python because they can't round-trip through YAML.
+
+    RoboArena's baselines pass tokenizer *classes* and lambdas, neither of which
+    survives serialization, and they're generated as a family rather than written
+    one file at a time. Everything else lives in `configs/`.
+    """
+    return {config.name: config for config in roboarena_config.get_roboarena_configs()}
+
+
+def all_configs() -> dict[str, TrainConfig]:
+    """Every config that can be referenced by name, YAML and generated alike.
+
+    A YAML file wins over a generated config of the same name, matching the lookup
+    order in `get_config`. A YAML that fails to load is skipped with a warning
+    rather than taking down the whole CLI - `get_config` still raises loudly if
+    that broken file is the one you asked for.
+    """
+    import openpi.training.yaml_loader as _yaml_loader
+
+    configs = _generated_configs()
+    for name, path in _yaml_config_paths().items():
+        try:
+            configs[name] = _yaml_loader.load(path)
+        except Exception as exc:  # one bad file shouldn't hide the others
+            logging.warning("Skipping config %s: %s", path, exc)
+    return configs
+
+
+def _known_config_names() -> list[str]:
+    """All names available by YAML or generator. For 'did you mean' hints."""
+    return sorted(set(_yaml_config_paths()) | set(_generated_configs()))
 
 
 def cli() -> TrainConfig:
-    return tyro.extras.overridable_config_cli({k: (k, v) for k, v in _CONFIGS_DICT.items()})
+    return tyro.extras.overridable_config_cli({k: (k, v) for k, v in sorted(all_configs().items())})
 
 
 def get_config(config_name: str) -> TrainConfig:
     """Get a config by name.
 
     Lookup order:
-      1. configs/<name>.yaml          (per-user, gitignored)
+      1. configs/<name>.yaml           (per-user, gitignored)
       2. configs/_examples/<name>.yaml (shared examples in git)
-      3. _CONFIGS_DICT[name]           (legacy Python registry)
+      3. generated configs             (RoboArena baselines; see _generated_configs)
     """
     yaml_path = _find_yaml_config(config_name)
     if yaml_path is not None:
@@ -977,8 +712,8 @@ def get_config(config_name: str) -> TrainConfig:
 
         return _yaml_loader.load(yaml_path)
 
-    if config_name in _CONFIGS_DICT:
-        return _CONFIGS_DICT[config_name]
+    if config := _generated_configs().get(config_name):
+        return config
 
     closest = difflib.get_close_matches(config_name, _known_config_names(), n=1, cutoff=0.0)
     closest_str = f" Did you mean '{closest[0]}'? " if closest else ""

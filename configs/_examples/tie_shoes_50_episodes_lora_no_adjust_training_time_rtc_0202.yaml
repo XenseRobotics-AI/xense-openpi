@@ -1,0 +1,33 @@
+model:
+  type: Pi0Config
+  max_token_len: 200
+  paligemma_variant: gemma_2b_lora
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+weight_loader:
+  # Was /home/ubuntu/openpi/checkpoints/tie_shoes_50_episodes_lora_no_adjust_1101/
+  # tie_shoes_50_episodes_lora_no_adjust_1103_40000/16000/params — a checkpoint from
+  # a machine nobody else has. Points at the upstream base now; to continue from
+  # your own checkpoint pass --weight_loader.params_path=... on the CLI.
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotAlohaDataConfig
+  repo_id: Vertax/xense_bi_arx5_tie_white_shoelaces_1030_no_adjust
+  base_config:
+    prompt_from_task: true
+  repack_transforms:
+    inputs:
+    - type: RepackTransform
+      structure:
+        images:
+          cam_high: observation.images.head
+          cam_left_wrist: observation.images.left_wrist
+          cam_right_wrist: observation.images.right_wrist
+        state: observation.state
+        actions: action
+        prompt: prompt
+batch_size: 64
+num_train_steps: 40000

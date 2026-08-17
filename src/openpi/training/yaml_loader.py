@@ -25,22 +25,33 @@ Example YAML:
     num_train_steps: 40000
     fsdp_devices: 8
 
+Nested blocks that are not polymorphic (`assets:`, `base_config:`, a transform
+group's `inputs:`/`outputs:`) need no `type:` - the field's own annotation says
+which class to build. Transforms inside a group do carry `type:`, resolved
+through `registry.TRANSFORMS`.
+
 Limits:
-- Lambdas / closures cannot round-trip through YAML; classes carrying them
-  (e.g. SimpleDataConfig) are deliberately not registered. Such configs stay
-  in the legacy _CONFIGS list inside config.py.
+- Lambdas / closures and bare classes (e.g. a tokenizer class passed as a value)
+  cannot round-trip through YAML. Classes carrying them - SimpleDataConfig, the
+  RoboArena baselines - are deliberately not registered and stay in Python; see
+  `config._generated_configs`.
 - `exp_name` is left unset in YAML; the user supplies it on the CLI.
+- A LoRA `freeze_filter` is neither written nor read: it is re-derived from the
+  model's `*_lora` variants on load, and skipped on dump for the same reason.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import pathlib
+import types
+import typing
 from typing import Any
 
 from omegaconf import OmegaConf
 
 import openpi.training.registry as _registry
+import openpi.transforms as _transforms
 
 _CONFIG_FIELD_TO_REGISTRY: dict[str, str] = {
     "model": "MODELS",
@@ -49,10 +60,6 @@ _CONFIG_FIELD_TO_REGISTRY: dict[str, str] = {
     "lr_schedule": "LR_SCHEDULES",
     "optimizer": "OPTIMIZERS",
 }
-
-# DataConfig is a nested dataclass under DataConfigFactory.base_config. It is not
-# polymorphic (only one class), so it is constructed directly when present as a dict.
-_PROMPT_FROM_TASK_KEY = "prompt_from_task"
 
 
 def load(yaml_path: pathlib.Path | str) -> TrainConfig:  # noqa: F821  (forward ref)
@@ -108,8 +115,8 @@ def _build_train_config(name: str, raw: dict[str, Any]) -> TrainConfig:  # noqa:
 def _maybe_inject_lora_freeze_filter(kwargs: dict[str, Any]) -> None:
     """If the YAML omitted freeze_filter and the model is LoRA, derive it from the model.
 
-    Implements the same pattern that _CONFIGS uses by hand:
-        freeze_filter=Pi0Config(pi05=..., paligemma_variant="...lora", ...).get_freeze_filter()
+    Saves YAML authors from expressing a flax filter tree by hand; `dump` skips the
+    field for the same reason, so the round-trip stays symmetric.
     """
     if "freeze_filter" in kwargs:
         return  # user provided one explicitly; respect that
@@ -140,16 +147,85 @@ def _build_polymorphic(field_name: str, spec: Any) -> Any:
     cls = _registry.resolve(registry, spec["type"])
 
     # Strip the discriminator and pass the rest as kwargs.
-    body = {k: v for k, v in spec.items() if k != "type"}
+    return _construct(cls, {k: v for k, v in spec.items() if k != "type"})
 
-    # Data configs may carry a nested `base_config: DataConfig` mapping that is not
-    # polymorphic - construct it directly.
-    if field_name == "data" and "base_config" in body and isinstance(body["base_config"], dict):
-        import openpi.training.config as _config
 
-        body["base_config"] = _config.DataConfig(**body["base_config"])
+def _construct(cls: type, body: dict[str, Any]) -> Any:
+    """Instantiate `cls` from a YAML mapping, building nested dataclasses as it goes.
 
-    return cls(**body)
+    A field whose annotation is a dataclass (e.g. `assets: AssetsConfig`,
+    `base_config: DataConfig | None`) and whose YAML value is a mapping gets
+    constructed recursively, so nested blocks need no `type:` tag - the field's
+    own annotation already says which class it is.
+    """
+    annotations = _field_annotations(cls)
+    return cls(**{name: _coerce(annotations.get(name), value) for name, value in body.items()})
+
+
+def _field_annotations(cls: type) -> dict[str, Any]:
+    """Field name -> annotation. Falls back to the raw `f.type` if resolution fails."""
+    try:
+        hints = typing.get_type_hints(cls, include_extras=True)
+    except Exception:  # unresolvable forward refs shouldn't break loading
+        hints = {}
+    return {f.name: hints.get(f.name, f.type) for f in dataclasses.fields(cls)}
+
+
+def _nested_dataclass(annotation: Any) -> type | None:
+    """The dataclass a field holds, looking through Annotated / Optional / Union.
+
+    Returns None for anything else (scalars, sequences, unresolved string
+    annotations) - the loader's signal to pass the YAML value through untouched.
+    """
+    if annotation is None or isinstance(annotation, str):
+        return None
+    # tyro.conf.Suppress[X] and friends are Annotated[X, ...].
+    if hasattr(annotation, "__metadata__"):
+        return _nested_dataclass(annotation.__origin__)
+    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+        for arg in typing.get_args(annotation):
+            if arg is type(None):
+                continue
+            if (found := _nested_dataclass(arg)) is not None:
+                return found
+        return None
+    if isinstance(annotation, type) and dataclasses.is_dataclass(annotation):
+        return annotation
+    return None
+
+
+def _coerce(annotation: Any, value: Any) -> Any:
+    """Turn a YAML value into whatever the annotated field expects."""
+    if not isinstance(value, dict):
+        return value
+    target = _nested_dataclass(annotation)
+    if target is None:
+        return value
+    if target is _transforms.Group:
+        return _build_group(value)
+    return _construct(target, value)
+
+
+def _build_group(spec: dict[str, Any]) -> _transforms.Group:
+    """Build a `transforms.Group` from `{inputs: [...], outputs: [...]}`.
+
+    Only the keys present are passed on: `Group`'s own defaults are empty tuples,
+    and passing an empty list instead would break dataclass equality with a config
+    that left the side unset.
+    """
+    if unknown := set(spec) - {"inputs", "outputs"}:
+        raise ValueError(f"Transform group has unknown keys {sorted(unknown)}; expected 'inputs' and/or 'outputs'.")
+    return _transforms.Group(
+        **{key: [_build_transform(item) for item in spec[key]] for key in ("inputs", "outputs") if key in spec}
+    )
+
+
+def _build_transform(spec: Any) -> Any:
+    """Build one transform from a `type:`-tagged mapping."""
+    if not isinstance(spec, dict) or "type" not in spec:
+        raise ValueError(f"Each transform must be a mapping with a 'type:' key, got {spec!r}")
+    cls = _registry.resolve(_registry.TRANSFORMS, spec["type"])
+    return _construct(cls, {k: v for k, v in spec.items() if k != "type"})
 
 
 def dump(config: TrainConfig, yaml_path: pathlib.Path | str | None = None) -> str:  # noqa: F821
@@ -170,7 +246,7 @@ def _train_config_to_dict(config: Any) -> dict[str, Any]:
 
     Fields that equal the TrainConfig default are skipped (to keep YAML noise low).
     Fields that don't equal the default and aren't serializable raise loudly - that
-    config is incompatible with YAML and must stay in _CONFIGS.
+    config cannot round-trip through YAML and has to be built in Python.
     """
     import openpi.training.config as _config
 
@@ -188,6 +264,11 @@ def _train_config_to_dict(config: Any) -> dict[str, Any]:
         # Skip tyro MISSING sentinels (e.g. exp_name) - user supplies via CLI.
         if value is tyro.MISSING:
             continue
+        # A LoRA freeze filter is re-derived from the model variants on load, so it
+        # doesn't need to be written - which is just as well, since nnx filter trees
+        # don't serialize. This is the dump-side mirror of _maybe_inject_lora_freeze_filter.
+        if f.name == "freeze_filter" and _is_derivable_freeze_filter(config, value):
+            continue
         default_value = getattr(defaults, f.name, _MISSING)
         # If the value equals the default, skip it - no need to serialize.
         if default_value is not _MISSING and _equal_for_yaml(value, default_value):
@@ -198,6 +279,17 @@ def _train_config_to_dict(config: Any) -> dict[str, Any]:
         else:
             out[f.name] = _scalar_to_yaml(value)
     return out
+
+
+def _is_derivable_freeze_filter(config: Any, value: Any) -> bool:
+    """True when `value` is exactly what the loader would rebuild from the model alone."""
+    model = getattr(config, "model", None)
+    if model is None or not hasattr(model, "get_freeze_filter"):
+        return False
+    variants = f"{getattr(model, 'paligemma_variant', '') or ''}{getattr(model, 'action_expert_variant', '') or ''}"
+    if "lora" not in variants:
+        return False
+    return _equal_for_yaml(value, model.get_freeze_filter())
 
 
 class _MissingSentinel:
@@ -275,6 +367,12 @@ def _scalar_to_yaml(value: Any) -> Any:
         return value
     if isinstance(value, enum.Enum):
         return value.name
+    # Nested dataclasses (transform groups, the transforms inside them, AssetsConfig,
+    # ...) serialize the same way top-level ones do; unregistered classes simply come
+    # out without a `type:` key, which is what the loader expects for a field whose
+    # annotation already names the class.
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _dataclass_to_yaml_dict(value, _registry.all_known_classes())
     if isinstance(value, (list, tuple)):
         return [_scalar_to_yaml(v) for v in value]
     if isinstance(value, dict):
@@ -284,5 +382,6 @@ def _scalar_to_yaml(value: Any) -> Any:
     # Anything else (lambdas, transform groups with closures, etc.) is unserializable.
     raise ValueError(
         f"Cannot serialize value of type {type(value).__name__} to YAML: {value!r}. "
-        "This config is incompatible with YAML round-trip and must stay in _CONFIGS."
+        "This config cannot round-trip through YAML and has to be built in Python "
+        "(see config._generated_configs)."
     )

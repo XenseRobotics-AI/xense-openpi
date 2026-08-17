@@ -1,0 +1,10 @@
+model:
+  type: Pi0FASTConfig
+  action_dim: 8
+  action_horizon: 10
+data:
+  type: DroidInferenceDataConfig
+  assets:
+    asset_id: droid
+  base_config:
+    prompt_from_task: true

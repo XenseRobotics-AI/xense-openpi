@@ -5,8 +5,13 @@ model:
   discrete_state_input: true
   enable_training_time_rtc: true
 weight_loader:
+  # Was /home/li/hubo/xense-openpi/checkpoints/20000/params — a continuation of a
+  # 20k-step run that only existed on one laptop, so nobody else could start this
+  # config. Points at the upstream base now; to continue from your own checkpoint:
+  #   uv run scripts/train.py <this-config> --exp-name=... \
+  #     --weight_loader.params_path=/path/to/checkpoint/params
   type: CheckpointWeightLoader
-  params_path: /home/li/hubo/xense-openpi/checkpoints/20000/params
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
 ema_decay: null
 data:
   type: LeRobotBiFlexivDataConfig

@@ -1,0 +1,12 @@
+model:
+  type: Pi0Config
+  action_horizon: 15
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+data:
+  type: DroidInferenceDataConfig
+  assets:
+    asset_id: droid
+  base_config:
+    prompt_from_task: true

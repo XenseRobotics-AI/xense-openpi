@@ -1,11 +1,11 @@
 model:
   type: Pi0Config
+  max_token_len: 200
   paligemma_variant: gemma_2b_lora
   action_expert_variant: gemma_300m_lora
   pi05: true
   discrete_state_input: true
   enable_training_time_rtc: true
-  # max_delay defaults to 10
 weight_loader:
   type: CheckpointWeightLoader
   params_path: gs://openpi-assets/checkpoints/pi05_base/params
@@ -15,12 +15,10 @@ data:
   repo_id: Xense/pack_6_cosmetic_bottles_into_carton
   base_config:
     prompt_from_task: true
-  default_prompt: Pick up six cosmetic bottles one by one and pack them into the carton box. The box is narrow, so align each bottle carefully and insert it precisely.
+  default_prompt: Pick up six cosmetic bottles one by one and pack them into the carton
+    box. The box is narrow, so align each bottle carefully and insert it precisely.
 batch_size: 64
 num_train_steps: 20000
-fsdp_devices: 1
-# freeze_filter is intentionally not written here. yaml_loader detects the
-# `lora` substring in the model variants and auto-derives the correct flax
-# filter via Pi0Config.get_freeze_filter(). To verify this matches the
-# Python config exactly, see test_lora_freeze_filter_auto_derived in
-# src/openpi/training/yaml_loader_test.py.
+# freeze_filter is intentionally absent. The loader sees the `lora` substring in the
+# model variants above and derives the flax filter via Pi0Config.get_freeze_filter();
+# see test_lora_freeze_filter_auto_derived in src/openpi/training/yaml_loader_test.py.

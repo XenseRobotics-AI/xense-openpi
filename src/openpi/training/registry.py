@@ -6,7 +6,8 @@ appropriate dict to make it loadable from YAML.
 
 Only YAML-friendly classes are registered here. Classes that take lambdas
 or other non-serializable values (e.g. SimpleDataConfig used by pi0_droid)
-are intentionally not registered and remain Python-only via _CONFIGS.
+are intentionally not registered and remain Python-only; see
+`config._generated_configs`.
 """
 
 import openpi.models.pi0_config as _pi0_config
@@ -14,6 +15,7 @@ import openpi.models.pi0_fast as _pi0_fast
 import openpi.models.pi0_tactile_config as _pi0_tactile_config
 import openpi.training.optimizer as _optimizer
 import openpi.training.weight_loaders as _weight_loaders
+import openpi.transforms as _transforms
 
 # Model configs (TrainConfig.model)
 MODELS: dict[str, type] = {
@@ -45,6 +47,16 @@ OPTIMIZERS: dict[str, type] = {
 }
 
 
+# Data transforms that can appear inside a `Group` (e.g. a data config's
+# `repack_transforms:`). Only transforms whose fields are plain data belong here:
+# RepackTransform carries a nested str->str mapping and nothing else. A transform
+# that takes arrays, masks built by helper functions, or a model config is not
+# YAML-friendly and stays in Python.
+TRANSFORMS: dict[str, type] = {
+    "RepackTransform": _transforms.RepackTransform,
+}
+
+
 # Data config factories (TrainConfig.data). Populated lazily to avoid circular import
 # with openpi.training.config (which defines these classes).
 DATA_CONFIGS: dict[str, type] = {}
@@ -59,6 +71,7 @@ def _populate_data_configs() -> None:
     DATA_CONFIGS.update(
         {
             "FakeDataConfig": _config.FakeDataConfig,
+            "DroidInferenceDataConfig": _config.DroidInferenceDataConfig,
             "LeRobotAlohaDataConfig": _config.LeRobotAlohaDataConfig,
             "LeRobotDROIDDataConfig": _config.LeRobotDROIDDataConfig,
             "RLDSDroidDataConfig": _config.RLDSDroidDataConfig,
@@ -87,6 +100,7 @@ def all_registries() -> dict[str, dict[str, type]]:
         "LR_SCHEDULES": LR_SCHEDULES,
         "OPTIMIZERS": OPTIMIZERS,
         "DATA_CONFIGS": DATA_CONFIGS,
+        "TRANSFORMS": TRANSFORMS,
     }
 
 

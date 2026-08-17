@@ -9,6 +9,7 @@ import pytest
 import openpi.training.config as _config
 import openpi.training.weight_loaders as _weight_loaders
 import openpi.training.yaml_loader as _yaml_loader
+import openpi.transforms as _transforms
 
 
 def test_load_minimal_debug_pi05():
@@ -147,7 +148,7 @@ def test_round_trip_dump_then_load():
     """Take an in-memory TrainConfig, dump it to YAML, parse it back, compare."""
     original = _config.TrainConfig(
         name="round_trip_demo",
-        model=_config._CONFIGS_DICT["debug_pi05"].model,
+        model=_config.get_config("debug_pi05").model,
         data=_config.FakeDataConfig(),
         batch_size=2,
         num_train_steps=10,
@@ -169,11 +170,16 @@ def test_round_trip_debug_pi05_from_registry():
 
 
 def test_dump_rejects_unserializable():
-    """SimpleDataConfig with lambda transforms cannot round-trip."""
-    # pi0_droid uses SimpleDataConfig with a data_transforms lambda.
-    pi0_droid = _config.get_config("pi0_droid")
+    """A closure in the config is what makes it Python-only; dump must say so."""
+    with_lambda = _config.TrainConfig(
+        name="lambda_demo",
+        data=_config.SimpleDataConfig(
+            repo_id="fake",
+            data_transforms=lambda model: _transforms.Group(),
+        ),
+    )
     with pytest.raises(ValueError, match="Cannot serialize"):
-        _yaml_loader.dump(pi0_droid)
+        _yaml_loader.dump(with_lambda)
 
 
 def test_load_from_disk_file(tmp_path: pathlib.Path):
@@ -258,3 +264,62 @@ data:
     # that the gate (paligemma/action_expert variants) controls the behavior.
     assert "lora" not in cfg.model.paligemma_variant
     assert "lora" not in cfg.model.action_expert_variant
+
+
+def test_nested_dataclass_blocks_need_no_type_tag():
+    """`assets:` and `base_config:` are built from the field annotation alone."""
+    yaml_text = """
+model:
+  type: Pi0Config
+  action_horizon: 10
+data:
+  type: DroidInferenceDataConfig
+  assets:
+    asset_id: droid
+  base_config:
+    prompt_from_task: true
+"""
+    cfg = _yaml_loader.loads(yaml_text, name="nested_blocks")
+    assert cfg.data.assets == _config.AssetsConfig(asset_id="droid")
+    assert cfg.data.base_config == _config.DataConfig(prompt_from_task=True)
+
+
+def test_transform_group_round_trips():
+    """A repack group is expressible in YAML, and dumps back to the same text."""
+    yaml_text = """
+model:
+  type: Pi0Config
+  pi05: true
+data:
+  type: LeRobotAlohaDataConfig
+  repo_id: fake/dataset
+  repack_transforms:
+    inputs:
+    - type: RepackTransform
+      structure:
+        images:
+          cam_high: observation.images.head
+        state: observation.state
+"""
+    cfg = _yaml_loader.loads(yaml_text, name="repack_demo")
+    (repack,) = cfg.data.repack_transforms.inputs
+    assert isinstance(repack, _transforms.RepackTransform)
+    assert repack.structure["images"]["cam_high"] == "observation.images.head"
+    assert cfg.data.repack_transforms.outputs == (), "an absent side keeps Group's own default"
+
+    assert _yaml_loader.loads(_yaml_loader.dump(cfg), name="repack_demo") == cfg
+
+
+def test_unknown_transform_type_is_rejected():
+    yaml_text = """
+model:
+  type: Pi0Config
+data:
+  type: LeRobotAlohaDataConfig
+  repo_id: fake/dataset
+  repack_transforms:
+    inputs:
+    - type: NotARegisteredTransform
+"""
+    with pytest.raises(KeyError, match="NotARegisteredTransform"):
+        _yaml_loader.loads(yaml_text, name="bad_transform")
