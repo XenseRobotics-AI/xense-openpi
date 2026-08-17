@@ -1,14 +1,24 @@
 #!/usr/bin/env python
 """Main script for BiFlexiv Rizon4 RT dual-arm robot inference with OpenPI.
 
---args.robot-recipe picks the physical bench: a name resolves against
-examples/bi_flexiv_rizon4_rt/recipes/, a path loads any recipe YAML. It carries
-the arm SNs, start/home poses, head camera and gripper block — the lerobot
-config dataclass stopped carrying bench hardware when `stations/` was folded
-into recipes upstream. See recipes/README.md.
+Two files describe a launch. --args.robot-recipe picks the physical bench: a
+name resolves against examples/bi_flexiv_rizon4_rt/recipes/, a path loads any
+recipe YAML. It carries the arm SNs, start/home poses, head camera and gripper
+block — the lerobot config dataclass stopped carrying bench hardware when
+`stations/` was folded into recipes upstream. See recipes/README.md.
+
+--args.run picks a run YAML from runs/, which presets any of the flags below
+(including the recipe), so a full launch is one line instead of ten. Flags still
+override the file. See runs/README.md.
 
 Example usage:
-    # Basic inference
+    # A run file — everything preset
+    python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole
+
+    # ...with a one-off change on top
+    python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole --args.dry-run
+
+    # Basic inference, all on the CLI
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000
 
@@ -49,6 +59,7 @@ Example usage:
 
 from dataclasses import dataclass
 import os
+import pathlib
 import signal
 import threading
 
@@ -56,7 +67,6 @@ from lerobot.teleoperators.bi_pico4 import BiPico4
 from lerobot.teleoperators.bi_pico4.config_bi_pico4 import BiPico4Config
 from lerobot.utils.robot_utils import get_logger
 from typing_extensions import override
-import tyro
 from xense_client import action_chunk_broker
 from xense_client import paced_broker as _paced_broker
 from xense_client import rtc_action_chunk_broker
@@ -71,8 +81,12 @@ import examples.bi_flexiv_rizon4_rt.intervention as _intervention
 import examples.bi_flexiv_rizon4_rt.recipe as _recipe
 import examples.bi_flexiv_rizon4_rt.recorder as _recorder
 import examples.bi_flexiv_rizon4_rt.subscribe as _subscribe
+import examples.run_config as _run_config
 
 logger = get_logger("BiFlexivRizon4RTMain")
+
+# Run YAMLs shipped with this example; --args.run resolves bare names here.
+RUNS_DIR = pathlib.Path(__file__).parent / "runs"
 
 # Action dimension labels for dry-run logging
 _ACTION_LABELS = [
@@ -172,15 +186,25 @@ class Args:
     written into a recipe — or already present in an upstream lerobot
     teleop/record recipe — loses to the flag; the loader logs each one it
     overrides so the swap is visible rather than silent.
+
+    Any of these can be preset in a run YAML under runs/ and selected with
+    --args.run, which is how a full launch fits on one line. Flags still win over
+    the file; see examples/run_config.py.
     """
+
+    # Which run YAML to take the settings below from. A name resolves against
+    # examples/bi_flexiv_rizon4_rt/runs/; a path loads any YAML. Optional — with
+    # no run file this is the same CLI it has always been.
+    run: str | None = None
 
     # Which physical bench to drive. A name resolves against
     # examples/bi_flexiv_rizon4_rt/recipes/ (forward-01, forward-04, forward-05,
     # forward-06, diagonal-02); a path loads any recipe YAML, including one from
     # the lerobot-xense tree. The recipe carries the arm SNs, start/home poses,
     # head camera and gripper block — the lerobot config dataclass no longer
-    # does. Required: connecting to the wrong bench is not a safe default.
-    robot_recipe: str
+    # does. Required (here or in the run YAML): connecting to the wrong bench is
+    # not a safe default.
+    robot_recipe: str | None = None
 
     # Policy server
     host: str = "localhost"
@@ -262,6 +286,13 @@ class Args:
 
 
 def main(args: Args) -> None:
+    logger.info(_run_config.describe(args, Args, RUNS_DIR))
+    if args.robot_recipe is None:
+        raise SystemExit(
+            "No bench selected. Pass --args.robot-recipe <name>, or --args.run <name> "
+            f"for a run file that sets it. Recipes: {', '.join(_recipe.available_recipes())}."
+        )
+
     if args.pico4_intervention and args.rtc_enabled:
         # RTCActionChunkBroker owns an execution queue + blending; its reset
         # semantics differ from ActionChunkBroker. A correct RTC handoff needs
@@ -421,9 +452,7 @@ def main(args: Args) -> None:
         agent = _policy_agent.PolicyAgent(policy=policy)
 
     if decoupled_mode:
-        logger.info(
-            f"Decoupled runtime: obs at ~{args.runtime_hz} Hz (camera-bound), " f"action at {args.action_hz} Hz"
-        )
+        logger.info(f"Decoupled runtime: obs at ~{args.runtime_hz} Hz (camera-bound), action at {args.action_hz} Hz")
         runtime = _decoupled_runtime.DecoupledRuntime(
             environment=environment,
             broker=policy,  # PacedBroker
@@ -472,7 +501,7 @@ def main(args: Args) -> None:
             logger.warn("Second Ctrl+C — forcing exit. Arms may not return home cleanly.")
             os._exit(1)
         _shutdown_in_progress.set()
-        logger.info("Ctrl+C — stopping runtime gracefully " "(press Ctrl+C again to force exit)")
+        logger.info("Ctrl+C — stopping runtime gracefully (press Ctrl+C again to force exit)")
         runtime.request_stop()
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -492,4 +521,4 @@ def main(args: Args) -> None:
 
 
 if __name__ == "__main__":
-    tyro.cli(main)
+    main(_run_config.cli(main, Args, RUNS_DIR))

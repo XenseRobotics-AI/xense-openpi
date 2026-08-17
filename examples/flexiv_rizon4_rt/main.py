@@ -36,12 +36,12 @@ Example usage:
 """
 
 from dataclasses import dataclass
+import pathlib
 import signal
 import sys
 
 from lerobot.utils.robot_utils import get_logger
 from typing_extensions import override
-import tyro
 from xense_client import action_chunk_broker
 from xense_client import rtc_action_chunk_broker
 from xense_client import websocket_client_policy as _websocket_client_policy
@@ -51,8 +51,12 @@ from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.flexiv_rizon4_rt.env as _env
 import examples.flexiv_rizon4_rt.recipe as _recipe
+import examples.run_config as _run_config
 
 logger = get_logger("FlexivRizon4RTMain")
+
+# Run YAMLs shipped with this example; --args.run resolves bare names here.
+RUNS_DIR = pathlib.Path(__file__).parent / "runs"
 
 
 class DryRunEnvironmentWrapper(_environment.Environment):
@@ -67,9 +71,9 @@ class DryRunEnvironmentWrapper(_environment.Environment):
     def reset(self) -> None:
         self._episode_count += 1
         self._step_count = 0
-        logger.info(f"\n{'='*80}")
+        logger.info(f"\n{'=' * 80}")
         logger.info(f"🔄 Episode {self._episode_count} - environment reset (dry run mode)")
-        logger.info(f"{'='*80}\n")
+        logger.info(f"{'=' * 80}\n")
         self._wrapped_env.reset()
 
     @override
@@ -86,9 +90,9 @@ class DryRunEnvironmentWrapper(_environment.Environment):
 
         actions = action.get("actions")
         if actions is not None:
-            logger.info(f"\n{'─'*80}")
+            logger.info(f"\n{'─' * 80}")
             logger.info(f"🎯 Step {self._step_count} - policy output action (10D Cartesian):")
-            logger.info(f"{'─'*80}")
+            logger.info(f"{'─' * 80}")
 
             labels = [
                 "tcp.x",
@@ -105,9 +109,9 @@ class DryRunEnvironmentWrapper(_environment.Environment):
             for i, (label, value) in enumerate(zip(labels, actions)):
                 logger.info(f"  [{i:2d}] {label:12s}: {value:+.6f}")
 
-            logger.info(f"{'─'*80}")
+            logger.info(f"{'─' * 80}")
             logger.info("⚠️  DRY RUN mode: action intercepted, NOT executed on robot")
-            logger.info(f"{'─'*80}\n")
+            logger.info(f"{'─' * 80}\n")
 
     def disconnect(self) -> None:
         self._wrapped_env.disconnect()
@@ -123,13 +127,21 @@ class Args:
     written into a recipe — or already present in an upstream lerobot
     teleop/record recipe — loses to the flag; the loader logs each one it
     overrides so the swap is visible rather than silent.
+
+    Any of these can be preset in a run YAML under runs/ and selected with
+    --args.run; flags still win over the file. See examples/run_config.py.
     """
+
+    # Which run YAML to take the settings below from. A name resolves against
+    # examples/flexiv_rizon4_rt/runs/; a path loads any YAML.
+    run: str | None = None
 
     # Which physical bench to drive. A name resolves against
     # examples/flexiv_rizon4_rt/recipes/; a path loads any recipe YAML. The
     # recipe carries the arm SN, start pose, cameras and the typed gripper
-    # block. Required: connecting to the wrong bench is not a safe default.
-    robot_recipe: str
+    # block. Required (here or in the run YAML): connecting to the wrong bench
+    # is not a safe default.
+    robot_recipe: str | None = None
 
     # Policy server connection
     host: str = "localhost"
@@ -175,6 +187,13 @@ class Args:
 
 
 def main(args: Args) -> None:
+    logger.info(_run_config.describe(args, Args, RUNS_DIR))
+    if args.robot_recipe is None:
+        raise SystemExit(
+            "No bench selected. Pass --args.robot-recipe <name>, or --args.run <name> "
+            f"for a run file that sets it. Recipes: {', '.join(_recipe.available_recipes())}."
+        )
+
     # Build the robot config before connecting: WebsocketClientPolicy blocks
     # until the policy server answers, and neither a typo'd recipe name nor a
     # bad key inside one should cost that wait. Decoding here also means the
@@ -296,4 +315,4 @@ def main(args: Args) -> None:
 
 
 if __name__ == "__main__":
-    tyro.cli(main)
+    main(_run_config.cli(main, Args, RUNS_DIR))

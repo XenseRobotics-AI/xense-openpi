@@ -1,8 +1,8 @@
 import dataclasses
+import pathlib
 
 from lerobot.utils.robot_utils import get_logger
 from typing_extensions import override
-import tyro
 from xense_client import action_chunk_broker
 from xense_client import rtc_action_chunk_broker
 from xense_client import websocket_client_policy as _websocket_client_policy
@@ -12,8 +12,12 @@ from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.bi_arx5_real.env as _env
 import examples.bi_arx5_real.recorder as _recorder
+import examples.run_config as _run_config
 
 logger = get_logger("BiARX5Main")
+
+# Run YAMLs shipped with this example; --args.run resolves bare names here.
+RUNS_DIR = pathlib.Path(__file__).parent / "runs"
 
 
 class DryRunEnvironmentWrapper(_environment.Environment):
@@ -28,9 +32,9 @@ class DryRunEnvironmentWrapper(_environment.Environment):
     def reset(self) -> None:
         self._episode_count += 1
         self._step_count = 0
-        logger.info(f"\n{'='*80}")
+        logger.info(f"\n{'=' * 80}")
         logger.info(f"🔄 Episode {self._episode_count} - environment reset (dry run mode)")
-        logger.info(f"{'='*80}\n")
+        logger.info(f"{'=' * 80}\n")
         self._wrapped_env.reset()
 
     @override
@@ -64,9 +68,9 @@ class DryRunEnvironmentWrapper(_environment.Environment):
         # print policy output action
         actions = action.get("actions")
         if actions is not None:
-            logger.info(f"\n{'─'*80}")
+            logger.info(f"\n{'─' * 80}")
             logger.info(f"🎯 step {self._step_count} - policy output action:")
-            logger.info(f"{'─'*80}")
+            logger.info(f"{'─' * 80}")
 
             # print detailed action information
             # logger.info(f"action dimension: {actions.shape}")
@@ -99,13 +103,23 @@ class DryRunEnvironmentWrapper(_environment.Environment):
             logger.info(f"  left gripper (index 6):  {actions[6]:.6f}")
             logger.info(f"  right gripper (index 13): {actions[13]:.6f}")
 
-            logger.info(f"{'─'*80}")
+            logger.info(f"{'─' * 80}")
             logger.info("⚠️  dry run mode: action intercepted, not actually executed to robot")
-            logger.info(f"{'─'*80}\n")
+            logger.info(f"{'─' * 80}\n")
 
 
 @dataclasses.dataclass
 class Args:
+    """Arguments for BiARX5 inference.
+
+    Any of these can be preset in a run YAML under runs/ and selected with
+    --args.run; flags still win over the file. See examples/run_config.py.
+    """
+
+    # Which run YAML to take the settings below from. A name resolves against
+    # examples/bi_arx5_real/runs/; a path loads any YAML.
+    run: str | None = None
+
     host: str = "0.0.0.0"
     port: int = 8000
 
@@ -149,6 +163,7 @@ class Args:
 
 
 def main(args: Args) -> None:
+    logger.info(_run_config.describe(args, Args, RUNS_DIR))
     ws_client_policy = _websocket_client_policy.WebsocketClientPolicy(
         host=args.host,
         port=args.port,
@@ -263,4 +278,4 @@ def main(args: Args) -> None:
 
 
 if __name__ == "__main__":
-    tyro.cli(main)
+    main(_run_config.cli(main, Args, RUNS_DIR))
