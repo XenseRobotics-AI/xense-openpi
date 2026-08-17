@@ -506,6 +506,17 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class DynamicLeRobotBiFlexivDataConfig(LeRobotBiFlexivDataConfig):
+    """BiFlexiv config that trains from a dynamic root of local LeRobot datasets."""
+
+    dynamic_root: str = tyro.MISSING
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        return super().create(assets_dirs, model_config)
+
+
+@dataclasses.dataclass(frozen=True)
 class TrainConfig:
     # Name of the config. Must be unique. Will be used to reference this config.
     name: tyro.conf.Suppress[str]
@@ -570,6 +581,9 @@ class TrainConfig:
 
     # Used to pass metadata to the policy server.
     policy_metadata: dict[str, Any] | None = None
+
+    # If set for dynamic datasets, refresh the loader every N steps.
+    refresh_interval_steps: int | None = None
 
     # If the value is greater than 1, FSDP will be enabled and shard across number of specified devices; overall
     # device memory will be reduced but training could potentially be slower.
@@ -906,6 +920,81 @@ _CONFIGS = [
         num_train_steps=60_000,
         num_workers=64,
         fsdp_devices=8,
+    ),
+    TrainConfig(
+        name="pi05_base_bi_flexiv_bag_inspection_0611_h100_dagger",
+        model=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b",
+            action_expert_variant="gemma_300m",
+            pi05=True,
+            enable_training_time_rtc=True,
+            max_delay=10,
+        ),
+        data=DynamicLeRobotBiFlexivDataConfig(
+            repo_id="Xense/dewu_bag_inspection_0611",
+            dynamic_root="/wangsl/data/earbud_case_sequential_insertion_teleop/sc/xense-openpi/dynamic_data/bag_inspection",
+            use_delta_cartesian_actions=True,
+            default_prompt="Pick up the bag, open it, inspect its contents, close it, and place it on the opposite side.",
+            base_config=DataConfig(
+                prompt_from_task=True,
+            ),
+        ),
+        ema_decay=None,
+        batch_size=256,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=60_000,
+        num_workers=64,
+        fsdp_devices=8,
+    ),
+    TrainConfig(
+        name="pi05_base_bi_flexiv_optical_module_insertion_0810_rtc_h100_dagger",
+        model=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b",
+            action_expert_variant="gemma_300m",
+            pi05=True,
+            enable_training_time_rtc=True,
+            max_delay=10,
+        ),
+        data=DynamicLeRobotBiFlexivDataConfig(
+            repo_id="Xense/optical-module-insertion-0731",
+            dynamic_root="/wangsl/data/earbud_case_sequential_insertion_teleop/sc/dynamic_datasets",
+            use_delta_cartesian_actions=True,
+            default_prompt="Pick up the optical module with the left hand, and insert it into the network port with the right hand.",
+            base_config=DataConfig(
+                prompt_from_task=True,
+            ),
+        ),
+        save_interval=10000,
+        ema_decay=None,
+        batch_size=32,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=80000,
+        num_workers=64,
+        fsdp_devices=8,
+    ),
+    TrainConfig(
+        name="pi05_base_bi_flexiv_optical_module_insertion_0810_rtc_h100",
+        model=pi0_config.Pi0Config(
+            paligemma_variant="gemma_2b",
+            action_expert_variant="gemma_300m",
+            pi05=True,
+            enable_training_time_rtc=True,
+            max_delay=10,
+        ),
+        data=LeRobotBiFlexivDataConfig(
+            repo_id="Xense/optical-module-insertion-0731",
+            use_delta_cartesian_actions=True,
+            default_prompt="Pick up the optical module with the left hand, and insert it into the network port with the right hand.",
+            base_config=DataConfig(
+                prompt_from_task=True,
+            ),
+        ),
+        save_interval=10000,
+        ema_decay=None,
+        batch_size=256,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=80000,
+        num_workers=64,
     ),
     TrainConfig(
         name="debug_pi05",
