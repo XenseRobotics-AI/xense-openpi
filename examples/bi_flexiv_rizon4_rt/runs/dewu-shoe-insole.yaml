@@ -1,0 +1,27 @@
+# Dewu shoe-insole demo, robot host (machine ③ of the three-machine setup).
+#   python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole
+#
+# Start the inference server (①) and the screen PC (②) first — `subscribe: true`
+# blocks at startup until ② answers the handshake. See the "BiFlexiv RT forward
+# mount + dewu video switch" section of the top-level README.
+#
+# Keys here are the CLI field names, so this file is the command you would type;
+# anything you pass on the command line still wins. See runs/README.md.
+
+robot_recipe: forward-05
+
+# Policy server (①). The 5090 box running scripts/serve_policy.py.
+host: 192.168.5.87
+port: 8000
+
+# Control loop
+runtime_hz: 30.0
+inner_control_hz: 1000
+interpolate_cmds: true
+rtc_enabled: true
+
+# Head camera + state stream to the screen PC (②), which runs the detector and
+# switches the scene video. Its obs ws port is 9100.
+subscribe: true
+subscribe_url: ws://192.168.5.35:9100
+subscribe_hz: 10.0

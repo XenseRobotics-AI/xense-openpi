@@ -607,17 +607,32 @@ python scripts/serve_policy.py \
 
 ### Running the robot client
 
-```bash
-# BiARX5 with tactile sensors
-python -m examples.bi_arx5_real.main \
-    --args.host 192.168.2.215 \
-    --args.port 8000 \
-    --args.dry_run \
-    --args.enable_tactile_sensors
+A launch is described by two YAML files, so the command line stays short:
 
-# BiFlexiv RT with RTC enabled. --args.robot-recipe names the physical bench;
-# it replaced --args.bi-mount-type, which indexed a stations/ table lerobot
-# removed. Names resolve against examples/bi_flexiv_rizon4_rt/recipes/.
+- **Recipe** — the bench: arm SNs, start/home poses, cameras, gripper block.
+  `examples/<example>/recipes/`, selected with `--args.robot-recipe`.
+- **Run** — everything else: policy server, RTC, recording, obs streaming,
+  control-loop tuning. `examples/<example>/runs/`, selected with `--args.run`.
+
+```bash
+# One line: the run file names the bench and presets every flag.
+python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole
+
+# Any flag still overrides the file, for a one-off.
+python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole --args.dry-run
+
+# BiARX5 with tactile sensors.
+python -m examples.bi_arx5_real.main --args.run tactile --args.host 192.168.2.215
+```
+
+Precedence is `dataclass defaults < run YAML < CLI flags`, and `--help` shows the
+values actually in effect once a run file is applied. Every flag still works on
+its own, exactly as before — a run file is optional:
+
+```bash
+# BiFlexiv RT with RTC enabled, all on the CLI. --args.robot-recipe names the
+# physical bench; it replaced --args.bi-mount-type, which indexed a stations/
+# table lerobot removed.
 python -m examples.bi_flexiv_rizon4_rt.main \
     --args.robot-recipe forward-04 \
     --args.host 192.168.142.158 \
@@ -628,6 +643,9 @@ python -m examples.bi_flexiv_rizon4_rt.main \
     --args.rtc-enabled \
     --args.dry-run
 ```
+
+See [`examples/bi_flexiv_rizon4_rt/runs/README.md`](examples/bi_flexiv_rizon4_rt/runs/README.md)
+for how to write one.
 
 ### BiFlexiv RT forward mount + dewu video switch — full 3-machine demo
 
@@ -673,25 +691,21 @@ python -m examples.dewu_video_switch.app \
 # --args.subscribe BLOCKS at startup until ② is reachable (handshake, like the
 # VLA client waits for the inference server), so start ② before this. Add
 # --args.subscribe-handshake-timeout <s> to abort instead of waiting forever.
-python -m examples.bi_flexiv_rizon4_rt.main \
- --args.robot-recipe forward-05 \
- --args.host 192.168.5.87 \
- --args.port 8000 \
- --args.inner-control-hz 1000 \
- --args.interpolate-cmds \
- --args.runtime-hz 30 \
- --args.rtc-enabled \
- --args.subscribe \
- --args.subscribe-url ws://<screen-pc-ip>:9100 \
- --args.subscribe-hz 10 \
- --args.dry-run
+#
+# All of that is preset in examples/bi_flexiv_rizon4_rt/runs/dewu-shoe-insole.yaml;
+# edit the host and subscribe-url in that file to match your two machines.
+python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole
+
+# First time on a new bench, look before you leap:
+python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole --args.dry-run
 ```
 
-python -m examples.bi_flexiv_rizon4_rt.main  --args.robot-recipe forward-05  --args.host 192.168.5.87  --args.port 8000  --args.inner-control-hz 1000  --args.interpolate-cmds  --args.runtime-hz 30  --args.rtc-enabled  --args.subscribe  --args.subscribe-url ws://192.168.5.35:9100  --args.subscribe-hz 10 2>&1 | tee ~/rt_diag_$(date +%F_%H%M).log
+Keep a log of a run you intend to debug afterwards:
 
-
-python -m examples.bi_flexiv_rizon4_rt.main <args...> \
+```bash
+python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole \
     2>&1 | tee ~/rt_diag_$(date +%F_%H%M).log
+```
 
 ---
 
