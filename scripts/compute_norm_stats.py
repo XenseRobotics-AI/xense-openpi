@@ -37,6 +37,7 @@ import openpi.models.model as _model
 import openpi.shared.normalize as normalize
 import openpi.training.config as _config
 import openpi.training.data_loader as _data_loader
+import openpi.training.dagger_data_loader as _dagger_data_loader
 import openpi.transforms as transforms
 
 logger = logging.getLogger(__name__)
@@ -306,6 +307,63 @@ def create_parquet_dataloader(
     return _gen(), num_batches
 
 
+def create_dynamic_parquet_dataloader(
+    data_config: _config.DataConfig,
+    action_horizon: int,
+    dynamic_root: pathlib.Path,
+    batch_size: int = 512,
+    max_frames: int | None = None,
+) -> tuple:
+    """Read norm-stat frames from every ready LeRobot dataset in ``dynamic_root``.
+
+    Dataset discovery deliberately uses the DAgger loader's implementation, so a
+    dataset contributes to normalization exactly when it would be picked up by
+    ``train_dagger.py``. Each child root gets its own parquet iterator: episode
+    indices commonly restart at zero for newly collected data, so combining
+    roots before constructing action horizons could join separate episodes.
+    """
+    snapshot = _dagger_data_loader.discover_dataset_roots(dynamic_root)
+    if snapshot.is_empty:
+        raise FileNotFoundError(
+            f"No ready LeRobot datasets found under {dynamic_root}. Expected child directories "
+            "containing meta/info.json and data/**/*.parquet."
+        )
+
+    roots = [root_info.root for root_info in snapshot.roots]
+    logger.info(
+        "Reading %d DAgger dataset(s) from %s: %s",
+        len(roots),
+        dynamic_root,
+        ", ".join(root.name for root in roots),
+    )
+
+    loaders: list[tuple[object, int]] = []
+    for root in roots:
+        loader, num_batches = create_parquet_dataloader(
+            data_config,
+            action_horizon,
+            batch_size=batch_size,
+            dataset_root=root,
+        )
+        loaders.append((loader, num_batches))
+
+    def _gen():
+        frames_yielded = 0
+        for loader, _ in loaders:
+            for batch in loader:
+                if max_frames is not None and frames_yielded >= max_frames:
+                    return
+                if max_frames is not None:
+                    frames_left = max_frames - frames_yielded
+                    if len(batch["state"]) > frames_left:
+                        batch = {key: value[:frames_left] for key, value in batch.items()}
+                frames_yielded += len(batch["state"])
+                yield batch
+
+    total_batches = sum(num_batches for _, num_batches in loaders)
+    return _gen(), total_batches
+
+
 def create_torch_dataloader(
     data_config: _config.DataConfig,
     action_horizon: int,
@@ -391,11 +449,35 @@ def main(
     config = _config.get_config(config_name)
     data_config = config.data.create(config.assets_dirs, config.model)
 
-    root_override = dataset_root
-    if root_override is None and os.environ.get("OPENPI_LEROBOT_DATASET_ROOT"):
-        root_override = pathlib.Path(os.environ["OPENPI_LEROBOT_DATASET_ROOT"])
+    dynamic_root = getattr(config.data, "dynamic_root", None)
+    if dynamic_root is not None:
+        if dataset_root is not None or os.environ.get("OPENPI_LEROBOT_DATASET_ROOT"):
+            raise ValueError(
+                "--dataset-root and OPENPI_LEROBOT_DATASET_ROOT are not supported for a dynamic_root config. "
+                "Add/remove datasets under dynamic_root instead."
+            )
+        if use_torch_loader:
+            raise ValueError(
+                "--use-torch-loader is not supported for a dynamic_root config; "
+                "DAgger norm stats are computed directly from each dataset's parquet files."
+            )
+        if skip_hub_sync or hub_data_meta_only:
+            logger.warning("Hub sync flags are ignored for dynamic_root config; data is read locally.")
+        data_loader, num_batches = create_dynamic_parquet_dataloader(
+            data_config,
+            config.model.action_horizon,
+            pathlib.Path(dynamic_root),
+            batch_size=batch_size,
+            max_frames=max_frames,
+        )
+    else:
+        root_override = dataset_root
+        if root_override is None and os.environ.get("OPENPI_LEROBOT_DATASET_ROOT"):
+            root_override = pathlib.Path(os.environ["OPENPI_LEROBOT_DATASET_ROOT"])
 
-    if data_config.rlds_data_dir is not None:
+    if dynamic_root is not None:
+        pass
+    elif data_config.rlds_data_dir is not None:
         data_loader, num_batches = create_rlds_dataloader(
             data_config, config.model.action_horizon, config.batch_size, max_frames
         )
