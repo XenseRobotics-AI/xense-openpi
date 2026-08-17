@@ -14,6 +14,7 @@ import yaml
 
 import openpi.training.config as _config
 import openpi.training.yaml_loader as _yaml_loader
+import openpi.transforms as _transforms
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _EXAMPLES_DIR = _REPO_ROOT / "configs" / "_examples"
@@ -84,6 +85,28 @@ def test_all_configs_load():
     )
     for name, config in configs.items():
         assert config.name == name
+
+
+def test_generated_configs_build_their_data_pipeline(monkeypatch, tmp_path: pathlib.Path):
+    """The configs still assembled in Python must actually assemble.
+
+    They are the only ones whose transforms are built by hand, and the last bug
+    there — `DroidInputs(action_dim=...)`, a keyword that transform has never
+    had — sat undetected because the call lived inside a lambda that only ran at
+    `create()` time. So call it.
+
+    The model-transform half needs the PaliGemma/FAST tokenizer (network access
+    and sentencepiece), which has nothing to do with what's being checked here;
+    stub it out and let the data half run for real.
+    """
+    monkeypatch.setattr(_config.ModelTransformFactory, "__call__", lambda self, model_config: _transforms.Group())
+
+    generated = _config._generated_configs()
+    assert generated, "no generated configs to check"
+    for name, config in generated.items():
+        data_config = config.data.create(tmp_path, config.model)
+        assert data_config.data_transforms.inputs, f"{name}: no input transforms"
+        assert data_config.data_transforms.outputs, f"{name}: no output transforms"
 
 
 def test_full_reference_yaml_parses():
