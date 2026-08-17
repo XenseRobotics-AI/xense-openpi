@@ -24,6 +24,7 @@ import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.bi_flexiv_policy as bi_flexiv_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.xense_flare_policy as xense_flare_policy
+import openpi.policies.xtac_umi_policy as xtac_umi_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
@@ -525,6 +526,81 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),
             repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotXTacUmiDataConfig(DataConfigFactory):
+    """
+    Data config for XTac-UMI bimanual datasets in LeRobot format (TacVerse/taccap-g1-*).
+
+    State/action format (20D, Cartesian with 6D rotation), in the recording rig's
+    own per-side-grouped feature order:
+        left_tcp.{x, y, z, r1-r6} (dims 0-8) + left_gripper.pos (dim 9)
+        right_tcp.{x, y, z, r1-r6} (dims 10-18) + right_gripper.pos (dim 19)
+
+    Note this differs from `LeRobotBiFlexivDataConfig`, which groups both TCPs
+    first and both grippers last. Nothing regroups the dims: the Flexiv
+    deployment example assembles its state vector per-side-grouped to match
+    (examples/xtac_umi_bi_flexiv_rizon4_rt).
+
+    Cameras: left_wrist, right_wrist, plus an optional head camera
+    (`use_head_camera`). Without one, the model's base_0_rgb slot is a black
+    image with image_mask=False - see xtac_umi_policy.XTacUmiInputs.
+    """
+
+    use_delta_cartesian_actions: bool = True
+    # If True, the dataset must have an observation.images.head column, which fills
+    # the base_0_rgb slot (image_mask=True). Default False: base_0_rgb is masked out.
+    use_head_camera: bool = False
+    # If provided, will be injected into the input data if the "prompt" key is not present.
+    default_prompt: str | None = None
+
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[xtac_umi_policy.XTacUmiInputs(use_head_camera=self.use_head_camera)],
+            outputs=[xtac_umi_policy.XTacUmiOutputs()],
+        )
+
+        if self.use_delta_cartesian_actions:
+            # Per-side-grouped: TCP dims (0-8, 10-18) become deltas w.r.t. the current
+            # state; the two gripper dims (9, 19) stay absolute.
+            delta_action_mask = _transforms.make_bool_mask(9, -1, 9, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+
+        images = {
+            "left_wrist": "observation.images.left_wrist",
+            "right_wrist": "observation.images.right_wrist",
+        }
+        if self.use_head_camera:
+            images["head"] = "observation.images.head"
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": images,
+                            "state": "observation.state",
+                            "actions": "action",
+                            "prompt": "task",
+                        }
+                    )
+                ]
+            ),
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,

@@ -107,6 +107,16 @@ data:
   #       actions: action
   #       prompt: prompt
 
+  # ---- LeRobotXTacUmiDataConfig-specific (uncomment when used) ----
+  # Handheld bi_taccap_gripper rig. 20D state/action in the rig's own per-side-
+  # grouped order: [left_tcp(0-8), left_gripper(9), right_tcp(10-18), right_gripper(19)]
+  # -- note this is NOT the LeRobotBiFlexivDataConfig order.
+  # use_delta_cartesian_actions: true  # delta-encode TCP dims 0-8 & 10-18, keep grippers (9, 19) absolute
+  # use_head_camera: false             # true = head fills base_0_rgb (mask on); false = base black + masked out
+  # default_prompt: "..."
+  # action_sequence_keys: [action]
+  # repack_transforms is built from use_head_camera and cannot be overridden here.
+
   # ---- LeRobotXenseFlareDataConfig-specific (uncomment when used) ----
   # use_delta_cartesian_actions: true
   # default_prompt: "..."
