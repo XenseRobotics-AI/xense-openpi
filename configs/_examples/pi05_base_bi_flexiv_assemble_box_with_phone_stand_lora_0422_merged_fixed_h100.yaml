@@ -10,12 +10,12 @@ weight_loader:
 ema_decay: null
 data:
   type: LeRobotBiFlexivDataConfig
-  repo_id: Xense/newbalance_shoe_insole_retrieval_and_packing0515
+  repo_id: Xense/assemble_box_with_phone_stand0410_merged_fixed
   base_config:
     prompt_from_task: true
-  default_prompt: Open the shoe tongue, take the insole out of the shoe, put the insole
-    back into the shoe, and pack the shoe into the shoebox.
+  default_prompt: Assemble the packaging by folding the flat box into shape, placing
+    the metal phone stand inside, and closing the box properly.
 batch_size: 256
 num_workers: 64
-num_train_steps: 40000
+num_train_steps: 80000
 fsdp_devices: 8

@@ -90,8 +90,22 @@ data:
   # ---- LeRobotBiFlexivDataConfig-specific ----
   use_delta_cartesian_actions: true  # delta-encode 18 TCP dims, keep 2 grippers absolute
   default_prompt: "Describe the task in plain language."
-  # repack_transforms: <Group object — keep default; rarely override>
   # action_sequence_keys: [action]
+  #
+  # repack_transforms: renames dataset columns into the keys the policy expects.
+  # Keep the default unless your dataset's column names differ. Transform classes
+  # come from registry.TRANSFORMS; only `inputs:` / `outputs:` are allowed here.
+  # repack_transforms:
+  #   inputs:
+  #   - type: RepackTransform
+  #     structure:
+  #       images:
+  #         cam_high: observation.images.head
+  #         cam_left_wrist: observation.images.left_wrist
+  #         cam_right_wrist: observation.images.right_wrist
+  #       state: observation.state
+  #       actions: action
+  #       prompt: prompt
 
   # ---- LeRobotXenseFlareDataConfig-specific (uncomment when used) ----
   # use_delta_cartesian_actions: true
@@ -104,6 +118,10 @@ data:
   # adapt_to_arx5: false                # ALOHA → BiARX5 adaptation
 
   # ---- LeRobotDROIDDataConfig has no extra fields beyond the shared set ----
+
+  # ---- DroidInferenceDataConfig (serving a DROID policy) ----
+  # No extra fields; the transforms follow from the model type. Used by
+  # pi0_droid / pi0_fast_droid / pi05_droid, usually with assets.asset_id: droid.
 
   # ---- RLDSDroidDataConfig-specific (uncomment when used) ----
   # rlds_data_dir: /path/to/droid_rlds  # REQUIRED for this type

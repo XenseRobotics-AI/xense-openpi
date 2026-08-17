@@ -1,0 +1,9 @@
+model:
+  type: Pi0Config
+  action_horizon: 10
+data:
+  type: DroidInferenceDataConfig
+  assets:
+    asset_id: droid
+  base_config:
+    prompt_from_task: true

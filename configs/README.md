@@ -28,8 +28,9 @@ shared yet.
 
 1. `configs/<name>.yaml`             — your local copy
 2. `configs/_examples/<name>.yaml`   — shared example
-3. Legacy `_CONFIGS` list in `src/openpi/training/config.py` — old configs that
-   use non-YAML-friendly features (lambdas, `flax.nnx` filters, etc.)
+3. Generated configs (`config._generated_configs`) — the RoboArena baselines,
+   which are built as a family in Python because they pass tokenizer *classes*
+   and lambdas that can't be serialized. Nothing else lives in Python.
 
 ## Writing a new config
 
@@ -70,11 +71,12 @@ YAML. `exp_name` is supplied on the CLI (`--exp-name=...`).
 **every** `TrainConfig` field, every registered class for each polymorphic
 slot, and the current default for each value. Open it alongside the example
 you're editing — it answers "what does field X do" and "what other classes
-can go in `data.type`" without forcing you to read 919 lines of `config.py`.
+can go in `data.type`" without forcing you to read `config.py`.
 
-That file's name starts with `_` on purpose: the test suite skips it for the
-equivalence check (it has no `_CONFIGS` counterpart), but a separate test
-ensures it always parses cleanly so the docs can't silently rot.
+That file's name starts with `_` on purpose: leading-underscore files are docs,
+not configs, so they're left out of the config listing and the `train.py`
+subcommand choices. A test still parses it on every run, so the docs can't
+silently rot.
 
 ## ⚠️ Before committing a YAML to `_examples/`
 
@@ -88,24 +90,34 @@ Adding a new model/data-config/weight-loader Python class? Register its
 string name in `src/openpi/training/registry.py` so YAML files can
 reference it via `type: <YourClass>`.
 
-## Regenerating examples after a config.py change
+## LoRA configs
+
+Set `model.paligemma_variant` and/or `model.action_expert_variant` to a `*_lora`
+value. **Do not write a `freeze_filter`** — the loader sees the `lora` substring
+and derives the `flax.nnx` filter tree via `Pi0Config.get_freeze_filter()`, which
+is the same thing the Python configs used to spell out by hand.
+
+## Dumping a Python config to YAML
 
 ```bash
-python scripts/migrate_configs_to_yaml.py --overwrite
+python scripts/dump_config_to_yaml.py <name>                       # to stdout
+python scripts/dump_config_to_yaml.py <name> --output-dir configs  # to a file
 ```
 
-This re-dumps everything in `_CONFIGS` that can be YAML-ified into
-`configs/_examples/`. Run the equivalence test afterwards to verify:
+Useful for the generated RoboArena baselines, or for turning a config you built
+in a REPL into a file. The script re-parses what it wrote and refuses to save
+anything that doesn't reload to an identical config.
+
+## Why are some configs NOT here?
+
+The RoboArena baselines (`paligemma_*_droid`) pass tokenizer **classes** and
+lambdas as config values, and neither survives serialization. They're generated
+as a family by `config._generated_configs()` and resolved by `get_config()` after
+the YAML lookup misses. Everything else is a file in this directory.
+
+## Checking your work
 
 ```bash
-pytest src/openpi/training/yaml_examples_equivalence_test.py
+pytest src/openpi/training/config_yaml_test.py   # every example parses, no local paths
+python scripts/train.py --help                   # your config should be listed
 ```
-
-## Why are some configs NOT in `_examples/`?
-
-A handful of legacy `_CONFIGS` entries use features that don't round-trip
-through YAML — lambdas in `SimpleDataConfig`, `flax.nnx.All(...)` filters
-for LoRA freezing, tokenizer **classes** (not instances) for some FAST/VQ
-variants, or RoboArena's dynamically generated configs. Those stay in
-`src/openpi/training/config.py::_CONFIGS` and are loaded via the
-`_CONFIGS_DICT` fallback in `get_config()`.

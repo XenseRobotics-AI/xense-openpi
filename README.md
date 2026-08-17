@@ -136,21 +136,18 @@ For training, we use the LeRobot dataset format. You can convert your own data t
 
 ### 2. Defining training configs and running training
 
-A training config can be defined in **two ways**, both resolved by name through `get_config(name)`:
+A training config is **one YAML file per task**, resolved by name through
+`get_config(name)`. Per-user configs in `configs/<name>.yaml` are gitignored;
+shared templates live in `configs/_examples/<name>.yaml`. See
+[`configs/README.md`](configs/README.md) for the schema and
+[`docs/yaml_config_changelog.md`](docs/yaml_config_changelog.md) for design notes.
 
-1. **YAML (preferred for new tasks)** — one file per task in `configs/`. Per-user
-   configs in `configs/<name>.yaml` are gitignored; shared templates live in
-   `configs/_examples/<name>.yaml`. See [`configs/README.md`](configs/README.md) for
-   the schema and [`docs/yaml_config_changelog.md`](docs/yaml_config_changelog.md)
-   for design notes.
-2. **Python `_CONFIGS` list in [`config.py`](src/openpi/training/config.py)** —
-   used by legacy entries that can't round-trip through YAML (`pi0_droid`, LoRA
-   configs with `flax.nnx` freeze filters, etc.). New tasks should prefer YAML to
-   avoid merge conflicts in this central file.
+Lookup order: `configs/<name>.yaml` → `configs/_examples/<name>.yaml` →
+generated configs. First match wins. The only configs still built in Python are
+the RoboArena baselines (`paligemma_*_droid`), which pass tokenizer classes and
+lambdas that can't be serialized; see `config._generated_configs`.
 
-Lookup order: `configs/<name>.yaml` → `configs/_examples/<name>.yaml` → `_CONFIGS_DICT[name]`. First match wins.
-
-Shared building blocks (used by both modes):
+Building blocks:
 
 - Data transforms: Define the data mapping from your environment to the model (see [`droid_policy.py`](src/openpi/policies/droid_policy.py) or [`xense_flare_policy.py`](src/openpi/policies/xense_flare_policy.py) for examples)
 - `DataConfig`: Defines how to process raw data from LeRobot dataset for training
@@ -224,14 +221,18 @@ If you need to add a brand-new model class or data factory, register its string
 name in [`src/openpi/training/registry.py`](src/openpi/training/registry.py)
 first — then any YAML can reference it via `type: <YourClass>`.
 
-#### Updating shared examples after editing `config.py`
-
-If you changed something in `_CONFIGS` that has a corresponding YAML in
-`configs/_examples/`, regenerate the YAMLs and re-run the equivalence test:
+#### Checking a config you just wrote
 
 ```bash
-python scripts/migrate_configs_to_yaml.py --overwrite
-pytest src/openpi/training/yaml_examples_equivalence_test.py
+pytest src/openpi/training/config_yaml_test.py   # parses, and carries no machine-local paths
+python scripts/train.py --help                   # your config name should appear in the list
+```
+
+To turn a config that only exists in Python (a RoboArena baseline, or one you
+assembled in a REPL) into a YAML file:
+
+```bash
+python scripts/dump_config_to_yaml.py <name> --output-dir configs
 ```
 
 #### Running training

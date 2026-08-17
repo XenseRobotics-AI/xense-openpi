@@ -107,7 +107,7 @@ The training system uses a centralized config system in `src/openpi/training/con
 - **DataConfig**: Defines data processing pipelines for different datasets
 - **TrainConfig**: Defines training hyperparameters, model selection, and optimization
 - **AssetsConfig**: Manages normalization statistics and other training assets
-- Named configs are registered in `_CONFIGS` dict (e.g., `pi0_droid`, `pi05_droid`, `pi05_base_arx5_lora`)
+- Configs are YAML files under `configs/`, resolved by filename through `get_config(name)` (e.g., `pi0_droid`, `pi05_droid`); see `configs/README.md`
 
 ### Policy Architecture
 Each robot platform has a dedicated policy class that handles:
