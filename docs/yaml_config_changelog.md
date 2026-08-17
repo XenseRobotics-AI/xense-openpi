@@ -31,6 +31,19 @@ than an exception:
 and they're generated as a family rather than authored one file at a time — a
 YAML file per baseline would be the wrong shape for them.
 
+Their data factories moved to `DroidInferenceDataConfig` all the same, because
+every one of them was broken: each lambda called
+`DroidInputs(action_dim=model.action_dim, ...)`, a keyword that transform has
+never had, and `paligemma_diffusion_droid` additionally omitted the required
+`model_type`. Nothing raised, because a lambda body only runs when
+`data.create()` is called, and nobody had served those baselines from this repo.
+Routing them through the registered factory fixes the call and derives
+`model_type` from each config's own model (`PI0_FAST` for the four FAST
+baselines, `PI0` for the diffusion one).
+`config_yaml_test.py::test_generated_configs_build_their_data_pipeline` now calls
+`create()` on every generated config so a hand-built pipeline can't be broken
+silently again.
+
 **Order of operations.** All 13 configs were dumped and the (then still
 existing) equivalence test was run to prove every YAML was `==` to the Python
 config it replaced. Only then was `_CONFIGS` deleted. `config.py` went from 985
