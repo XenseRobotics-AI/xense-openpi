@@ -1,0 +1,18 @@
+# Bench check: connect to forward-05, run the policy, print the actions instead
+# of sending them to the arms.
+#   python -m examples.bi_flexiv_rizon4_rt.main --args.run dry-run --args.host <server>
+#
+# Start here after touching a recipe, the policy server, or this example — a
+# wrong bench or a mistyped gripper block shows up in the log rather than in the
+# arms. Point it at your own server with --args.host on the command line.
+
+robot_recipe: forward-05
+dry_run: true
+
+host: localhost
+port: 8000
+
+runtime_hz: 30.0
+num_episodes: 1
+max_episode_steps: 200
+log_level: DEBUG

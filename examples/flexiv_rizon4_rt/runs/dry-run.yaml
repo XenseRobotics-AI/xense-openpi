@@ -1,0 +1,16 @@
+# Bench check for the single-arm Rizon4 RT: connect, run the policy, print the
+# actions instead of executing them.
+#   python -m examples.flexiv_rizon4_rt.main --args.run dry-run --args.host <server>
+#
+# Keys are the CLI field names; anything you pass on the command line wins.
+
+robot_recipe: default
+dry_run: true
+
+host: localhost
+port: 8000
+
+runtime_hz: 20.0
+num_episodes: 1
+max_episode_steps: 200
+log_level: DEBUG

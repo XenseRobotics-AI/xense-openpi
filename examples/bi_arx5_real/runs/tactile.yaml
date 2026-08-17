@@ -1,0 +1,16 @@
+# BiARX5 with the tactile sensors on — the config the README's tactile example runs.
+#   python -m examples.bi_arx5_real.main --args.run tactile --args.host 192.168.2.215
+#
+# Keys are the CLI field names; anything you pass on the command line wins.
+
+host: 0.0.0.0
+port: 8000
+
+enable_tactile_sensors: true
+dry_run: true          # drop this (or pass --args.no-dry-run) once the arms are clear
+
+left_arm_port: can1
+right_arm_port: can3
+runtime_hz: 30
+action_horizon: 30
+log_level: INFO

@@ -51,6 +51,11 @@ path — loses to the flag. The loader logs every key it overrides, e.g.
 The recipes here leave tuning keys out entirely, so nothing is shadowed when
 you use one of them.
 
+Tuning that you want to *keep* across runs belongs in a run YAML rather than in
+a recipe: [`../runs/README.md`](../runs/README.md). A run file names its bench
+with `robot_recipe:` and presets the flags, so the bench file stays purely about
+hardware and one bench can serve several tasks.
+
 Note `enable_tactile_sensors` defaults to **off** for inference: the policy
 consumes `head`, `left_wrist` and `right_wrist` only, so the four tactile
 cameras would cost USB bandwidth and loop time for frames nothing reads. Pass

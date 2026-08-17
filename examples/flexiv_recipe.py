@@ -39,14 +39,14 @@ from lerobot.robots import RobotConfig
 from lerobot.utils.robot_utils import get_logger
 import yaml
 
-logger = get_logger("FlexivRecipe")
+import examples.run_config as _run_config
 
-_SUFFIXES = (".yaml", ".yml")
+logger = get_logger("FlexivRecipe")
 
 
 def available_recipes(recipes_dir: Path) -> list[str]:
     """Recipe names in ``recipes_dir``, sorted."""
-    return sorted({p.stem for suffix in _SUFFIXES for p in recipes_dir.glob(f"*{suffix}")})
+    return _run_config.available(recipes_dir)
 
 
 def resolve_recipe_path(recipes_dir: Path, recipe: str | Path) -> Path:
@@ -56,22 +56,7 @@ def resolve_recipe_path(recipes_dir: Path, recipe: str | Path) -> Path:
     a separator or a YAML suffix is taken as a path, so a recipe living in the
     lerobot-xense tree can be passed directly.
     """
-    text = str(recipe)
-    candidate = Path(text).expanduser()
-    if "/" in text or candidate.suffix in _SUFFIXES:
-        if not candidate.is_file():
-            raise FileNotFoundError(f"Robot recipe not found: {candidate}")
-        return candidate
-
-    for suffix in _SUFFIXES:
-        path = recipes_dir / f"{text}{suffix}"
-        if path.is_file():
-            return path
-
-    raise FileNotFoundError(
-        f"Unknown robot recipe {text!r}. Available: {', '.join(available_recipes(recipes_dir))}. "
-        f"Pass a path instead to use a recipe from outside {recipes_dir}."
-    )
+    return _run_config.resolve_path(recipes_dir, recipe, kind="robot recipe")
 
 
 def load_robot_config(recipes_dir: Path, config_cls: type, recipe: str | Path, **overrides: Any):

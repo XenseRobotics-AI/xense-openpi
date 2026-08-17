@@ -5,6 +5,7 @@ import dataclasses
 import datetime
 import faulthandler
 import os
+import pathlib
 import signal
 import time
 from moviepy.editor import ImageSequenceClip
@@ -15,9 +16,13 @@ import pandas as pd
 from PIL import Image
 from droid.robot_env import RobotEnv
 import tqdm
-import tyro
+
+import examples.run_config as _run_config
 
 faulthandler.enable()
+
+# Run YAMLs shipped with this example; --args.run resolves bare names here.
+RUNS_DIR = pathlib.Path(__file__).parent / "runs"
 
 # DROID data collection frequency -- we slow down execution to match this frequency
 DROID_CONTROL_FREQUENCY = 15
@@ -25,6 +30,16 @@ DROID_CONTROL_FREQUENCY = 15
 
 @dataclasses.dataclass
 class Args:
+    """Arguments for the DROID rollout client.
+
+    Any of these can be preset in a run YAML under runs/ and selected with
+    --args.run; flags still win over the file. See examples/run_config.py.
+    """
+
+    # Which run YAML to take the settings below from. A name resolves against
+    # examples/droid/runs/; a path loads any YAML.
+    run: str | None = None
+
     # Hardware parameters
     left_camera_id: str = "<your_camera_id>"  # e.g., "24259877"
     right_camera_id: str = "<your_camera_id>"  # e.g., "24514023"
@@ -71,6 +86,8 @@ def prevent_keyboard_interrupt():
 
 
 def main(args: Args):
+    print(_run_config.describe(args, Args, RUNS_DIR))
+
     # Make sure external camera is specified by user -- we only use one external camera for the policy
     assert (
         args.external_camera is not None and args.external_camera in ["left", "right"]
@@ -242,5 +259,4 @@ def _extract_observation(args: Args, obs_dict, *, save_to_disk=False):
 
 
 if __name__ == "__main__":
-    args: Args = tyro.cli(Args)
-    main(args)
+    main(_run_config.cli(main, Args, RUNS_DIR))
