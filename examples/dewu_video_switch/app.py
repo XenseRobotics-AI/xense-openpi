@@ -358,7 +358,7 @@ def main() -> None:
     )
     p.add_argument(
         "--switch-port", type=int, default=9101,
-        help="TCP port of the switch WebSocket server browsers connect to; it broadcasts {\"scene\": id} on each committed switch.",
+        help='TCP port of the switch WebSocket server browsers connect to; it broadcasts {"scene": id} on each committed switch.',
     )
     p.add_argument(
         "--http-port", type=int, default=8080,

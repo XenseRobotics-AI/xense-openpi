@@ -19,31 +19,28 @@ top unchanged. The three scene ids must match web/index.html SCENES.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from dataclasses import field
 import json
-from dataclasses import dataclass, field
 
 import numpy as np
 
 # Support `python -m examples.dewu_video_switch.app` and standalone `python app.py`.
 try:
     from examples.dewu_video_switch.detector import Detector
-    from examples.dewu_video_switch.pose_events import (
-        LEFT_TCP_XYZ,
-        RIGHT_TCP_XYZ,
-        BoundingBox3D,
-        BoxGraspEdgeEvent,
-        HomePose,
-    )
+    from examples.dewu_video_switch.pose_events import LEFT_TCP_XYZ
+    from examples.dewu_video_switch.pose_events import RIGHT_TCP_XYZ
+    from examples.dewu_video_switch.pose_events import BoundingBox3D
+    from examples.dewu_video_switch.pose_events import BoxGraspEdgeEvent
+    from examples.dewu_video_switch.pose_events import HomePose
     from examples.dewu_video_switch.vision import BlueInsoleConfig
 except ImportError:  # standalone copy on the video-playback laptop
     from detector import Detector  # type: ignore
-    from pose_events import (  # type: ignore
-        LEFT_TCP_XYZ,
-        RIGHT_TCP_XYZ,
-        BoundingBox3D,
-        BoxGraspEdgeEvent,
-        HomePose,
-    )
+    from pose_events import LEFT_TCP_XYZ  # type: ignore
+    from pose_events import RIGHT_TCP_XYZ  # type: ignore
+    from pose_events import BoundingBox3D  # type: ignore
+    from pose_events import BoxGraspEdgeEvent  # type: ignore
+    from pose_events import HomePose  # type: ignore
     from vision import BlueInsoleConfig  # type: ignore
 
 SCENE_STANDBY = "standby"
@@ -108,7 +105,7 @@ class ShoeSMConfig:
     pose_require_blue: bool = True
 
     @classmethod
-    def from_json(cls, path: str) -> "ShoeSMConfig":
+    def from_json(cls, path: str) -> ShoeSMConfig:
         """Overlay a JSON config onto the defaults. See shoe_sm.example.json.
 
         Schema (all optional except a box source):

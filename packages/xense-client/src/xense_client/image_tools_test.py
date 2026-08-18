@@ -1,6 +1,6 @@
 import numpy as np
 
-import xense_client.image_tools as image_tools
+from xense_client import image_tools
 
 
 def test_resize_with_pad_shapes():

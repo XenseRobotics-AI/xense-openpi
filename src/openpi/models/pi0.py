@@ -1,11 +1,11 @@
 import logging
+from typing import Unpack, override
 
 import einops
 import flax.nnx as nnx
 import flax.nnx.bridge as nnx_bridge
 import jax
 import jax.numpy as jnp
-from typing_extensions import Unpack, override
 
 from openpi.models import model as _model
 from openpi.models import pi0_config

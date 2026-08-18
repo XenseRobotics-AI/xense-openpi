@@ -1,7 +1,6 @@
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, override
 
-from typing_extensions import override
 import websockets.sync.client
 
 from xense_client import base_policy as _base_policy
@@ -20,8 +19,8 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
     def __init__(
         self,
         host: str = "0.0.0.0",
-        port: Optional[int] = None,
-        api_key: Optional[str] = None,
+        port: int | None = None,
+        api_key: str | None = None,
     ) -> None:
         self._uri = f"ws://{host}"
         if port is not None:
@@ -30,10 +29,10 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
         self._api_key = api_key
         self._ws, self._server_metadata = self._wait_for_server()
 
-    def get_server_metadata(self) -> Dict:
+    def get_server_metadata(self) -> dict:
         return self._server_metadata
 
-    def _wait_for_server(self) -> Tuple[websockets.sync.client.ClientConnection, Dict]:
+    def _wait_for_server(self) -> tuple[websockets.sync.client.ClientConnection, dict]:
         logger.info(f"Waiting for server at {self._uri}...")
         while True:
             try:

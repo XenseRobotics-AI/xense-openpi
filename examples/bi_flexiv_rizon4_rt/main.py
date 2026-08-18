@@ -62,11 +62,11 @@ import os
 import pathlib
 import signal
 import threading
+from typing import override
 
 from lerobot.teleoperators.bi_pico4 import BiPico4
 from lerobot.teleoperators.bi_pico4.config_bi_pico4 import BiPico4Config
 from lerobot.utils.robot_utils import get_logger
-from typing_extensions import override
 from xense_client import action_chunk_broker
 from xense_client import paced_broker as _paced_broker
 from xense_client import rtc_action_chunk_broker

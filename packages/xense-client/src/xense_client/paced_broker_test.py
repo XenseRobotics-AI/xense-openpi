@@ -7,9 +7,9 @@ robot, camera, or policy server.
 import queue
 import threading
 import time
-from typing import Dict, List
 
 import pytest
+
 from xense_client import base_policy
 from xense_client.paced_broker import PacedBroker
 
@@ -19,10 +19,10 @@ class FakePolicy(base_policy.BasePolicy):
 
     def __init__(self, infer_delay_s: float = 0.0):
         self.infer_delay_s = infer_delay_s
-        self.calls: List[Dict] = []
+        self.calls: list[dict] = []
         self.lock = threading.Lock()
 
-    def infer(self, obs: Dict) -> Dict:
+    def infer(self, obs: dict) -> dict:
         if self.infer_delay_s > 0:
             time.sleep(self.infer_delay_s)
         with self.lock:
@@ -37,7 +37,7 @@ class FlakyPolicy(base_policy.BasePolicy):
         self.fail_first = fail_first
         self.call_count = 0
 
-    def infer(self, obs: Dict) -> Dict:
+    def infer(self, obs: dict) -> dict:
         self.call_count += 1
         if self.call_count <= self.fail_first:
             raise RuntimeError(f"simulated failure #{self.call_count}")
@@ -54,7 +54,7 @@ class FakeInternalQueueBroker(base_policy.BasePolicy):
     def __init__(self, initial_size: int = 50, refill_period_s: float = 0.4):
         import collections
 
-        self._q: "collections.deque" = collections.deque()
+        self._q: collections.deque = collections.deque()
         for _ in range(initial_size):
             self._q.append({"actions": 0})
         self._lock = threading.Lock()
@@ -76,7 +76,7 @@ class FakeInternalQueueBroker(base_policy.BasePolicy):
                     for _ in range(self._refill_size - len(self._q)):
                         self._q.append({"actions": 0})
 
-    def infer(self, obs: Dict) -> Dict:
+    def infer(self, obs: dict) -> dict:
         with self._lock:
             if not self._q:
                 self._exhausted_count += 1

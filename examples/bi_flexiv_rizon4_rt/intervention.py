@@ -23,11 +23,10 @@ The module exposes three collaborating pieces:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
-from typing_extensions import override
 from xense_client import action_chunk_broker as _action_chunk_broker
 from xense_client.runtime import agent as _agent
 from xense_client.runtime import environment as _environment

@@ -25,4 +25,3 @@ class Agent(abc.ABC):
         Args:
             observation: A real observation from the environment.
         """
-        pass

@@ -31,9 +31,7 @@ obs loop rate.
 import queue
 import threading
 import time
-from typing import Dict, Optional
-
-from typing_extensions import override
+from typing import override
 
 from xense_client import base_policy as _base_policy
 from xense_client.logger import get_logger
@@ -72,15 +70,15 @@ class PacedBroker(_base_policy.BasePolicy):
         producer_idle_sleep: float = 0.005,
     ) -> None:
         self._inner = inner
-        self._action_queue: "queue.Queue[Dict]" = queue.Queue(maxsize=queue_size)
+        self._action_queue: queue.Queue[dict] = queue.Queue(maxsize=queue_size)
         self._target_hz = target_hz
 
         # Single-slot latest obs; producer always reads the freshest one.
-        self._latest_obs: Optional[Dict] = None
+        self._latest_obs: dict | None = None
         self._obs_lock = threading.Lock()
         self._obs_event = threading.Event()
 
-        self._producer_thread: Optional[threading.Thread] = None
+        self._producer_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._producer_idle_sleep = producer_idle_sleep
 
@@ -88,7 +86,7 @@ class PacedBroker(_base_policy.BasePolicy):
     # BasePolicy passthrough for warmup/reset
     # ------------------------------------------------------------------
     @override
-    def warmup(self, obs: Dict) -> None:
+    def warmup(self, obs: dict) -> None:
         # JIT-compile + first-call latency happens here on the main thread,
         # before the producer/consumer pair takes over.
         self._inner.warmup(obs)
@@ -108,7 +106,7 @@ class PacedBroker(_base_policy.BasePolicy):
         self._obs_event.clear()
 
     @override
-    def infer(self, obs: Dict) -> Dict:
+    def infer(self, obs: dict) -> dict:
         # Not used in the decoupled runtime; kept so PacedBroker still
         # satisfies BasePolicy and could fall back to synchronous use.
         # Synchronous fallback: submit obs and pop one action.
@@ -118,13 +116,13 @@ class PacedBroker(_base_policy.BasePolicy):
     # ------------------------------------------------------------------
     # Decoupled-mode API
     # ------------------------------------------------------------------
-    def submit_obs(self, obs: Dict) -> None:
+    def submit_obs(self, obs: dict) -> None:
         """Replace the producer's latest-obs slot. Non-blocking, always overwrites."""
         with self._obs_lock:
             self._latest_obs = obs
         self._obs_event.set()
 
-    def pop_action(self, timeout: Optional[float] = None) -> Dict:
+    def pop_action(self, timeout: float | None = None) -> dict:
         """Block until the next action is available."""
         return self._action_queue.get(timeout=timeout)
 
@@ -152,7 +150,7 @@ class PacedBroker(_base_policy.BasePolicy):
         if self._producer_thread is not None:
             self._producer_thread.join(timeout=join_timeout)
             if self._producer_thread.is_alive():
-                logger.warn("PacedBroker producer did not exit within timeout")
+                logger.warning("PacedBroker producer did not exit within timeout")
             self._producer_thread = None
 
     # ------------------------------------------------------------------

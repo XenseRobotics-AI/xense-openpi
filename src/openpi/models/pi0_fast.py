@@ -1,13 +1,12 @@
 import dataclasses
 import logging
-from typing import Any
+from typing import Any, override
 
 import einops
 import flax.nnx as nnx
 import flax.nnx.bridge as nnx_bridge
 import jax
 import jax.numpy as jnp
-from typing_extensions import override
 
 from openpi.models import model as _model
 import openpi.models.gemma_fast as _gemma

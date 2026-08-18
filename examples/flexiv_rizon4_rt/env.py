@@ -1,12 +1,11 @@
 """OpenPI Environment wrapper for Flexiv Rizon4 RT robot."""
 
-from typing import ClassVar
+from typing import ClassVar, override
 
 import einops
 from lerobot.robots.flexiv_rizon4_rt.config_flexiv_rizon4_rt import FlexivRizon4RTConfig
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
-from typing_extensions import override
 from xense_client import image_tools
 from xense_client.runtime import environment as _environment
 

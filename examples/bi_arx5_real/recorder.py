@@ -15,11 +15,11 @@ Usage:
 """
 
 import pathlib
+from typing import override
 
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
-from typing_extensions import override
 from xense_client.runtime import subscriber as _subscriber
 
 logger = get_logger("BiARX5Recorder")
