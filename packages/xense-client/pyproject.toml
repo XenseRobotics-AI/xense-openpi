@@ -1,7 +1,10 @@
 [project]
 name = "xense-client"
 version = "0.2.0"
-requires-python = ">=3.7"
+# The code already uses 3.10+ syntax (`X | None` annotations) with no
+# `from __future__ import annotations` anywhere, and the repo that vendors this
+# package requires >=3.12. The old ">=3.7" was never true.
+requires-python = ">=3.12"
 dependencies = [
     "dm-tree>=0.1.8",
     "msgpack>=1.0.5",
@@ -20,4 +23,4 @@ dev-dependencies = ["pytest>=8.3.4"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py37"
+target-version = "py312"

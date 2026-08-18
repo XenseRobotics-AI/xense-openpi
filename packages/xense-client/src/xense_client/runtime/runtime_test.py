@@ -6,7 +6,6 @@ request_stop() addition introduced for graceful SIGINT handling.
 
 import threading
 import time
-from typing import Dict, List
 
 from xense_client.runtime import agent as _agent
 from xense_client.runtime import environment as _environment
@@ -19,7 +18,7 @@ class FakeEnv(_environment.Environment):
     def __init__(self, obs_period_s: float = 0.033):
         self.obs_period_s = obs_period_s
         self._reset_count = 0
-        self.applied: List[Dict] = []
+        self.applied: list[dict] = []
 
     def reset(self) -> None:
         self._reset_count += 1

@@ -31,8 +31,8 @@ import contextlib
 import queue
 import threading
 import time
+from typing import override
 
-from typing_extensions import override
 import websockets.sync.client
 from xense_client import msgpack_numpy
 from xense_client.logger import get_logger

@@ -2,7 +2,7 @@ from collections.abc import Sequence
 import logging
 import pathlib
 import time
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, override
 
 import flax
 import flax.traverse_util
@@ -10,7 +10,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
-from typing_extensions import override
 from xense_client import base_policy as _base_policy
 
 from openpi import transforms as _transforms

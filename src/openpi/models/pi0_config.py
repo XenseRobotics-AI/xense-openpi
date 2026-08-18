@@ -1,10 +1,9 @@
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import flax.nnx as nnx
 import jax
 import jax.numpy as jnp
-from typing_extensions import override
 
 from openpi.models import model as _model
 import openpi.models.gemma as _gemma

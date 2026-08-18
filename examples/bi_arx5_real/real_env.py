@@ -53,7 +53,7 @@ class BiARX5RealEnv:
         preview_time: float = 0.02,  # preview time (seconds)
         control_mode: str = "teach_mode",
     ):
-        self._reset_position = reset_position if reset_position else DEFAULT_RESET_POSITION
+        self._reset_position = reset_position or DEFAULT_RESET_POSITION
 
         # convert control_mode string to enum
         control_mode_enum = BiARX5ControlMode(control_mode)

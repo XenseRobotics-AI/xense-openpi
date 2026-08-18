@@ -7,15 +7,14 @@ that action emission decouples from the obs loop.
 
 import threading
 import time
-from typing import Dict, List
 
 import pytest
+
 from xense_client import base_policy
 from xense_client.paced_broker import PacedBroker
 from xense_client.runtime import environment as _environment
 from xense_client.runtime import subscriber as _subscriber
 from xense_client.runtime.decoupled_runtime import DecoupledRuntime
-
 
 # Tolerance margin for rate assertions: threading is noisy, especially on
 # loaded CI hosts. 25 % is a sensible loose bound for short test windows.
@@ -31,9 +30,9 @@ class FakeEnv(_environment.Environment):
         self._reset_count = 0
         self._episode_complete_after = episode_complete_after
         self._lock = threading.Lock()
-        self.applied_actions: List[Dict] = []
-        self._action_timestamps: List[float] = []
-        self._obs_timestamps: List[float] = []
+        self.applied_actions: list[dict] = []
+        self._action_timestamps: list[float] = []
+        self._obs_timestamps: list[float] = []
 
     def reset(self) -> None:
         with self._lock:
@@ -66,7 +65,7 @@ class FakePolicy(base_policy.BasePolicy):
     def __init__(self):
         self.infer_count = 0
 
-    def infer(self, obs: Dict) -> Dict:
+    def infer(self, obs: dict) -> dict:
         self.infer_count += 1
         return {"actions": obs["step"]}
 
@@ -75,7 +74,7 @@ class RecordingSubscriber(_subscriber.Subscriber):
     def __init__(self):
         self.episode_starts = 0
         self.episode_ends = 0
-        self.steps: List[tuple] = []  # (obs, action)
+        self.steps: list[tuple] = []  # (obs, action)
 
     def on_episode_start(self) -> None:
         self.episode_starts += 1

@@ -1,8 +1,8 @@
 import dataclasses
 import pathlib
+from typing import override
 
 from lerobot.utils.robot_utils import get_logger
-from typing_extensions import override
 from xense_client import action_chunk_broker
 from xense_client import rtc_action_chunk_broker
 from xense_client import websocket_client_policy as _websocket_client_policy

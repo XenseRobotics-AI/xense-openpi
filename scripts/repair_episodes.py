@@ -17,8 +17,12 @@ Usage:
   python repair_episodes.py <DATASET_ROOT>            # dry-run, validate only
   python repair_episodes.py <DATASET_ROOT> --apply <BACKUP_TAG>
 """
-import sys, glob, json, shutil
+import glob
+import json
 from pathlib import Path
+import shutil
+import sys
+
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -207,6 +211,7 @@ print(f"[apply] wrote {out} ({table.num_rows} rows)")
 
 # verify via lerobot's own loader
 from lerobot.datasets.utils import load_episodes
+
 loaded = load_episodes(R)
 print(f"[verify] lerobot load_episodes() -> {len(loaded)} rows "
       f"({'OK' if len(loaded) == len(episodes) else 'UNEXPECTED'})")

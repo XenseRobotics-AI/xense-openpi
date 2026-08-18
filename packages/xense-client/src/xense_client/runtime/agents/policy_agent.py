@@ -1,4 +1,4 @@
-from typing_extensions import override
+from typing import override
 
 from xense_client import base_policy as _base_policy
 from xense_client.runtime import agent as _agent

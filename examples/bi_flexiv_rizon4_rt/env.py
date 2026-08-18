@@ -1,10 +1,11 @@
 """OpenPI Environment wrapper for BiFlexiv Rizon4 RT dual-arm robot."""
 
+from typing import override
+
 import einops
 from lerobot.robots.bi_flexiv_rizon4_rt.config_bi_flexiv_rizon4_rt import BiFlexivRizon4RTConfig
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
-from typing_extensions import override
 from xense_client import image_tools
 from xense_client.runtime import environment as _environment
 

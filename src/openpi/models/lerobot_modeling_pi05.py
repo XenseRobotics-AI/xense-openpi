@@ -19,14 +19,13 @@ from collections import deque
 import logging
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict, Unpack
 
 from lerobot.utils.import_utils import _transformers_available
 import torch
 from torch import Tensor
 from torch import nn
 import torch.nn.functional as F  # noqa: N812
-from typing_extensions import Unpack
 
 # Conditional import for type checking and lazy loading
 if TYPE_CHECKING or _transformers_available:
