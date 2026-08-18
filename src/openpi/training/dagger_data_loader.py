@@ -376,17 +376,39 @@ class DynamicTorchDataLoader:
         if self._loader is None:
             self.refresh()
         if self._loader is None:
-            return iter(())
-        for batch in self._loader.torch_loader:
-            source_idx = batch.pop("_dagger_dataset_source_index", None)
-            batch.pop("_dagger_dataset_source_name", None)
-            if source_idx is not None:
-                values = np.asarray(source_idx).reshape(-1)
-                for idx in values:
-                    if 0 <= int(idx) < len(self._dataset_names):
-                        name = self._dataset_names[int(idx)]
-                        self._dataset_counts[name] = self._dataset_counts.get(name, 0) + 1
-            yield _model.Observation.from_dict(batch), batch["actions"]
+            return
+
+        epoch = 0
+        while True:
+            # Re-read the loader every epoch so a refresh() that swapped it in is
+            # picked up at the epoch boundary without restarting this iterator.
+            loader = self._loader
+            if loader is None:
+                logger.info("[DAGGER LOADER] no datasets left; stopping iteration")
+                return
+
+            num_batches = 0
+            for batch in loader.torch_loader:
+                # These annotation keys are bookkeeping only and must not reach the model.
+                source_idx = batch.pop("_dagger_dataset_source_index", None)
+                batch.pop("_dagger_dataset_source_name", None)
+                if source_idx is not None:
+                    values = np.asarray(source_idx).reshape(-1)
+                    for idx in values:
+                        if 0 <= int(idx) < len(self._dataset_names):
+                            name = self._dataset_names[int(idx)]
+                            self._dataset_counts[name] = self._dataset_counts.get(name, 0) + 1
+                num_batches += 1
+                yield _model.Observation.from_dict(batch), batch["actions"]
+
+            if num_batches == 0:
+                # Nothing was produced (e.g. every dataset shrank below the batch
+                # size). Returning beats spinning in a tight, silent loop.
+                logger.error("[DAGGER LOADER] epoch %d produced no batches; stopping iteration", epoch)
+                return
+
+            epoch += 1
+            logger.info("[DAGGER LOADER] dataset exhausted after %d batches; starting epoch %d", num_batches, epoch)
 
 
 def create_dynamic_data_loader(
