@@ -163,6 +163,15 @@ known-third-party = ["wandb"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# Tests live next to the code they cover (see testpaths below), so hatchling's
+# auto-discovery would otherwise ship every `*_test.py` to installing users -
+# 16 of the wheel's 70 files before this was added.
+[tool.hatch.build.targets.wheel]
+exclude = ["**/*_test.py", "**/conftest.py"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["**/*_test.py", "**/conftest.py"]
+
 [tool.pytest.ini_options]
 markers = ["manual: should be run manually."]
 testpaths = ["src", "scripts", "packages", "examples"]

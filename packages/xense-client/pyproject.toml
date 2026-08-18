@@ -18,6 +18,14 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# Tests live next to the code they cover (the repo-wide convention), which means
+# hatchling's auto-discovery would otherwise ship them to every installing user.
+[tool.hatch.build.targets.wheel]
+exclude = ["**/*_test.py", "**/conftest.py"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["**/*_test.py", "**/conftest.py"]
+
 [tool.uv]
 dev-dependencies = ["pytest>=8.3.4"]
 
