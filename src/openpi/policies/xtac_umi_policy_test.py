@@ -25,7 +25,7 @@ def _example(*, with_head: bool = False, with_actions: bool = False) -> dict:
 
 def test_inputs_mask_base_slot_by_default():
     """No head camera: base_0_rgb is a black image the model is told to ignore."""
-    result = xtac_umi_policy.XTacUmiInputs()(_example())
+    result = xtac_umi_policy.XtacUmiInputs()(_example())
 
     assert set(result["image"]) == {"base_0_rgb", "left_wrist_0_rgb", "right_wrist_0_rgb"}
     assert result["image_mask"]["base_0_rgb"] == np.False_
@@ -37,7 +37,7 @@ def test_inputs_mask_base_slot_by_default():
 
 
 def test_inputs_use_head_camera_fills_and_unmasks_base_slot():
-    result = xtac_umi_policy.XTacUmiInputs(use_head_camera=True)(_example(with_head=True))
+    result = xtac_umi_policy.XtacUmiInputs(use_head_camera=True)(_example(with_head=True))
 
     assert result["image_mask"]["base_0_rgb"] == np.True_
     assert result["image"]["base_0_rgb"].any()
@@ -45,7 +45,7 @@ def test_inputs_use_head_camera_fills_and_unmasks_base_slot():
 
 def test_inputs_head_camera_ignored_unless_enabled():
     """A client may send `head` for compatibility; it must not leak into the slot."""
-    result = xtac_umi_policy.XTacUmiInputs()(_example(with_head=True))
+    result = xtac_umi_policy.XtacUmiInputs()(_example(with_head=True))
 
     assert result["image_mask"]["base_0_rgb"] == np.False_
     assert not result["image"]["base_0_rgb"].any()
@@ -55,21 +55,21 @@ def test_inputs_reject_missing_wrist_and_missing_head():
     example = _example()
     del example["images"]["left_wrist"]
     with pytest.raises(ValueError, match="Missing required wrist cameras"):
-        xtac_umi_policy.XTacUmiInputs()(example)
+        xtac_umi_policy.XtacUmiInputs()(example)
 
     with pytest.raises(ValueError, match="use_head_camera=True but no 'head' image"):
-        xtac_umi_policy.XTacUmiInputs(use_head_camera=True)(_example())
+        xtac_umi_policy.XtacUmiInputs(use_head_camera=True)(_example())
 
     example = _example()
     example["images"]["belly"] = np.zeros((3, 224, 224), dtype=np.uint8)
     with pytest.raises(ValueError, match="Unexpected cameras"):
-        xtac_umi_policy.XTacUmiInputs()(example)
+        xtac_umi_policy.XtacUmiInputs()(example)
 
 
 def test_inputs_convert_images_to_hwc_uint8():
     example = _example()
     example["images"]["left_wrist"] = np.ones((3, 224, 224), dtype=np.float32)
-    result = xtac_umi_policy.XTacUmiInputs()(example)
+    result = xtac_umi_policy.XtacUmiInputs()(example)
 
     assert result["image"]["left_wrist_0_rgb"].shape == (224, 224, 3)
     assert result["image"]["left_wrist_0_rgb"].dtype == np.uint8
@@ -80,7 +80,7 @@ def test_inputs_pass_rotations_through_untouched():
     """6D rotation is already continuous, so nothing may rewrite the state."""
     example = _example(with_actions=True)
     example["state"] = np.arange(xtac_umi_policy.STATE_DIM, dtype=np.float32)
-    result = xtac_umi_policy.XTacUmiInputs()(example)
+    result = xtac_umi_policy.XtacUmiInputs()(example)
 
     np.testing.assert_array_equal(result["state"], example["state"])
     np.testing.assert_array_equal(result["actions"], example["actions"])
@@ -88,7 +88,7 @@ def test_inputs_pass_rotations_through_untouched():
 
 def test_outputs_trim_padded_action_dim():
     padded = np.random.rand(10, 32)
-    result = xtac_umi_policy.XTacUmiOutputs()({"actions": padded})
+    result = xtac_umi_policy.XtacUmiOutputs()({"actions": padded})
 
     assert result["actions"].shape == (10, xtac_umi_policy.STATE_DIM)
     np.testing.assert_array_equal(result["actions"], padded[:, : xtac_umi_policy.STATE_DIM])
@@ -114,8 +114,8 @@ def test_data_config_wires_the_xtac_umi_transforms():
 
     input_types = [type(t) for t in data_config.data_transforms.inputs]
     output_types = [type(t) for t in data_config.data_transforms.outputs]
-    assert xtac_umi_policy.XTacUmiInputs in input_types
-    assert xtac_umi_policy.XTacUmiOutputs in output_types
+    assert xtac_umi_policy.XtacUmiInputs in input_types
+    assert xtac_umi_policy.XtacUmiOutputs in output_types
     # use_delta_cartesian_actions defaults on, so the delta pair must be wired too.
     assert _transforms.DeltaActions in input_types
     assert _transforms.AbsoluteActions in output_types
@@ -126,7 +126,7 @@ def test_data_config_repack_tracks_use_head_camera():
     train_config = _config.get_config("pi05_base_xtac_umi_sort_defective_parts_0710")
 
     def repack_images(*, use_head_camera: bool) -> dict:
-        data = _config.LeRobotXTacUmiDataConfig(repo_id=train_config.data.repo_id, use_head_camera=use_head_camera)
+        data = _config.LeRobotXtacUmiDataConfig(repo_id=train_config.data.repo_id, use_head_camera=use_head_camera)
         config = data.create(train_config.assets_dirs, train_config.model)
         return config.repack_transforms.inputs[0].structure["images"]
 

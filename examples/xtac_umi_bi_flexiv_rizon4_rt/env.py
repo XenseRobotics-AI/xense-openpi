@@ -7,7 +7,7 @@ State/action format (20D, XTac-UMI per-side-grouped order — see ``real_env.py`
 
 This layer is in the same dim order as the policy, so it does no conversion at
 all. The only remaining conversion — the gripper end-frame change of basis —
-lives in ``policy_adapter.XTacUmiPolicyAdapter``, right at the websocket
+lives in ``policy_adapter.XtacUmiPolicyAdapter``, right at the websocket
 boundary.
 """
 
@@ -21,17 +21,17 @@ from xense_client import image_tools
 from xense_client.runtime import environment as _environment
 
 from examples.xtac_umi_bi_flexiv_rizon4_rt.real_env import STATE_KEYS
-from examples.xtac_umi_bi_flexiv_rizon4_rt.real_env import XTacUmiBiFlexivRizon4RTRealEnv
+from examples.xtac_umi_bi_flexiv_rizon4_rt.real_env import XtacUmiBiFlexivRizon4RTRealEnv
 
-logger = get_logger("XTacUmiBiFlexivRizon4RTEnv")
+logger = get_logger("XtacUmiBiFlexivRizon4RTEnv")
 
 # Policy-facing camera names. XTac-UMI data has no third-person view, so only the
 # two wrist cameras are connected and sent; the model's base_0_rgb slot is filled
-# with a black image and masked out server-side (see xtac_umi_policy.XTacUmiInputs).
+# with a black image and masked out server-side (see xtac_umi_policy.XtacUmiInputs).
 _WRIST_CAMERAS = ("left_wrist", "right_wrist")
 
 
-class XTacUmiBiFlexivRizon4RTEnvironment(_environment.Environment):
+class XtacUmiBiFlexivRizon4RTEnvironment(_environment.Environment):
     """OpenPI environment exposing 20D XTac-UMI-ordered obs/actions.
 
     Same obs/action decoupling as examples/bi_flexiv_rizon4_rt: get_observation()
@@ -52,7 +52,7 @@ class XTacUmiBiFlexivRizon4RTEnvironment(_environment.Environment):
         render_width: int = 224,
         setup_robot: bool = True,
     ) -> None:
-        self._env = XTacUmiBiFlexivRizon4RTRealEnv(robot_config, setup_robot=setup_robot)
+        self._env = XtacUmiBiFlexivRizon4RTRealEnv(robot_config, setup_robot=setup_robot)
         self._render_height = render_height
         self._render_width = render_width
 

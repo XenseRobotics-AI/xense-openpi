@@ -32,7 +32,7 @@ from lerobot.robots.utils import make_robot_from_config
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
 
-logger = get_logger("XTacUmiBiFlexivRizon4RTRealEnv")
+logger = get_logger("XtacUmiBiFlexivRizon4RTRealEnv")
 
 _WRIST_CAMERAS = ("left_wrist", "right_wrist")
 
@@ -53,7 +53,7 @@ STATE_KEYS: tuple[str, ...] = (
 _GRIPPER_INDICES = (STATE_KEYS.index("left_gripper.pos"), STATE_KEYS.index("right_gripper.pos"))
 
 
-class XTacUmiBiFlexivRizon4RTRealEnv:
+class XtacUmiBiFlexivRizon4RTRealEnv:
     """Native 20D XTac-UMI-ordered access to a BiFlexiv Rizon4 RT, wrist cameras only.
 
     This class intentionally does not inherit the bi_flexiv example environment:
