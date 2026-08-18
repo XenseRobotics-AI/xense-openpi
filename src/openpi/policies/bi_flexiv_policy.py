@@ -10,9 +10,9 @@ from openpi import transforms
 def make_bi_flexiv_example() -> dict:
     """Creates a random input example for the bi flexiv policy.
 
-    State format (20D):
-        left_tcp.{x, y, z, r1-r6} (9D) + left_gripper.pos (1D) = 10D
-        right_tcp.{x, y, z, r1-r6} (9D) + right_gripper.pos (1D) = 10D
+    State format (20D), both TCPs first and both grippers last:
+        left_tcp.{x, y, z, r1-r6} (dims 0-8) + right_tcp.{x, y, z, r1-r6} (dims 9-17)
+        + left_gripper.pos (dim 18) + right_gripper.pos (dim 19)
     """
     return {
         "state": np.ones((20,)),
@@ -31,9 +31,17 @@ class BiFlexivInputs(transforms.DataTransformFn):
 
     Expected inputs:
     - images: dict[name, img] where img is [channel, height, width]. name must be in EXPECTED_CAMERAS.
-    - state: [20] = [left_tcp.x, left_tcp.y, left_tcp.z, left_tcp.r1..r6, left_gripper.pos,
-                     right_tcp.x, right_tcp.y, right_tcp.z, right_tcp.r1..r6, right_gripper.pos]
+    - state: [20] = [left_tcp.x, left_tcp.y, left_tcp.z, left_tcp.r1..r6,
+                     right_tcp.x, right_tcp.y, right_tcp.z, right_tcp.r1..r6,
+                     left_gripper.pos, right_gripper.pos]
     - actions: [action_horizon, 20]
+
+    Both TCPs come first and both grippers last - this is the order the lerobot
+    driver emits (`BiFlexivRizon4RT._proprioception_ft`) and the order
+    `LeRobotBiFlexivDataConfig`'s delta mask assumes, `make_bool_mask(18, -1, -1)`:
+    18 TCP dims delta-encoded, the two trailing gripper dims absolute. Note this
+    differs from the per-side-grouped order the XTac-UMI rig records in - see
+    `xtac_umi_policy`, which keeps grippers at dims 9 and 19.
 
     The 6D rotation representation (r1-r6) consists of the first two columns of the rotation matrix:
     - [r1, r2, r3]: First column of rotation matrix
@@ -99,9 +107,9 @@ class BiFlexivInputs(transforms.DataTransformFn):
 class BiFlexivOutputs(transforms.DataTransformFn):
     """Outputs for the bi flexiv policy.
 
-    Model output format (20 dims):
-        left_tcp.{x, y, z, r1-r6} (9D) + left_gripper.pos (1D) = 10D
-        right_tcp.{x, y, z, r1-r6} (9D) + right_gripper.pos (1D) = 10D
+    Model output format (20 dims), same order as the input state:
+        left_tcp.{x, y, z, r1-r6} (dims 0-8) + right_tcp.{x, y, z, r1-r6} (dims 9-17)
+        + left_gripper.pos (dim 18) + right_gripper.pos (dim 19)
 
     No conversion needed - 6D rotation is already in the correct format.
     """

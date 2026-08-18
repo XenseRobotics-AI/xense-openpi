@@ -19,7 +19,7 @@ weight_loader:
   params_path: gs://openpi-assets/checkpoints/pi05_base/params
 ema_decay: null
 data:
-  type: LeRobotXTacUmiDataConfig
+  type: LeRobotXtacUmiDataConfig
   repo_id: TacVerse/taccap-g1-sort-defective-parts-0710
   use_delta_cartesian_actions: true
   # use_head_camera: true   # only for a bench that actually recorded one

@@ -18,7 +18,7 @@ from examples.xtac_umi_bi_flexiv_rizon4_rt import gripper_frame
 _WRIST_CAMERAS = ("left_wrist", "right_wrist")
 
 
-class XTacUmiPolicyAdapter(_base_policy.BasePolicy):
+class XtacUmiPolicyAdapter(_base_policy.BasePolicy):
     """Convert gripper end frames at the websocket boundary, nothing else.
 
     Everything below this adapter — brokers, action queues, the robot driver —

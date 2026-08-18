@@ -53,7 +53,7 @@ def make_xtac_umi_example() -> dict:
 
 
 @dataclasses.dataclass(frozen=True)
-class XTacUmiInputs(transforms.DataTransformFn):
+class XtacUmiInputs(transforms.DataTransformFn):
     """Model inputs for XTac-UMI bimanual data.
 
     Expected inputs:
@@ -127,7 +127,7 @@ class XTacUmiInputs(transforms.DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
-class XTacUmiOutputs(transforms.DataTransformFn):
+class XtacUmiOutputs(transforms.DataTransformFn):
     """Model outputs for XTac-UMI bimanual data.
 
     Trims the model's padded action dim back to the rig's 20D layout. The 6D

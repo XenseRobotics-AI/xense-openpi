@@ -471,9 +471,13 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
     """
     Data config for BiFlexiv Rizon4 RT dual-arm robot in LeRobot format.
 
-    State/action format (20D, Cartesian with 6D rotation):
-        left_tcp.{x, y, z, r1-r6} (9D) + left_gripper.pos (1D) = 10D
-        right_tcp.{x, y, z, r1-r6} (9D) + right_gripper.pos (1D) = 10D
+    State/action format (20D, Cartesian with 6D rotation), both TCPs first and
+    both grippers last - the order the lerobot driver emits:
+        left_tcp.{x, y, z, r1-r6} (dims 0-8) + right_tcp.{x, y, z, r1-r6} (dims 9-17)
+        + left_gripper.pos (dim 18) + right_gripper.pos (dim 19)
+
+    Note this is NOT the per-side-grouped order `LeRobotXtacUmiDataConfig` uses,
+    which keeps each side's gripper next to its TCP (dims 9 and 19).
 
     Cameras: head, left_wrist, right_wrist.
     Compatible with Xense/pack_6_cosmetic_bottles_into_carton and similar bi_flexiv datasets.
@@ -533,7 +537,7 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
-class LeRobotXTacUmiDataConfig(DataConfigFactory):
+class LeRobotXtacUmiDataConfig(DataConfigFactory):
     """
     Data config for XTac-UMI bimanual datasets in LeRobot format (TacVerse/taccap-g1-*).
 
@@ -549,7 +553,7 @@ class LeRobotXTacUmiDataConfig(DataConfigFactory):
 
     Cameras: left_wrist, right_wrist, plus an optional head camera
     (`use_head_camera`). Without one, the model's base_0_rgb slot is a black
-    image with image_mask=False - see xtac_umi_policy.XTacUmiInputs.
+    image with image_mask=False - see xtac_umi_policy.XtacUmiInputs.
     """
 
     use_delta_cartesian_actions: bool = True
@@ -565,8 +569,8 @@ class LeRobotXTacUmiDataConfig(DataConfigFactory):
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
-            inputs=[xtac_umi_policy.XTacUmiInputs(use_head_camera=self.use_head_camera)],
-            outputs=[xtac_umi_policy.XTacUmiOutputs()],
+            inputs=[xtac_umi_policy.XtacUmiInputs(use_head_camera=self.use_head_camera)],
+            outputs=[xtac_umi_policy.XtacUmiOutputs()],
         )
 
         if self.use_delta_cartesian_actions:

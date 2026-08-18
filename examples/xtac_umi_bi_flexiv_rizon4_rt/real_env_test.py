@@ -63,7 +63,7 @@ def test_get_qpos_reads_the_named_keys_in_order():
     obs = {key: float(index) for index, key in enumerate(real_env.STATE_KEYS)}
     obs["some.other.key"] = 999.0  # driver dicts carry more than the 20 dims
 
-    qpos = real_env.XTacUmiBiFlexivRizon4RTRealEnv.get_qpos(obs)
+    qpos = real_env.XtacUmiBiFlexivRizon4RTRealEnv.get_qpos(obs)
 
     assert qpos.dtype == np.float32
     np.testing.assert_array_equal(qpos, np.arange(xtac_umi_policy.STATE_DIM, dtype=np.float32))
@@ -76,10 +76,10 @@ def test_build_action_dict_round_trips_get_qpos():
     # round trip would be testing the clip rather than the ordering.
     values[9], values[19] = 0.25, 0.75
 
-    action_dict = real_env.XTacUmiBiFlexivRizon4RTRealEnv.build_action_dict(values)
+    action_dict = real_env.XtacUmiBiFlexivRizon4RTRealEnv.build_action_dict(values)
 
     assert set(action_dict) == set(real_env.STATE_KEYS)
-    np.testing.assert_allclose(real_env.XTacUmiBiFlexivRizon4RTRealEnv.get_qpos(action_dict), values, atol=1e-6)
+    np.testing.assert_allclose(real_env.XtacUmiBiFlexivRizon4RTRealEnv.get_qpos(action_dict), values, atol=1e-6)
 
 
 def test_build_action_dict_clips_only_the_grippers():
@@ -87,7 +87,7 @@ def test_build_action_dict_clips_only_the_grippers():
     values[9] = 5.0  # left gripper, over-open
     values[19] = -2.0  # right gripper, over-closed
 
-    action_dict = real_env.XTacUmiBiFlexivRizon4RTRealEnv.build_action_dict(values)
+    action_dict = real_env.XtacUmiBiFlexivRizon4RTRealEnv.build_action_dict(values)
 
     assert action_dict["left_gripper.pos"] == pytest.approx(1.0)
     assert action_dict["right_gripper.pos"] == pytest.approx(0.0)
@@ -98,4 +98,4 @@ def test_build_action_dict_clips_only_the_grippers():
 
 def test_build_action_dict_rejects_wrong_shape():
     with pytest.raises(ValueError, match="Expected a 20D action"):
-        real_env.XTacUmiBiFlexivRizon4RTRealEnv.build_action_dict(np.zeros(18))
+        real_env.XtacUmiBiFlexivRizon4RTRealEnv.build_action_dict(np.zeros(18))

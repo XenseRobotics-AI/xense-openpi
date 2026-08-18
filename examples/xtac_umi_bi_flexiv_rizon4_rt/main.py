@@ -4,7 +4,7 @@
 Pipeline (everything client-side stays in the Flexiv gripper frame)::
 
     env (20D XTac-UMI-ordered obs) -> broker (Flexiv-frame action queue)
-        -> XTacUmiPolicyAdapter (gripper end-frame change of basis)
+        -> XtacUmiPolicyAdapter (gripper end-frame change of basis)
         -> WebsocketClientPolicy -> XTac-UMI policy server
 
 The dim order is the policy's on both sides — ``real_env.py`` assembles the state
@@ -52,11 +52,11 @@ from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.bi_flexiv_rizon4_rt.recipe as _recipe
 import examples.run_config as _run_config
-from examples.xtac_umi_bi_flexiv_rizon4_rt.env import XTacUmiBiFlexivRizon4RTEnvironment
-from examples.xtac_umi_bi_flexiv_rizon4_rt.policy_adapter import XTacUmiPolicyAdapter
+from examples.xtac_umi_bi_flexiv_rizon4_rt.env import XtacUmiBiFlexivRizon4RTEnvironment
+from examples.xtac_umi_bi_flexiv_rizon4_rt.policy_adapter import XtacUmiPolicyAdapter
 from examples.xtac_umi_bi_flexiv_rizon4_rt.real_env import STATE_KEYS
 
-logger = get_logger("XTacUmiBiFlexivRizon4RTMain")
+logger = get_logger("XtacUmiBiFlexivRizon4RTMain")
 
 # Run YAMLs shipped with this example; --args.run resolves bare names here.
 RUNS_DIR = pathlib.Path(__file__).parent / "runs"
@@ -73,7 +73,7 @@ class DryRunEnvironmentWrapper(_environment.Environment):
     already converted it back to the Flexiv gripper frame.
     """
 
-    def __init__(self, wrapped: XTacUmiBiFlexivRizon4RTEnvironment) -> None:
+    def __init__(self, wrapped: XtacUmiBiFlexivRizon4RTEnvironment) -> None:
         self._wrapped_env = wrapped
         self._step = 0
 
@@ -128,7 +128,7 @@ class Args:
     host: str = "localhost"
     port: int = 8000
     # Task prompt. None = fall back to the checkpoint's default_prompt (see the
-    # training config's LeRobotXTacUmiDataConfig).
+    # training config's LeRobotXtacUmiDataConfig).
     prompt: str | None = None
 
     # Robot run tuning (applied on top of the recipe)
@@ -202,13 +202,13 @@ def main(args: Args) -> None:
     logger.info(f"Server metadata: {websocket_policy.get_server_metadata()}")
     # Conversion boundary: brokers and queues below this adapter stay in the Flexiv
     # gripper frame; only websocket requests/responses are in XTac-UMI space.
-    converted_policy = XTacUmiPolicyAdapter(
+    converted_policy = XtacUmiPolicyAdapter(
         websocket_policy,
         align_gripper_frames=args.align_gripper_frames,
         prompt=args.prompt,
     )
 
-    base_environment = XTacUmiBiFlexivRizon4RTEnvironment(
+    base_environment = XtacUmiBiFlexivRizon4RTEnvironment(
         robot_config,
         render_height=args.render_height,
         render_width=args.render_width,

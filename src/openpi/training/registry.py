@@ -77,7 +77,7 @@ def _populate_data_configs() -> None:
             "RLDSDroidDataConfig": _config.RLDSDroidDataConfig,
             "LeRobotXenseFlareDataConfig": _config.LeRobotXenseFlareDataConfig,
             "LeRobotBiFlexivDataConfig": _config.LeRobotBiFlexivDataConfig,
-            "LeRobotXTacUmiDataConfig": _config.LeRobotXTacUmiDataConfig,
+            "LeRobotXtacUmiDataConfig": _config.LeRobotXtacUmiDataConfig,
             # SimpleDataConfig deliberately omitted: it carries lambdas (data_transforms)
             # that cannot be serialized to YAML.
         }
