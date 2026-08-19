@@ -52,7 +52,8 @@ dependencies = [
 
 
 [project.urls]
-Repository = "https://github.com/Physical-Intelligence/openpi"
+Repository = "https://github.com/XenseRobotics-AI/xense-openpi"
+Upstream = "https://github.com/Physical-Intelligence/openpi"
 
 [project.optional-dependencies]
 # Install with `pip install -e ".[dev]"` etc.

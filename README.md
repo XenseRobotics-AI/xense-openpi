@@ -50,7 +50,7 @@ We build on the `lerobot-xense` mamba environment, then install the client packa
 
 ```bash
 # Clone with submodules
-git clone git@github.com:Vertax42/xense-openpi.git openpi
+git clone git@github.com:XenseRobotics-AI/xense-openpi.git openpi
 cd openpi
 
 # Activate the base environment
