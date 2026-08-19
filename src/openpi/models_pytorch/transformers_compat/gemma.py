@@ -174,9 +174,7 @@ class PiGemmaDecoderLayer(_mg.GemmaDecoderLayer):
         self.self_attn = PiGemmaAttention(config=config, layer_idx=layer_idx)
         cond_dim = config.adarms_cond_dim if getattr(config, "use_adarms", False) else None
         self.input_layernorm = PiGemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps, cond_dim=cond_dim)
-        self.post_attention_layernorm = PiGemmaRMSNorm(
-            config.hidden_size, eps=config.rms_norm_eps, cond_dim=cond_dim
-        )
+        self.post_attention_layernorm = PiGemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps, cond_dim=cond_dim)
 
     def forward(
         self,

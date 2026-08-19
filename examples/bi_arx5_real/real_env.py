@@ -93,10 +93,10 @@ class BiARX5RealEnv:
     def get_qpos(self, obs):
         """get joint positions - directly from BiARX5.get_observation()"""
         # organize as [left_arm(6), left_gripper(1), right_arm(6), right_gripper(1)]
-        left_joints = [obs[f"left_joint_{i+1}.pos"] for i in range(6)]
+        left_joints = [obs[f"left_joint_{i + 1}.pos"] for i in range(6)]
         left_gripper = [obs["left_gripper.pos"]]
 
-        right_joints = [obs[f"right_joint_{i+1}.pos"] for i in range(6)]
+        right_joints = [obs[f"right_joint_{i + 1}.pos"] for i in range(6)]
         right_gripper = [obs["right_gripper.pos"]]
 
         return np.concatenate([left_joints, left_gripper, right_joints, right_gripper])
@@ -176,7 +176,7 @@ class BiARX5RealEnv:
             if val < min_val or val > max_val:
                 return (
                     False,
-                    f"Left joint {i+1} out of range: {val:.4f} not in [{min_val:.4f}, {max_val:.4f}]",
+                    f"Left joint {i + 1} out of range: {val:.4f} not in [{min_val:.4f}, {max_val:.4f}]",
                 )
 
         # check left gripper (index 6)
@@ -193,7 +193,7 @@ class BiARX5RealEnv:
             if val < min_val or val > max_val:
                 return (
                     False,
-                    f"Right joint {i+1} out of range: {val:.4f} not in [{min_val:.4f}, {max_val:.4f}]",
+                    f"Right joint {i + 1} out of range: {val:.4f} not in [{min_val:.4f}, {max_val:.4f}]",
                 )
 
         # check right gripper (index 13)
@@ -226,12 +226,12 @@ class BiARX5RealEnv:
 
         # left arm action (first 7: 6 joints + gripper)
         for i in range(6):
-            action_dict[f"left_joint_{i+1}.pos"] = float(action[i])
+            action_dict[f"left_joint_{i + 1}.pos"] = float(action[i])
         action_dict["left_gripper.pos"] = float(action[6])
 
         # right arm action (last 7: 6 joints + gripper)
         for i in range(6):
-            action_dict[f"right_joint_{i+1}.pos"] = float(action[7 + i])
+            action_dict[f"right_joint_{i + 1}.pos"] = float(action[7 + i])
         action_dict["right_gripper.pos"] = float(action[13])
         # for better gripper control to catch the cubes
         # if (

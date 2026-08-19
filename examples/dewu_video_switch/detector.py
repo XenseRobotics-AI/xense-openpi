@@ -42,8 +42,7 @@ class Detector(abc.ABC):
     """Maps a forwarded frame to a scene id (or None = undecided)."""
 
     @abc.abstractmethod
-    def detect(self, frame: dict) -> str | None:
-        ...
+    def detect(self, frame: dict) -> str | None: ...
 
 
 # State layout constants (see module docstring / dataset feature names).

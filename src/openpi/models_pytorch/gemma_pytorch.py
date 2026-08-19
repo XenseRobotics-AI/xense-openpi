@@ -196,9 +196,7 @@ class PaliGemmaWithExpertModel(nn.Module):
                     dtype=query_states.dtype,
                 )
                 cos, sin = self.paligemma.model.language_model.rotary_emb(dummy_tensor, position_ids)
-                query_states, key_states = apply_rotary_pos_emb(
-                    query_states, key_states, cos, sin, unsqueeze_dim=1
-                )
+                query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, unsqueeze_dim=1)
 
                 batch_size = query_states.shape[0]
                 scaling = self.paligemma.language_model.layers[layer_idx].self_attn.scaling

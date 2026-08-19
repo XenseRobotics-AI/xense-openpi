@@ -37,11 +37,7 @@ class BoundingBox3D:
 
     def contains(self, xyz) -> bool:
         x, y, z = float(xyz[0]), float(xyz[1]), float(xyz[2])
-        return (
-            self.x_min <= x <= self.x_max
-            and self.y_min <= y <= self.y_max
-            and self.z_min <= z <= self.z_max
-        )
+        return self.x_min <= x <= self.x_max and self.y_min <= y <= self.y_max and self.z_min <= z <= self.z_max
 
 
 class GraspCalibrator:
@@ -52,8 +48,9 @@ class GraspCalibrator:
     else the upper plateau. Returns None until enough spread is observed.
     """
 
-    def __init__(self, grasp_is_low: bool = True, threshold: float | None = None,
-                 hysteresis: float = 0.1, min_range: float = 0.1) -> None:
+    def __init__(
+        self, grasp_is_low: bool = True, threshold: float | None = None, hysteresis: float = 0.1, min_range: float = 0.1
+    ) -> None:
         self._grasp_is_low = grasp_is_low
         self._fixed = threshold
         self._hyst = hysteresis
@@ -92,10 +89,17 @@ class BoxGraspEdgeEvent:
     frame, then re-arms (resets to idle).
     """
 
-    def __init__(self, *, box: BoundingBox3D, tcp_idx=RIGHT_TCP_XYZ,
-                 grip_idx: int = RIGHT_GRIPPER_IDX, grasp_is_low: bool = True,
-                 grasp_threshold: float | None = None,
-                 confirm_inside: int = 2, confirm_grasp: int = 2) -> None:
+    def __init__(
+        self,
+        *,
+        box: BoundingBox3D,
+        tcp_idx=RIGHT_TCP_XYZ,
+        grip_idx: int = RIGHT_GRIPPER_IDX,
+        grasp_is_low: bool = True,
+        grasp_threshold: float | None = None,
+        confirm_inside: int = 2,
+        confirm_grasp: int = 2,
+    ) -> None:
         self.box = box
         self._tcp_idx = tuple(tcp_idx)
         self._grip_idx = grip_idx

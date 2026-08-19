@@ -225,17 +225,17 @@ def main(config: _config.TrainConfig):
         sharding=data_sharding,
         shuffle=True,
     )
-    logging.info(f"[INIT] create_data_loader() done in {time.monotonic()-t_dl:.1f}s")
+    logging.info(f"[INIT] create_data_loader() done in {time.monotonic() - t_dl:.1f}s")
 
     t_it = time.monotonic()
     logging.info("[INIT] calling iter(data_loader) (this spawns workers) ...")
     data_iter = iter(data_loader)
-    logging.info(f"[INIT] iter() done in {time.monotonic()-t_it:.1f}s — workers spawned")
+    logging.info(f"[INIT] iter() done in {time.monotonic() - t_it:.1f}s — workers spawned")
 
     t_nb = time.monotonic()
     logging.info("[INIT] waiting for first batch via next(data_iter) ...")
     batch = next(data_iter)
-    logging.info(f"[INIT] first batch received in {time.monotonic()-t_nb:.1f}s")
+    logging.info(f"[INIT] first batch received in {time.monotonic() - t_nb:.1f}s")
 
     logging.info(f"Initialized data loader:\n{training_utils.array_tree_to_info(batch)}")
 

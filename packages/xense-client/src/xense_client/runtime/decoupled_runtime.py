@@ -252,7 +252,7 @@ class DecoupledRuntime:
                 # don't try to burst-catch-up forever after a stall.
                 if self._action_steps % 60 == 0:
                     logger.debug(
-                        f"action loop behind by {-sleep_for*1000:.1f} ms "
-                        f"(send_action={((time.time()-t_send_start)*1000):.1f} ms)"
+                        f"action loop behind by {-sleep_for * 1000:.1f} ms "
+                        f"(send_action={((time.time() - t_send_start) * 1000):.1f} ms)"
                     )
                 next_tick = now
