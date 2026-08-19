@@ -61,7 +61,7 @@ python -m examples.bi_arx5_real.main \
     --left_arm_port=can1 \
     --right_arm_port=can3 \
     --record \
-    --record_repo_id Vertax42/my_new_dataset \
+    --record_repo_id Xense/my_new_dataset \
     --task "pick and place cube"
 ```
 
@@ -81,7 +81,7 @@ for visual inspection of observations, actions, and camera streams.
 
 ```bash
 mamba run -n lerobot-xense lerobot2mcap convert \
-    ~/.cache/huggingface/lerobot/Vertax42/my_new_dataset \
+    ~/.cache/huggingface/lerobot/Xense/my_new_dataset \
     -o ~/mcap_output/my_new_dataset
 ```
 
@@ -89,7 +89,7 @@ mamba run -n lerobot-xense lerobot2mcap convert \
 
 ```bash
 mamba run -n lerobot-xense lerobot2mcap convert \
-    ~/.cache/huggingface/lerobot/Vertax42/my_new_dataset \
+    ~/.cache/huggingface/lerobot/Xense/my_new_dataset \
     -o ~/mcap_output/my_new_dataset \
     --episodes 0 1 2
 ```
@@ -98,7 +98,7 @@ mamba run -n lerobot-xense lerobot2mcap convert \
 
 ```bash
 mamba run -n lerobot-xense lerobot2mcap convert \
-    ~/.cache/huggingface/lerobot/Vertax42/my_new_dataset \
+    ~/.cache/huggingface/lerobot/Xense/my_new_dataset \
     -o ~/mcap_output/my_new_dataset \
     --jobs 4
 ```
