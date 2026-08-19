@@ -1,6 +1,11 @@
 {
     "files.trimTrailingWhitespace": true,
     "editor.formatOnSave": true,
+
+    // Lint + format: ruff only (extension `charliermarsh.ruff`). It replaces
+    // flake8, isort and black, and reads its whole config from pyproject.toml
+    // ([tool.ruff], line-length 120, target-version py312) — nothing is
+    // duplicated here.
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.formatOnSave": true,
@@ -9,6 +14,18 @@
             "source.organizeImports.ruff": "explicit"
         }
     },
+
+    // Use the ruff from the selected interpreter's environment rather than the
+    // copy bundled with the extension, so the squiggles in the editor and what
+    // `ruff check` prints in the terminal can never disagree about a rule.
+    "ruff.importStrategy": "fromEnvironment",
+
+    // Type checking is NOT ruff's job — this is Pylance, and its whole
+    // configuration (mode, excludes, per-rule severities) lives in
+    // pyproject.toml under [tool.pyright]. Pylance reads that table, so nothing
+    // is set here: the editor's squiggles and `pyright` in the terminal cannot
+    // drift apart.
+
     "ROS2.distro": "jazzy",
     "python.autoComplete.extraPaths": [
         "/opt/ros/jazzy/lib/python3.12/site-packages"

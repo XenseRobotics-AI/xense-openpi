@@ -382,7 +382,7 @@ def train_loop(config: _config.TrainConfig):
         wandb.log({"camera_views": images_to_log}, step=0)
 
         # Clear sample batch from memory aggressively
-        del sample_batch, observation, actions, images_to_log, img_concatenated
+        del sample_batch, observation, actions, images_to_log
         del sample_data_loader  # Also delete the sample data loader
         gc.collect()
         if torch.cuda.is_available():

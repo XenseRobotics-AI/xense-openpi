@@ -305,10 +305,12 @@ class Block(nn.Module):
         pre_attn = []
         gates = []
         for i, x in enumerate(xs):
-            if x is not None:
+            if x is None:
+                gates.append(None)
+            else:
                 x, gate = RMSNorm(name=_name("pre_attention_norm", i))(x, adarms_cond[i])
+                gates.append(gate)
             pre_attn.append(x)
-            gates.append(gate if x is not None else None)
 
         pre_attn = sharding.activation_sharding_constraint(pre_attn)
         post_attn, kv_cache = attn(pre_attn, positions, attn_mask, kv_cache)
@@ -320,7 +322,9 @@ class Block(nn.Module):
         out = []
         gates = []
         for i, (x, config) in enumerate(zip(xs, self.configs, strict=True)):
-            if x is not None:
+            if x is None:
+                gates.append(None)
+            else:
                 x, gate = RMSNorm(name=_name("pre_ffw_norm", i))(x, adarms_cond[i])
                 x = lora.FeedForward(
                     features=config.width,
@@ -328,8 +332,8 @@ class Block(nn.Module):
                     name=_name("mlp", i),
                     lora_config=config.lora_configs.get("ffn"),
                 )(x)
+                gates.append(gate)
             out.append(x)
-            gates.append(gate if x is not None else None)
 
         out = sharding.activation_sharding_constraint(out)
         out = jax.tree.map(lambda x: drop(x, deterministic), out)

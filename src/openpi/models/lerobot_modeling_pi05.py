@@ -1162,11 +1162,12 @@ class PI05Policy(PreTrainedPolicy):
             img_masks.append(mask)
 
         # Create image features not present in the batch as fully 0 padded images
+        # Every present image was resized to the same resolution above, so the first
+        # one is as good a template as the last - and unlike the loop variable it is
+        # provably bound (the len(present_img_keys) == 0 guard above).
         for _num_empty_cameras in range(len(missing_img_keys)):
-            img = torch.ones_like(img) * -1  # Padded with -1 for SigLIP
-            mask = torch.zeros_like(mask)  # Mask is zero for empty cameras
-            images.append(img)
-            img_masks.append(mask)
+            images.append(torch.ones_like(images[0]) * -1)  # Padded with -1 for SigLIP
+            img_masks.append(torch.zeros_like(img_masks[0]))  # Mask is zero for empty cameras
 
         return images, img_masks
 

@@ -175,3 +175,55 @@ exclude = ["**/*_test.py", "**/conftest.py"]
 [tool.pytest.ini_options]
 markers = ["manual: should be run manually."]
 testpaths = ["src", "scripts", "packages", "examples"]
+
+# Type checking. Pylance (VS Code) and the `pyright` CLI both read this table, so
+# the squiggles in the editor and a terminal run can never disagree about a rule -
+# the same arrangement [tool.ruff] gives linting. Nothing is duplicated in
+# .vscode/settings.json.
+[tool.pyright]
+include = ["src", "scripts", "examples", "packages"]
+exclude = [
+    "**/__pycache__",
+    "**/.*",
+    "docker",
+    "third_party",
+    # DROID's data pipeline needs tensorflow, tensorflow_datasets, dlimp and the
+    # `droid` package - none of them are dependencies of this project. Every
+    # symbol in these files resolves to Unknown, so checking them says nothing.
+    "examples/droid",
+    "src/openpi/training/droid_rlds_dataset.py",
+    # Targets upstream LeRobot's policy stack (lerobot.policies.*, which our
+    # hardware-only lerobot fork does not ship) and nothing in this repo imports
+    # it, so its imports cannot resolve here by construction.
+    "src/openpi/models/lerobot_modeling_pi05.py",
+]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+
+# The rules below fire almost exclusively on untyped or partially-typed third
+# party code - jax/flax pytrees, torch.Tensor, sentencepiece, the pybind robot
+# SDKs - where pyright infers a signature from library source that the library
+# does not actually honour at runtime. Left on, they bury the findings that matter
+# (undefined names, unbound variables, unresolved imports) under ~500 false ones.
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportCallIssue = "none"
+reportAssignmentType = "none"
+reportReturnType = "none"
+reportOperatorIssue = "none"
+reportIndexIssue = "none"
+reportIncompatibleMethodOverride = "none"
+# `transformers.utils.cached_file`, `websockets.asyncio.server.Request` and friends
+# are documented, stable entry points that simply are not re-exported by the
+# library's __init__.
+reportPrivateImportUsage = "none"
+
+# Unbound names are the highest-signal check in this repo - and "basic" leaves
+# reportPossiblyUnboundVariable off, so turn it back on explicitly.
+reportPossiblyUnboundVariable = "warning"
+
+# None-safety is worth seeing. Enough fields here are declared `T | None` and
+# populated lazily that these are advisory (yellow) rather than errors (red).
+reportOptionalSubscript = "warning"
+reportOptionalMemberAccess = "warning"
+reportOptionalOperand = "warning"
