@@ -32,6 +32,15 @@ _DEFAULT_TACTILE_CAMERAS = (
     "right_tactile_top",
     "right_tactile_bottom",
 )
+# policy-facing name -> lerobot/station camera key. The stations expose the four
+# GSPS sensors as "<side>_tactile_{0,1}"; training repacks 0 -> top, 1 -> bottom
+# (see LeRobotBiFlexivTactileDataConfig), so inference must use the same order.
+_DEFAULT_TACTILE_CAMERA_MAPPING = {
+    "left_tactile_top": "left_tactile_0",
+    "left_tactile_bottom": "left_tactile_1",
+    "right_tactile_top": "right_tactile_0",
+    "right_tactile_bottom": "right_tactile_1",
+}
 
 
 class BiFlexivRizon4RTRealEnv:
@@ -49,6 +58,7 @@ class BiFlexivRizon4RTRealEnv:
         self,
         robot_config: BiFlexivRizon4RTConfig,
         setup_robot: bool = True,
+        enable_tactile_sensors: bool = True,
         tactile_camera_mapping: dict[str, str] | None = None,
     ):
         """Wrap an already-decoded robot config.
@@ -80,8 +90,8 @@ class BiFlexivRizon4RTRealEnv:
         self.robot = make_robot_from_config(self.config)
         self._enable_tactile_sensors = enable_tactile_sensors
         # Mapping from policy-facing camera name -> robot-side camera key.
-        # Identity mapping by default; users override via the CLI in main.py.
-        default_map = {name: name for name in _DEFAULT_TACTILE_CAMERAS}
+        # Defaults to the station naming (see above); users override via the CLI in main.py.
+        default_map = dict(_DEFAULT_TACTILE_CAMERA_MAPPING)
         if tactile_camera_mapping:
             default_map.update(tactile_camera_mapping)
         self._tactile_camera_mapping = default_map
