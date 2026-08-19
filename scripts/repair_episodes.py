@@ -17,6 +17,7 @@ Usage:
   python repair_episodes.py <DATASET_ROOT>            # dry-run, validate only
   python repair_episodes.py <DATASET_ROOT> --apply <BACKUP_TAG>
 """
+
 import glob
 import json
 from pathlib import Path
@@ -32,7 +33,7 @@ R = Path(sys.argv[1])
 APPLY = "--apply" in sys.argv
 BACKUP_TAG = sys.argv[sys.argv.index("--apply") + 1] if APPLY else None
 
-info = json.load(open(R / "meta/info.json"))
+info = json.loads((R / "meta/info.json").read_text())
 FPS = info["fps"]
 print(f"=== dataset: {R}")
 print(f"=== fps={FPS} info.total_episodes={info['total_episodes']} info.total_frames={info['total_frames']}")
@@ -52,21 +53,22 @@ for f in ep_files:
 cur = pd.concat(frames).reset_index(drop=True)
 print(f"\n[current] {len(ep_files)} shards, {len(cur)} rows, {cur['episode_index'].nunique()} unique episodes")
 # deduped base table: prefer fine-shard rows for carried-over stats/tasks columns.
-base = (cur.sort_values(["episode_index", "__prio"])
-           .drop_duplicates("episode_index", keep="first")
-           .drop(columns="__prio")
-           .reset_index(drop=True))
+base = (
+    cur.sort_values(["episode_index", "__prio"])
+    .drop_duplicates("episode_index", keep="first")
+    .drop(columns="__prio")
+    .reset_index(drop=True)
+)
 assert len(base) == cur["episode_index"].nunique()
 
-vkeys = [c.split("/")[1] for c in base.columns
-         if c.startswith("videos/") and c.endswith("/chunk_index")]
+vkeys = [c.split("/")[1] for c in base.columns if c.startswith("videos/") and c.endswith("/chunk_index")]
 print(f"[current] video keys ({len(vkeys)}): {vkeys}")
 
 # ---- 2. ground truth from data parquets -------------------------------------
 data_files = sorted(glob.glob(str(R / "data/chunk-000/*.parquet")))
-ep_data_file = {}   # episode_index -> data file_index
-ep_length = {}      # episode_index -> #rows (frames)
-file_eps = {}       # data file_index -> [episodes in order]
+ep_data_file = {}  # episode_index -> data file_index
+ep_length = {}  # episode_index -> #rows (frames)
+file_eps = {}  # data file_index -> [episodes in order]
 for p in data_files:
     fi = int(Path(p).stem.split("-")[1])
     s = pd.read_parquet(p, columns=["episode_index"])["episode_index"]
@@ -75,19 +77,20 @@ for p in data_files:
         ep_data_file[ep] = fi
         ep_length[ep] = int((s == ep).sum())
         file_eps.setdefault(fi, []).append(ep)
-for fi in file_eps:
-    file_eps[fi] = sorted(file_eps[fi])
+for fi, eps in file_eps.items():
+    file_eps[fi] = sorted(eps)
 
 episodes = sorted(ep_length)
-print(f"\n[data] {len(data_files)} data files, {len(episodes)} episodes, "
-      f"total frames={sum(ep_length.values())}")
+print(f"\n[data] {len(data_files)} data files, {len(episodes)} episodes, total frames={sum(ep_length.values())}")
 if episodes != list(range(len(episodes))):
     print("!! WARNING: episode indices are not a contiguous 0..N range")
+
 
 # ---- 3. actual video frame counts -------------------------------------------
 def num_frames(vkey, fi):
     p = R / f"videos/{vkey}/chunk-000/file-{fi:03d}.mp4"
     return VideoDecoder(str(p)).metadata.num_frames
+
 
 # ---- 4. recompute ground-truth fields ---------------------------------------
 # global dataset_from/to_index (episode order)
@@ -98,7 +101,7 @@ for ep in episodes:
     ds_to[ep] = cum
 
 # per video key/file: cumulative frame offsets -> from/to timestamp per episode
-vid_from_ts = {vk: {} for vk in vkeys}   # vk -> ep -> from_ts
+vid_from_ts = {vk: {} for vk in vkeys}  # vk -> ep -> from_ts
 vid_to_ts = {vk: {} for vk in vkeys}
 problems = []
 for vk in vkeys:
@@ -110,8 +113,9 @@ for vk in vkeys:
             vid_to_ts[vk][ep] = off / FPS
         actual = num_frames(vk, fi)
         if off != actual:
-            problems.append(f"  [{vk}] file-{fi:03d}: sum(lengths)={off} != video_frames={actual} "
-                            f"(diff {off-actual})")
+            problems.append(
+                f"  [{vk}] file-{fi:03d}: sum(lengths)={off} != video_frames={actual} (diff {off - actual})"
+            )
 
 print("\n=== ground-truth video-length validation ===")
 if problems:
@@ -148,8 +152,10 @@ for i, ep in enumerate(new["episode_index"].astype(int)):
         new.at[i, "meta/episodes/file_index"] = 0
 
 if mismatch_len:
-    print(f"\n[note] recomputed length differs from stored length for {len(mismatch_len)} eps "
-          f"(using data-derived length): {mismatch_len[:10]}")
+    print(
+        f"\n[note] recomputed length differs from stored length for {len(mismatch_len)} eps "
+        f"(using data-derived length): {mismatch_len[:10]}"
+    )
 
 # ---- 6. final越界 check: round(to_ts*fps) <= video frames -------------------
 print("\n=== final bound check (round(to_ts*fps) <= video frames) ===")
@@ -171,17 +177,25 @@ else:
 
 # show what changed for the previously-broken episodes
 print("\n=== sample of corrected rows ===")
-cols = ["episode_index", "length", "dataset_from_index", "dataset_to_index",
-        "data/file_index", "videos/observation.images.head/file_index",
-        "videos/observation.images.head/from_timestamp",
-        "videos/observation.images.head/to_timestamp"]
+cols = [
+    "episode_index",
+    "length",
+    "dataset_from_index",
+    "dataset_to_index",
+    "data/file_index",
+    "videos/observation.images.head/file_index",
+    "videos/observation.images.head/from_timestamp",
+    "videos/observation.images.head/to_timestamp",
+]
 print(new[new["episode_index"].isin([0, 1, 2, 15, 23, 24, 25, 30])][cols].to_string(index=False))
 
 print(f"\n[result] rebuilt table: {len(new)} rows, {new['episode_index'].nunique()} unique episodes")
 total_frames_new = int(new["length"].sum())
-print(f"[result] total frames (sum length) = {total_frames_new} "
-      f"(info.json says {info['total_frames']}: "
-      f"{'MATCH' if total_frames_new == info['total_frames'] else 'DIFFERS'})")
+print(
+    f"[result] total frames (sum length) = {total_frames_new} "
+    f"(info.json says {info['total_frames']}: "
+    f"{'MATCH' if total_frames_new == info['total_frames'] else 'DIFFERS'})"
+)
 
 # ---- 7. apply ---------------------------------------------------------------
 if not APPLY:
@@ -210,9 +224,10 @@ pq.write_table(table, out)
 print(f"[apply] wrote {out} ({table.num_rows} rows)")
 
 # verify via lerobot's own loader
-from lerobot.datasets.utils import load_episodes
+from lerobot.datasets.utils import load_episodes  # noqa: E402  (verification step, only reached after the rewrite)
 
 loaded = load_episodes(R)
-print(f"[verify] lerobot load_episodes() -> {len(loaded)} rows "
-      f"({'OK' if len(loaded) == len(episodes) else 'UNEXPECTED'})")
+print(
+    f"[verify] lerobot load_episodes() -> {len(loaded)} rows ({'OK' if len(loaded) == len(episodes) else 'UNEXPECTED'})"
+)
 print("[apply] done. Backup kept at:", backup)

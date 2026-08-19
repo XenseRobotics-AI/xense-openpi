@@ -1,11 +1,11 @@
+from collections import deque
 import math
 import threading
 import time
-from collections import deque
 from typing import override
 
-import numpy as np  # noqa: F401
 from lerobot.utils.robot_utils import get_logger
+import numpy as np
 
 from xense_client import base_policy as _base_policy
 from xense_client.action_queue import ActionQueue
@@ -272,18 +272,17 @@ class RTCActionChunkBroker(_base_policy.BasePolicy):
                             )
                             # Don't set _first_inference_done, continue to Phase 2
                             continue
-                        else:
-                            # ===== WARMUP PHASE 2 COMPLETE =====
-                            # This inference has correct prev_chunk shape, execute these actions
-                            self._warmup_done = True
-                            # Use estimated_delay (default_delay) instead of actual latency for warmup
-                            # because JIT compilation causes artificially high latency
-                            inference_delay_steps = estimated_delay_steps
-                            logger.info(
-                                f"✅ WARMUP Phase 2 complete. Latency: {latency * 1000:.0f}ms (JIT). "
-                                f"Using default_delay={estimated_delay_steps} for merge. Warmup done."
-                            )
-                            # Fall through to normal merge logic below
+                        # ===== WARMUP PHASE 2 COMPLETE =====
+                        # This inference has correct prev_chunk shape, execute these actions
+                        self._warmup_done = True
+                        # Use estimated_delay (default_delay) instead of actual latency for warmup
+                        # because JIT compilation causes artificially high latency
+                        inference_delay_steps = estimated_delay_steps
+                        logger.info(
+                            f"✅ WARMUP Phase 2 complete. Latency: {latency * 1000:.0f}ms (JIT). "
+                            f"Using default_delay={estimated_delay_steps} for merge. Warmup done."
+                        )
+                        # Fall through to normal merge logic below
 
                     # Normal operation: merge actions into queue
                     # Skip CRITICAL check during warmup (Phase 2) since JIT causes high latency
@@ -311,17 +310,16 @@ class RTCActionChunkBroker(_base_policy.BasePolicy):
                     # the next estimated_delay.
                     if real_delay_before_merge > 0:
                         self._last_real_delay = int(real_delay_before_merge)
+                    # Only use time-based if it's reasonable (< 10 steps)
+                    elif inference_delay_steps <= 10:
+                        self._last_real_delay = int(inference_delay_steps)
                     else:
-                        # Only use time-based if it's reasonable (< 10 steps)
-                        if inference_delay_steps <= 10:
-                            self._last_real_delay = int(inference_delay_steps)
-                        else:
-                            # JIT compilation case: use default
-                            self._last_real_delay = 4
-                            logger.info(
-                                f"RTC: First inference took {inference_delay_steps} steps "
-                                f"(likely JIT), using default delay=4 for next inference"
-                            )
+                        # JIT compilation case: use default
+                        self._last_real_delay = 4
+                        logger.info(
+                            f"RTC: First inference took {inference_delay_steps} steps "
+                            f"(likely JIT), using default delay=4 for next inference"
+                        )
 
                     # Append to rolling max window (skip the warmup step whose
                     # latency is JIT-inflated: inference_delay_steps was forced
@@ -450,7 +448,7 @@ class RTCActionChunkBroker(_base_policy.BasePolicy):
         # Block until Phase 1 (JIT) + Phase 2 (prev_chunk shape) both finish.
         if not self._first_inference_done.wait(timeout=120.0):
             raise RuntimeError(
-                "RTCActionChunkBroker.warmup(): Timed out waiting for JIT " "compilation. Is the policy server running?"
+                "RTCActionChunkBroker.warmup(): Timed out waiting for JIT compilation. Is the policy server running?"
             )
         logger.info("Pre-episode warmup complete. First control step will have no JIT delay.")
 

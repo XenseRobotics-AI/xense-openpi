@@ -29,6 +29,10 @@ exclude = ["**/*_test.py", "**/conftest.py"]
 [tool.uv]
 dev-dependencies = ["pytest>=8.3.4"]
 
+# Without this, ruff stops at the nearest pyproject.toml with a [tool.ruff]
+# table - this one - and lints the client against its *default* rule set rather
+# than the repo's. Extending the root keeps one ruleset for the whole tree.
 [tool.ruff]
+extend = "../../pyproject.toml"
 line-length = 120
 target-version = "py312"

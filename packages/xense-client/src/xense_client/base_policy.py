@@ -6,10 +6,10 @@ class BasePolicy(abc.ABC):
     def infer(self, obs: dict) -> dict:
         """Infer actions from observations."""
 
-    def reset(self) -> None:
+    def reset(self) -> None:  # noqa: B027  (optional hook, deliberately not abstract)
         """Reset the policy to its initial state."""
 
-    def warmup(self, obs: dict) -> None:
+    def warmup(self, obs: dict) -> None:  # noqa: B027  (optional hook, deliberately not abstract)
         """Pre-warm the policy before the episode control loop starts.
 
         Override in subclasses that benefit from pre-compilation (e.g. JAX JIT).

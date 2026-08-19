@@ -16,7 +16,7 @@ class Agent(abc.ABC):
     def reset(self) -> None:
         """Reset the agent to its initial state."""
 
-    def warmup(self, observation: dict) -> None:
+    def warmup(self, observation: dict) -> None:  # noqa: B027  (optional hook, deliberately not abstract)
         """Pre-warm the agent before the episode control loop starts.
 
         Called once after reset() and before the first get_action() call.

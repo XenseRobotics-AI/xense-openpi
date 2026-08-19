@@ -33,6 +33,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import contextlib
 
 import numpy as np
 
@@ -104,8 +105,13 @@ def _draw_hud(cv2, bgr, *, frame_i, t, last, committed, banner, blue_area=None, 
     fd = flip.get("delta")
     fd_s = f"{fd:.2f}" if isinstance(fd, (int, float)) else "--"
     fready = bool(flip.get("ready"))
-    _text(cv2, bgr, f"flip gate: d={fd_s} {'READY' if fready else 'wait'}",
-          (8, 118), color=(0, 220, 0) if fready else _WHITE)
+    _text(
+        cv2,
+        bgr,
+        f"flip gate: d={fd_s} {'READY' if fready else 'wait'}",
+        (8, 118),
+        color=(0, 220, 0) if fready else _WHITE,
+    )
 
     # --- bottom-left: accumulated event log (most recent last) ---
     if events:
@@ -138,7 +144,8 @@ def main() -> None:
     ap.add_argument("--episode", type=int, default=0, help="Episode index to replay.")
     ap.add_argument("--camera", default="head", help="Camera key, i.e. observation.images.<camera>.")
     ap.add_argument(
-        "--detector-config", default=None,
+        "--detector-config",
+        default=None,
         help="Path to a shoe_sm JSON config (bbox, blue HSV, etc.). Omit to use placeholder defaults.",
     )
     ap.add_argument("--confirm-frames", type=int, default=5, help="SceneController confirm frames.")
@@ -150,8 +157,8 @@ def main() -> None:
     ap.add_argument("--banner-frames", type=int, default=12, help="How many frames an event banner holds.")
     args = ap.parse_args()
 
-    import cv2  # noqa: PLC0415 — heavy, only needed here
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset  # noqa: PLC0415
+    import cv2
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     # episodes=[ep] makes LeRobotDataset check/sync ONLY this episode's files instead
     # of the whole dataset (which can be many GB and still downloading). The dataset
@@ -163,10 +170,8 @@ def main() -> None:
     # this, one frame a fraction of a frame-period off raises FrameTimestampError from
     # torchcodec and aborts the whole run (lerobot's default tolerance is 1e-4 s).
     # Allow up to one frame period; genuinely undecodable frames are still skipped below.
-    try:
+    with contextlib.suppress(Exception):
         ds.tolerance_s = max(ds.tolerance_s, 1.0 / fps)
-    except Exception:
-        pass
     img_key = f"observation.images.{args.camera}"
     if img_key not in ds.features:
         raise SystemExit(f"camera key {img_key!r} not in dataset features: {sorted(ds.features)}")
@@ -181,7 +186,7 @@ def main() -> None:
             return _orig({k: v for k, v in query_ts.items() if k == _keep}, ep_idx)
 
         ds._query_videos = _query_head_only
-    except Exception as e:  # noqa: BLE001 — optimization only; fall back to full decode
+    except Exception as e:
         print(f"[warn] could not restrict decode to head ({type(e).__name__}); decoding all cameras")
 
     n = len(ds)
@@ -214,7 +219,7 @@ def main() -> None:
     # detection use only the state (read straight from the parquet, every frame, no video
     # decode); the head image is needed only for the ~vision_stride blue check, so decode
     # it just on the detector's vision-check frames. ~vision_stride x fewer decodes.
-    text_only = (out_path == "" and not show)
+    text_only = out_path == "" and not show
     vstride = max(1, detector.cfg.vision_stride)
     states_all = np.asarray(ds.hf_dataset["observation.state"], dtype=np.float32) if text_only else None
 
@@ -226,14 +231,14 @@ def main() -> None:
             if (f + 1) % vstride == 0:  # aligns with the detector's frame_i % vision_stride == 0
                 try:
                     head = _to_hwc_rgb_uint8(ds[f][img_key])
-                except Exception as ex:  # noqa: BLE001 — one bad frame's image is not fatal
+                except Exception as ex:
                     skipped += 1
                     if skipped <= 5:
                         print(f"[warn] frame {f}: image decode failed ({type(ex).__name__}); skipping image")
         else:
             try:
                 item = ds[f]
-            except Exception as ex:  # noqa: BLE001 — a single bad frame must not abort the run
+            except Exception as ex:
                 skipped += 1
                 if skipped <= 5:
                     print(f"[warn] frame {f}: video decode failed ({type(ex).__name__}); skipping")
@@ -281,8 +286,17 @@ def main() -> None:
         # ---- annotated frame ----
         if out_path != "" or show:
             _present, _area, bgr = blue.annotate(head)
-            _draw_hud(cv2, bgr, frame_i=f, t=t, last=last, committed=committed,
-                      banner=banner, blue_area=_area, events=event_log)
+            _draw_hud(
+                cv2,
+                bgr,
+                frame_i=f,
+                t=t,
+                last=last,
+                committed=committed,
+                banner=banner,
+                blue_area=_area,
+                events=event_log,
+            )
             if banner is not None:
                 banner = (banner[0], banner[1], banner[2] - 1)
                 if banner[2] <= 0:
@@ -310,10 +324,8 @@ def main() -> None:
     if writer is not None:
         writer.release()
     if show:
-        try:
+        with contextlib.suppress(cv2.error):
             cv2.destroyAllWindows()
-        except cv2.error:
-            pass
 
     print("\n--- summary ---")
     print(f"events: pick={n_events['pick']} blue={n_events['blue']} reset={n_events['reset']}")
