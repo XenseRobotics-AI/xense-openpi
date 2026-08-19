@@ -18,13 +18,18 @@ class RunningStats:
     """Compute running statistics of a batch of vectors."""
 
     def __init__(self):
+        # Every field below is only read once `_count > 0`, i.e. after the first
+        # `update()` has replaced these placeholders with real per-dimension arrays.
+        # They start as empty arrays rather than None so the vector length stays
+        # unknown until the first batch arrives, without every later read having to
+        # be written as if it could be None.
         self._count = 0
-        self._mean = None
-        self._mean_of_squares = None
-        self._min = None
-        self._max = None
-        self._histograms = None
-        self._bin_edges = None
+        self._mean: np.ndarray = np.zeros(0)
+        self._mean_of_squares: np.ndarray = np.zeros(0)
+        self._min: np.ndarray = np.zeros(0)
+        self._max: np.ndarray = np.zeros(0)
+        self._histograms: list[np.ndarray] = []
+        self._bin_edges: list[np.ndarray] = []
         self._num_quantile_bins = 5000  # for computing quantiles on the fly
 
     def update(self, batch: np.ndarray) -> None:

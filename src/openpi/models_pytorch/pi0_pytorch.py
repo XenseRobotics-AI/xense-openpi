@@ -23,7 +23,7 @@ def get_safe_dtype(target_dtype, device_type):
 
 
 def create_sinusoidal_pos_embedding(
-    time: torch.tensor,
+    time: Tensor,
     dimension: int,
     min_period: float,
     max_period: float,

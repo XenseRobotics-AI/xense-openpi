@@ -124,6 +124,10 @@ class PiGemmaAttention(_mg.GemmaAttention):
         key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
+        if position_embeddings is None:
+            # The parameter is Optional only to match the HF attention signature;
+            # this layer never computes rotary embeddings itself.
+            raise ValueError("position_embeddings is required by this attention layer.")
         cos, sin = position_embeddings
         query_states, key_states = _mg.apply_rotary_pos_emb(query_states, key_states, cos, sin)
 

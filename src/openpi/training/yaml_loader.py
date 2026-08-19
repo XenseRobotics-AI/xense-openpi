@@ -53,6 +53,11 @@ from omegaconf import OmegaConf
 import openpi.training.registry as _registry
 import openpi.transforms as _transforms
 
+if typing.TYPE_CHECKING:
+    # Only for annotations: importing config.py at runtime would be circular
+    # (config.py -> registry -> config.py lazily, and config.py calls yaml_loader).
+    from openpi.training.config import TrainConfig
+
 _CONFIG_FIELD_TO_REGISTRY: dict[str, str] = {
     "model": "MODELS",
     "data": "DATA_CONFIGS",
@@ -62,7 +67,7 @@ _CONFIG_FIELD_TO_REGISTRY: dict[str, str] = {
 }
 
 
-def load(yaml_path: pathlib.Path | str) -> TrainConfig:  # noqa: F821  (forward ref)
+def load(yaml_path: pathlib.Path | str) -> TrainConfig:
     """Load a TrainConfig from a YAML file. The file stem becomes the config name."""
     path = pathlib.Path(yaml_path).expanduser().resolve()
     if not path.is_file():
@@ -76,7 +81,7 @@ def load(yaml_path: pathlib.Path | str) -> TrainConfig:  # noqa: F821  (forward 
     return _build_train_config(name, raw)
 
 
-def loads(yaml_text: str, name: str) -> TrainConfig:  # noqa: F821
+def loads(yaml_text: str, name: str) -> TrainConfig:
     """Load a TrainConfig from a YAML string. Caller supplies the name."""
     raw = OmegaConf.to_container(OmegaConf.create(yaml_text), resolve=True)
     if not isinstance(raw, dict):
@@ -84,7 +89,7 @@ def loads(yaml_text: str, name: str) -> TrainConfig:  # noqa: F821
     return _build_train_config(name, raw)
 
 
-def _build_train_config(name: str, raw: dict[str, Any]) -> TrainConfig:  # noqa: F821
+def _build_train_config(name: str, raw: dict[str, Any]) -> TrainConfig:
     # Import here to avoid circular import (config.py imports registry, registry imports
     # config.py lazily, and yaml_loader is called from config.py).
     import openpi.training.config as _config
@@ -228,7 +233,7 @@ def _build_transform(spec: Any) -> Any:
     return _construct(cls, {k: v for k, v in spec.items() if k != "type"})
 
 
-def dump(config: TrainConfig, yaml_path: pathlib.Path | str | None = None) -> str:  # noqa: F821
+def dump(config: TrainConfig, yaml_path: pathlib.Path | str | None = None) -> str:
     """Serialize a TrainConfig back to YAML. Used by the one-shot migration script.
 
     Returns the YAML text; if `yaml_path` is given, also writes to disk.

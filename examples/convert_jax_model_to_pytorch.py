@@ -26,6 +26,11 @@ Example:
     python examples/convert_jax_model_to_pytorch.py --checkpoint_dir /home/$USER/.cache/openpi/openpi-assets/checkpoints/pi05_droid --output_path /home/$USER/.cache/openpi/openpi-assets/checkpoints/pi05_droid_pytorch
 """
 
+# The pi05 layernorm tensors are popped under `if "pi05" in checkpoint_dir` and
+# written back under that same condition further down, so they are bound whenever
+# they are read - a correlation the checker cannot follow across the loop.
+# pyright: reportPossiblyUnboundVariable=false
+
 import json
 import os
 import pathlib

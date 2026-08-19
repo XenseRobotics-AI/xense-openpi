@@ -194,8 +194,8 @@ class DataConfigFactory(abc.ABC):
     def _load_norm_stats(self, assets_dir: epath.Path, asset_id: str | None) -> dict[str, _transforms.NormStats] | None:
         if asset_id is None:
             return None
+        data_assets_dir = str(assets_dir / asset_id)
         try:
-            data_assets_dir = str(assets_dir / asset_id)
             norm_stats = _normalize.load(_download.maybe_download(data_assets_dir))
             logging.info(f"Loaded norm stats from {data_assets_dir}")
             return norm_stats
