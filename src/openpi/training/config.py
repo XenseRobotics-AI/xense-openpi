@@ -23,7 +23,6 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.bi_flexiv_policy as bi_flexiv_policy
 import openpi.policies.droid_policy as droid_policy
-import openpi.policies.xense_flare_policy as xense_flare_policy
 import openpi.policies.xtac_umi_policy as xtac_umi_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
@@ -410,59 +409,6 @@ class LeRobotDROIDDataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class LeRobotXenseFlareDataConfig(DataConfigFactory):
-    """
-    Example data config for custom Xense Flare dataset in LeRobot format.
-    """
-
-    use_delta_cartesian_actions: bool = True
-    # If provided, will be injected into the input data if the "prompt" key is not present.
-    default_prompt: str | None = None
-
-    # Repack transforms.
-    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
-        default=_transforms.Group(
-            inputs=[
-                _transforms.RepackTransform(
-                    {
-                        "images": {"observation/wrist_image_left": "observation.images.wrist_cam"},
-                        "state": "observation.state",
-                        "actions": "action",
-                        "prompt": "task",
-                    }
-                )
-            ]
-        )
-    )
-    # Action keys that will be used to read the action sequence from the dataset.
-    action_sequence_keys: Sequence[str] = ("action",)
-
-    @override
-    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
-        data_transforms = _transforms.Group(
-            inputs=[xense_flare_policy.XenseFlareInputs()],
-            outputs=[xense_flare_policy.XenseFlareOutputs()],
-        )
-
-        if self.use_delta_cartesian_actions:
-            delta_action_mask = _transforms.make_bool_mask(9, -1)
-            data_transforms = data_transforms.push(
-                inputs=[_transforms.DeltaActions(delta_action_mask)],
-                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
-            )
-
-        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
-
-        return dataclasses.replace(
-            self.create_base_config(assets_dirs, model_config),
-            repack_transforms=self.repack_transforms,
-            data_transforms=data_transforms,
-            model_transforms=model_transforms,
-            action_sequence_keys=self.action_sequence_keys,
         )
 
 

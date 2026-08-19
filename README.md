@@ -1,14 +1,14 @@
 # openpi - Xense Robotics Fork
 
-> **Note:** This is a fork of [Physical Intelligence's openpi repository](https://github.com/Physical-Intelligence/openpi), adapted and extended for **Xense Robotics platforms** (BiARX5 and Xense Flare dual-arm robots).
+> **Note:** This is a fork of [Physical Intelligence's openpi repository](https://github.com/Physical-Intelligence/openpi), adapted and extended for **Xense Robotics platforms** (BiARX5, BiFlexiv and XTac-UMI dual-arm robots).
 
 ## 🎯 Our Contributions
 
 This fork focuses on adapting OpenPI models to Xense Robotics platforms with the following key contributions:
 
-- **Xense Platform Support**: Complete integration for BiARX5 and Xense Flare dual-arm robot platforms
+- **Xense Platform Support**: Complete integration for BiARX5, BiFlexiv and XTac-UMI dual-arm robot platforms
 - **Custom Training Configurations**: Fine-tuned configs for various manipulation tasks (tie shoes, pick-and-place, open lock, wipe vase, etc.)
-- **Platform-Specific Policies**: `xense_flare_policy.py` and optimized data processing pipelines for Xense robots
+- **Platform-Specific Policies**: `bi_flexiv_policy.py`, `xtac_umi_policy.py` and optimized data processing pipelines for Xense robots
 - **Real-World Deployment**: Production-ready inference and training commands for Xense platforms
 - **Streamlined Codebase**: Removed ALOHA and LIBERO dependencies to focus on DROID and Xense platforms
 
@@ -149,7 +149,7 @@ lambdas that can't be serialized; see `config._generated_configs`.
 
 Building blocks:
 
-- Data transforms: Define the data mapping from your environment to the model (see [`droid_policy.py`](src/openpi/policies/droid_policy.py) or [`xense_flare_policy.py`](src/openpi/policies/xense_flare_policy.py) for examples)
+- Data transforms: Define the data mapping from your environment to the model (see [`droid_policy.py`](src/openpi/policies/droid_policy.py) or [`xtac_umi_policy.py`](src/openpi/policies/xtac_umi_policy.py) for examples)
 - `DataConfig`: Defines how to process raw data from LeRobot dataset for training
 - `TrainConfig`: Defines fine-tuning hyperparameters, data config, and weight loader
 
@@ -411,7 +411,6 @@ This section contains production-ready commands for training and deploying model
 ### Platform Overview
 
 - **BiARX5**: Bi-manual ARX-5 robot setup with parallel grippers
-- **Xense Flare**: UMI-style dual-arm robot with data collection grippers
 - **BiFlexiv**: Dual-arm Flexiv Rizon4 real-time setup
 
 ### Environment Variables (optional, for multi-GPU / offline datasets)
@@ -517,16 +516,6 @@ python scripts/serve_policy.py \
     policy:checkpoint \
     --policy.config=pi05_base_arx5_lora_training_time_rtc \
     --policy.dir=checkpoints/pi05_base_arx5_lora_training_time_rtc/training_time_rtc_20251209/39999
-```
-
-#### Xense Flare — open lock inference
-
-```bash
-python scripts/serve_policy.py \
-    --default-prompt="open the lock with the key" \
-    policy:checkpoint \
-    --policy.config=pi05_base_xense_flare_open_lock_rtc_0228 \
-    --policy.dir=checkpoints/pi05_base_xense_flare_open_lock_rtc_0228/xense_flare_open_lock_rtc_0228/19999
 ```
 
 #### BiFlexiv — assemble box inference
