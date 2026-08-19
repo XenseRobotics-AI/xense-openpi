@@ -36,9 +36,14 @@ pip install -e /path/to/lerobot-xense
 ```bash
 python scripts/serve_policy.py \
     policy:checkpoint \
-    --policy.config=pi05_base_xense_flare_pick_and_place_cube \
+    --policy.config=<your_config_name> \
     --policy.dir=checkpoints/your_checkpoint
 ```
+
+`configs/_examples/` ships no single-arm config — every one there is bimanual
+(`LeRobotBiFlexivDataConfig`) or XTac-UMI. The checkpoint you serve here has to
+come from a config you wrote for this rig's 10D state/action; see
+[`configs/README.md`](../../configs/README.md).
 
 ## Pick a bench
 
