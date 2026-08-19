@@ -109,7 +109,7 @@ def test_delta_mask_matches_the_per_side_grouped_layout():
 
 def test_data_config_wires_the_xtac_umi_transforms():
     """The shipped example config must resolve to these transforms, not BiFlexiv's."""
-    train_config = _config.get_config("pi05_base_xtac_umi_sort_defective_parts_0710")
+    train_config = _config.get_config("pi05_base_xtac_umi_pick_up_cube_0807_h200")
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)
 
     input_types = [type(t) for t in data_config.data_transforms.inputs]
@@ -123,7 +123,7 @@ def test_data_config_wires_the_xtac_umi_transforms():
 
 def test_data_config_repack_tracks_use_head_camera():
     """The head column is requested only when the flag asks for it."""
-    train_config = _config.get_config("pi05_base_xtac_umi_sort_defective_parts_0710")
+    train_config = _config.get_config("pi05_base_xtac_umi_pick_up_cube_0807_h200")
 
     def repack_images(*, use_head_camera: bool) -> dict:
         data = _config.LeRobotXtacUmiDataConfig(repo_id=train_config.data.repo_id, use_head_camera=use_head_camera)
