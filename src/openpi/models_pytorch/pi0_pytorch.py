@@ -272,13 +272,13 @@ class PI0Pytorch(nn.Module):
         # masked-to-zero) timestep.
         if timestep.ndim == 1:
             if timestep.shape[0] != noisy_actions.shape[0]:
-                raise ValueError(
-                    f"Expected timestep batch dimension {noisy_actions.shape[0]}, got {timestep.shape[0]}"
-                )
+                raise ValueError(f"Expected timestep batch dimension {noisy_actions.shape[0]}, got {timestep.shape[0]}")
         elif timestep.ndim == 2:
             expected_shape = noisy_actions.shape[:2]
             if tuple(timestep.shape) != tuple(expected_shape):
-                raise ValueError(f"Expected per-action timestep shape {tuple(expected_shape)}, got {tuple(timestep.shape)}")
+                raise ValueError(
+                    f"Expected per-action timestep shape {tuple(expected_shape)}, got {tuple(timestep.shape)}"
+                )
         else:
             raise ValueError(f"Expected timestep ndim 1 or 2, got {timestep.ndim}")
 
@@ -356,8 +356,16 @@ class PI0Pytorch(nn.Module):
             images, img_masks, lang_tokens, lang_masks, state, actions, noise=noise, time=time
         )
 
-    def _run_prefix_suffix(self, prefix_embs, suffix_embs, suffix_pad_masks, suffix_att_masks,
-                          prefix_pad_masks, prefix_att_masks, adarms_cond):
+    def _run_prefix_suffix(
+        self,
+        prefix_embs,
+        suffix_embs,
+        suffix_pad_masks,
+        suffix_att_masks,
+        prefix_pad_masks,
+        prefix_att_masks,
+        adarms_cond,
+    ):
         """Shared transformer forward used by both standard and RTC training losses."""
         if (
             self.paligemma_with_expert.paligemma.language_model.layers[0].self_attn.q_proj.weight.dtype
@@ -401,8 +409,9 @@ class PI0Pytorch(nn.Module):
 
         return self._apply_checkpoint(action_out_proj_func, suffix_out)
 
-    def _compute_loss_standard(self, images, img_masks, lang_tokens, lang_masks, state, actions, *,
-                               noise=None, time=None) -> Tensor:
+    def _compute_loss_standard(
+        self, images, img_masks, lang_tokens, lang_masks, state, actions, *, noise=None, time=None
+    ) -> Tensor:
         """Standard Pi0 flow-matching loss (per-element MSE)."""
         if noise is None:
             noise = self.sample_noise(actions.shape, actions.device)
@@ -417,13 +426,19 @@ class PI0Pytorch(nn.Module):
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, time)
 
         v_t = self._run_prefix_suffix(
-            prefix_embs, suffix_embs, suffix_pad_masks, suffix_att_masks,
-            prefix_pad_masks, prefix_att_masks, adarms_cond,
+            prefix_embs,
+            suffix_embs,
+            suffix_pad_masks,
+            suffix_att_masks,
+            prefix_pad_masks,
+            prefix_att_masks,
+            adarms_cond,
         )
         return F.mse_loss(u_t, v_t, reduction="none")
 
-    def _compute_loss_training_time_rtc(self, images, img_masks, lang_tokens, lang_masks, state, actions, *,
-                                        noise=None) -> Tensor:
+    def _compute_loss_training_time_rtc(
+        self, images, img_masks, lang_tokens, lang_masks, state, actions, *, noise=None
+    ) -> Tensor:
         """Training-time RTC loss.
 
         Per-batch ``delay`` ~ Uniform[0, max_delay) defines a clean prefix of
@@ -451,8 +466,9 @@ class PI0Pytorch(nn.Module):
         action_prefix_mask = positions < delay.unsqueeze(1)  # (b, ah)
 
         # Prefix uses clean actions (timestep 0); postfix uses noisy actions.
-        time_masked = torch.where(action_prefix_mask, torch.zeros_like(action_prefix_mask, dtype=time.dtype),
-                                  time.unsqueeze(1).expand(b, ah))
+        time_masked = torch.where(
+            action_prefix_mask, torch.zeros_like(action_prefix_mask, dtype=time.dtype), time.unsqueeze(1).expand(b, ah)
+        )
         time_masked_3d = time_masked.unsqueeze(-1)  # (b, ah, 1)
         x_t = time_masked_3d * noise + (1.0 - time_masked_3d) * actions
         u_t = noise - actions
@@ -461,8 +477,13 @@ class PI0Pytorch(nn.Module):
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, time_masked)
 
         v_t = self._run_prefix_suffix(
-            prefix_embs, suffix_embs, suffix_pad_masks, suffix_att_masks,
-            prefix_pad_masks, prefix_att_masks, adarms_cond,
+            prefix_embs,
+            suffix_embs,
+            suffix_pad_masks,
+            suffix_att_masks,
+            prefix_pad_masks,
+            prefix_att_masks,
+            adarms_cond,
         )
 
         sq = (v_t - u_t) ** 2  # (b, ah, ad)

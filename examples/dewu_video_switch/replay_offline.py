@@ -51,36 +51,47 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument(
-        "--repo-id", default=DEFAULT_REPO,
+        "--repo-id",
+        default=DEFAULT_REPO,
         help="LeRobot dataset repo id to replay (must expose observation.state; head image only if --with-images).",
     )
     ap.add_argument(
-        "--root", default=None,
+        "--root",
+        default=None,
         help="Local dataset root. Default: the HuggingFace cache (~/.cache/huggingface/lerobot).",
     )
     ap.add_argument("--episode", type=int, default=0, help="Episode index within the dataset to replay.")
     ap.add_argument(
-        "--detector", default="gripper",
+        "--detector",
+        default="gripper",
         help="Detector to evaluate: 'gripper' (real grasp-state) or 'stub' (brightness). See detector.make_detector.",
     )
     ap.add_argument(
-        "--camera", default="head",
+        "--camera",
+        default="head",
         help="Camera key suffix, i.e. observation.images.<camera>. Only used with --with-images.",
     )
     ap.add_argument(
-        "--with-images", action="store_true",
+        "--with-images",
+        action="store_true",
         help="Also decode and feed the head image to the detector (slower). Off by default since the "
         "gripper detector only needs the state.",
     )
     ap.add_argument(
-        "--confirm-frames", type=int, default=5,
+        "--confirm-frames",
+        type=int,
+        default=5,
         help="SceneController: consecutive frames a proposal must repeat before it commits (mirrors app.py).",
     )
     ap.add_argument(
-        "--min-dwell-s", type=float, default=1.0,
+        "--min-dwell-s",
+        type=float,
+        default=1.0,
         help="SceneController: minimum hold time (s) before another switch is allowed (mirrors app.py).",
     )
-    ap.add_argument("--max-frames", type=int, default=0, help="Cap the number of frames replayed; 0 = the whole episode.")
+    ap.add_argument(
+        "--max-frames", type=int, default=0, help="Cap the number of frames replayed; 0 = the whole episode."
+    )
     args = ap.parse_args()
 
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -119,7 +130,9 @@ def main() -> None:
             frame["state"] = item["observation.state"].numpy().astype(np.float32)
         if args.with_images and img_key in ds.features:
             t = item[img_key]  # (3,H,W) float in [0,1]
-            frame["images"] = {args.camera: t.permute(1, 2, 0).clamp(0, 1).mul(255).round().to("cpu").numpy().astype(np.uint8)}
+            frame["images"] = {
+                args.camera: t.permute(1, 2, 0).clamp(0, 1).mul(255).round().to("cpu").numpy().astype(np.uint8)
+            }
 
         proposed = detector.detect(frame)
         if proposed is not None:

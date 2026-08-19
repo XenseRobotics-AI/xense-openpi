@@ -34,7 +34,7 @@ class BlueInsoleConfig:
     # Region of interest as (x0, y0, x1, y1) fractions; None = whole frame.
     # Default = bottom 60% (the insole bottom is expected low in the head view).
     roi: tuple | None = (0.0, 0.4, 1.0, 1.0)
-    open_ksize: int = 5   # morphology open kernel (despeckle); <=1 disables
+    open_ksize: int = 5  # morphology open kernel (despeckle); <=1 disables
     close_ksize: int = 7  # morphology close kernel (fill); <=1 disables
 
 

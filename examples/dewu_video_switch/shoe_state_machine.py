@@ -70,9 +70,9 @@ class ShoeSMConfig:
     scene_groups: int = 2
     transitions: list = field(default_factory=list)  # len == n_shoes (one box per pick)
     blue: BlueInsoleConfig = field(default_factory=BlueInsoleConfig)
-    vision_stride: int = 30   # run the blue check every N frames (~1 Hz @ 30 fps)
-    vision_confirm: int = 2   # consecutive positive blue checks before firing
-    home_tol: float = 0.05    # meters; both TCPs within tol of init => home
+    vision_stride: int = 30  # run the blue check every N frames (~1 Hz @ 30 fps)
+    vision_confirm: int = 2  # consecutive positive blue checks before firing
+    home_tol: float = 0.05  # meters; both TCPs within tol of init => home
     home_pose: HomePose | None = None  # None => auto-capture from initial state-0 frames
     # Insole-flip pose gate. The presenting arm rotates the insole to show its blue
     # underside to the head cam, then HOLDS it. So blue is only accepted while that
@@ -84,7 +84,7 @@ class ShoeSMConfig:
     # Set use_flip_gate false to fall back to vision-only.
     use_flip_gate: bool = True
     flip_min_delta: float = 1.0
-    flip_confirm: int = 8     # frames the flipped pose must hold before blue is allowed
+    flip_confirm: int = 8  # frames the flipped pose must hold before blue is allowed
     # Insole-presentation detection method:
     #   "blue" — vision (BlueInsoleDetector + flip gate). Fails when the scene has other
     #            same-colour blue (product boxes, robot LED rings): they trip the mask.
@@ -164,14 +164,20 @@ class ShoeSMConfig:
             else:
                 boxes = []  # falls back to placeholder default below
             cfg.transitions = [
-                TransitionConfig(box=b, tcp_idx=tcp_idx, grip_idx=grip_idx,
-                                 grasp_is_low=grasp_is_low, grasp_threshold=grasp_threshold)
+                TransitionConfig(
+                    box=b,
+                    tcp_idx=tcp_idx,
+                    grip_idx=grip_idx,
+                    grasp_is_low=grasp_is_low,
+                    grasp_threshold=grasp_threshold,
+                )
                 for b in boxes
             ]
 
         if "blue" in d:
-            cfg.blue = BlueInsoleConfig(**{k: (tuple(v) if k == "roi" and v is not None else v)
-                                           for k, v in d["blue"].items()})
+            cfg.blue = BlueInsoleConfig(
+                **{k: (tuple(v) if k == "roi" and v is not None else v) for k, v in d["blue"].items()}
+            )
         if "home_pose" in d:
             hp = d["home_pose"]
             cfg.home_pose = HomePose(tuple(hp["left_xyz"]), tuple(hp["right_xyz"]), cfg.home_tol)
@@ -200,8 +206,13 @@ class ShoeStateMachineDetector(Detector):
         self.cfg = cfg
 
         self._picks = [
-            BoxGraspEdgeEvent(box=t.box, tcp_idx=t.tcp_idx, grip_idx=t.grip_idx,
-                              grasp_is_low=t.grasp_is_low, grasp_threshold=t.grasp_threshold)
+            BoxGraspEdgeEvent(
+                box=t.box,
+                tcp_idx=t.tcp_idx,
+                grip_idx=t.grip_idx,
+                grasp_is_low=t.grasp_is_low,
+                grasp_threshold=t.grasp_threshold,
+            )
             for t in cfg.transitions
         ]
         self._blue = None  # lazy (needs cv2)
@@ -238,15 +249,15 @@ class ShoeStateMachineDetector(Detector):
             "state": self._state,
             "n_shoes": self.cfg.n_shoes,
             "scene": scene,
-            "event": event,            # None | "pick" | "blue" | "reset"
+            "event": event,  # None | "pick" | "blue" | "reset"
             "from_state": from_state,
             "to_state": to_state,
-            "pick": pick_dbg,          # {phase, xyz, in_box, grasp_closed, target_state} | None
-            "blue": blue_dbg,          # {checked, area_frac, present}
+            "pick": pick_dbg,  # {phase, xyz, in_box, grasp_closed, target_state} | None
+            "blue": blue_dbg,  # {checked, area_frac, present}
             "blue_fired": self._blue_fired,
             "last_blue_area": self._last_blue_area,
-            "flip": dict(self._last_flip),   # {delta, ready} — insole-flip pose gate
-            "pose": dict(self._last_pose),   # {dist, ready} — presentation-pose gate
+            "flip": dict(self._last_flip),  # {delta, ready} — insole-flip pose gate
+            "pose": dict(self._last_pose),  # {dist, ready} — presentation-pose gate
         }
         return scene
 
@@ -298,7 +309,7 @@ class ShoeStateMachineDetector(Detector):
         if self._state == 0:
             return SCENE_STANDBY
         group = ((self._state - 1) % max(1, self.cfg.scene_groups)) + 1  # 1,2,1,2,... by shoe
-        phase = 2 if self._blue_fired else 1                             # 1=detecting, 2=after blue
+        phase = 2 if self._blue_fired else 1  # 1=detecting, 2=after blue
         return f"{group}-{phase}"
 
     def _reset_cycle(self) -> None:

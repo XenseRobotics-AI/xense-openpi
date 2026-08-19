@@ -305,9 +305,9 @@ def test_target_hz_protects_inner_queue_from_drain():
     time.sleep(0.5)
     pb_bad.stop()
     inner_bad.stop()
-    assert (
-        inner_bad._exhausted_count > 0
-    ), "unpaced producer should drain inner queue (got no exhausts — test setup wrong?)"
+    assert inner_bad._exhausted_count > 0, (
+        "unpaced producer should drain inner queue (got no exhausts — test setup wrong?)"
+    )
 
     # --- good: rate cap matches consumer ---
     inner_good = FakeInternalQueueBroker(initial_size=50, refill_period_s=0.4)
@@ -317,9 +317,9 @@ def test_target_hz_protects_inner_queue_from_drain():
     time.sleep(0.5)
     pb_good.stop()
     inner_good.stop()
-    assert (
-        inner_good._exhausted_count == 0
-    ), f"paced producer should not exhaust inner queue, got {inner_good._exhausted_count} exhausts"
+    assert inner_good._exhausted_count == 0, (
+        f"paced producer should not exhaust inner queue, got {inner_good._exhausted_count} exhausts"
+    )
 
 
 if __name__ == "__main__":

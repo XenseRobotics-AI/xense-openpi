@@ -54,9 +54,7 @@ class PiPaliGemmaModel(_mp.PaliGemmaModel):
         # by the caller before ``PiPaliGemmaModel`` is constructed, so the
         # extra ``use_adarms`` / ``adarms_cond_dim`` fields are visible here.
         self.language_model = PiGemmaModel(config.text_config)
-        self.vision_tower.vision_model.encoder.register_forward_pre_hook(
-            _siglip_encoder_dtype_hook, with_kwargs=True
-        )
+        self.vision_tower.vision_model.encoder.register_forward_pre_hook(_siglip_encoder_dtype_hook, with_kwargs=True)
         self.post_init()
 
     def get_image_features(self, pixel_values: torch.FloatTensor) -> torch.Tensor:

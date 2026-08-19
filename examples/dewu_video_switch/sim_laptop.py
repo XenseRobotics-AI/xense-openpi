@@ -44,11 +44,14 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument(
-        "--uri", default="ws://127.0.0.1:9100",
+        "--uri",
+        default="ws://127.0.0.1:9100",
         help="obs WebSocket URI of the video-playback laptop's app (its --obs-port, default 9100).",
     )
     ap.add_argument("--hz", type=float, default=30.0, help="Send rate in Hz (mimics the robot's runtime_hz).")
-    ap.add_argument("--hold-s", type=float, default=2.0, help="Seconds to hold each synthetic scene before alternating.")
+    ap.add_argument(
+        "--hold-s", type=float, default=2.0, help="Seconds to hold each synthetic scene before alternating."
+    )
     ap.add_argument("--seconds", type=float, default=0.0, help="Total run time in seconds; 0 = run until Ctrl+C.")
     args = ap.parse_args()
 
@@ -66,8 +69,7 @@ def main() -> None:
     brights = [0.15, 0.85]
 
     print(
-        f"Sending synthetic frames to {args.uri} at {args.hz:.0f} Hz "
-        f"(scene every {args.hold_s:.0f}s). Ctrl+C to stop."
+        f"Sending synthetic frames to {args.uri} at {args.hz:.0f} Hz (scene every {args.hold_s:.0f}s). Ctrl+C to stop."
     )
     t0 = time.time()
     i = 0

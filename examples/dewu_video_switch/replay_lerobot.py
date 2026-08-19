@@ -56,29 +56,39 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument(
-        "--repo-id", default=DEFAULT_REPO,
+        "--repo-id",
+        default=DEFAULT_REPO,
         help="LeRobot dataset repo id to replay. The default shoe-insole set may not be public — pass one you have.",
     )
     ap.add_argument("--root", default=None, help="Local dataset root. Default: the HuggingFace cache.")
     ap.add_argument("--episode", type=int, default=0, help="Episode index within the dataset to stream.")
     ap.add_argument(
-        "--uri", default="ws://127.0.0.1:9100",
+        "--uri",
+        default="ws://127.0.0.1:9100",
         help="obs WebSocket URI of the video-playback laptop's app (its --obs-port, default 9100).",
     )
     ap.add_argument(
-        "--fps", type=float, default=0.0,
+        "--fps",
+        type=float,
+        default=0.0,
         help="Replay/send rate in Hz. 0 = use the dataset's native fps (mimics the real 30 Hz control loop).",
     )
     ap.add_argument(
-        "--camera", default="head",
+        "--camera",
+        default="head",
         help="Camera to stream, i.e. observation.images.<camera>. The detector uses the head image.",
     )
     ap.add_argument(
-        "--no-state", action="store_true",
+        "--no-state",
+        action="store_true",
         help="Do NOT stream observation.state. The gripper detector needs the state, so leave this off for it.",
     )
-    ap.add_argument("--max-frames", type=int, default=0, help="Cap the number of frames streamed; 0 = the whole episode.")
-    ap.add_argument("--loop", action="store_true", help="Replay the episode repeatedly until Ctrl+C (good for a kiosk demo).")
+    ap.add_argument(
+        "--max-frames", type=int, default=0, help="Cap the number of frames streamed; 0 = the whole episode."
+    )
+    ap.add_argument(
+        "--loop", action="store_true", help="Replay the episode repeatedly until Ctrl+C (good for a kiosk demo)."
+    )
     args = ap.parse_args()
 
     # Imported lazily so `app.py` on a machine without lerobot is unaffected.

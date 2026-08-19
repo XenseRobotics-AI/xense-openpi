@@ -507,7 +507,7 @@ class TorchDataLoader:
             t_inner_iter = time.monotonic()
             logging.info("[TorchDataLoader] calling iter(self._data_loader) (spawning workers) ...")
             data_iter = iter(self._data_loader)
-            logging.info(f"[TorchDataLoader] iter() returned in {time.monotonic()-t_inner_iter:.1f}s")
+            logging.info(f"[TorchDataLoader] iter() returned in {time.monotonic() - t_inner_iter:.1f}s")
             while True:
                 if self._num_batches is not None and num_items >= self._num_batches:
                     return
