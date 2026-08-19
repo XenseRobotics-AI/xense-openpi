@@ -192,10 +192,6 @@ exclude = [
     # symbol in these files resolves to Unknown, so checking them says nothing.
     "examples/droid",
     "src/openpi/training/droid_rlds_dataset.py",
-    # Targets upstream LeRobot's policy stack (lerobot.policies.*, which our
-    # hardware-only lerobot fork does not ship) and nothing in this repo imports
-    # it, so its imports cannot resolve here by construction.
-    "src/openpi/models/lerobot_modeling_pi05.py",
 ]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
