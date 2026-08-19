@@ -8,7 +8,7 @@ returned actions are queued for the action thread to pop via `pop_action()`.
 
 Use this when:
   * camera FPS pins the outer obs loop (e.g. 30 Hz) but you want to consume
-    chunk actions faster (e.g. 60–90 Hz) to speed up robot execution.
+    chunk actions faster (e.g. 60-90 Hz) to speed up robot execution.
   * the underlying broker's `.infer()` can occasionally block on the policy
     server (~hundreds of ms) — the queue absorbs the stall.
 

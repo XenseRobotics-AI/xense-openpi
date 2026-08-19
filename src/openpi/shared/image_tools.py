@@ -84,7 +84,7 @@ def resize_with_pad_torch(
         if images.dim() == 3:
             images = images.unsqueeze(0)  # Add batch dimension
 
-    batch_size, channels, cur_height, cur_width = images.shape
+    batch_size, _, cur_height, cur_width = images.shape
 
     # Calculate resize ratio
     ratio = max(cur_width / width, cur_height / height)

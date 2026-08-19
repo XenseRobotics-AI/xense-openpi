@@ -1,5 +1,5 @@
 import time
-from typing import Dict, override
+from typing import override
 
 import websockets.sync.client
 
@@ -50,7 +50,7 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
                 time.sleep(5)
 
     @override
-    def infer(self, obs: Dict, **kwargs) -> Dict:  # noqa: UP006
+    def infer(self, obs: dict, **kwargs) -> dict:
         # Pack kwargs into obs if present
         if kwargs:
             obs["__rtc_kwargs__"] = kwargs

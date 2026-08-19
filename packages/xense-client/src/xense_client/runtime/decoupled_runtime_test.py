@@ -196,7 +196,7 @@ def test_reset_counts():
 # T5: action_hz must be > 0
 # ---------------------------------------------------------------------------
 def test_action_hz_validation():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="action_hz must be > 0"):
         DecoupledRuntime(
             environment=FakeEnv(),
             broker=PacedBroker(inner=FakePolicy()),

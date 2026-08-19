@@ -93,6 +93,10 @@ target-version = "py312"
 extend-exclude = [
     "docker",
     "third_party",
+    # ruff 0.16 reformats python code fences inside Markdown. The architecture
+    # notes align their trailing `# comment` columns by hand to be readable as a
+    # table; letting the formatter collapse them loses that on every save.
+    "*.md",
 ]
 
 [tool.ruff.lint]
@@ -146,8 +150,19 @@ ignore = [
     "PERF203", # try/except in loop — intentional in websocket server.
     "B023",    # loop variable binding in lambda — acceptable in internal utilities.
     "SIM108",  # ternary operator suggestion — if/else blocks preferred for readability.
-    "UP038",   # X | Y isinstance syntax — keeping tuple form for clarity.
     "F841",    # unused local variable — occasional intentional pattern.
+    # Imports inside functions are load-bearing here, not sloppiness: they break the
+    # config <-> registry <-> yaml_loader import cycle, and keep optional heavyweights
+    # (tensorflow, torch) off the import path of anyone who does not use them.
+    "PLC0415",
+    # PEP 695 (`type X = ...`, `class C[T]`, `def f[T]()`) builds lazily-evaluated
+    # TypeAliasType/type-param objects, and this codebase feeds its annotations to
+    # runtime consumers - tyro's CLI generation, jaxtyping+beartype, flax dataclasses.
+    # `Filter` in training/config.py already carries a comment about a tyro
+    # incompatibility. Keeping the explicit TypeAlias/Generic/TypeVar spellings.
+    "UP040",
+    "UP046",
+    "UP047",
 ]
 unfixable = [
     "B905", # Fix defaults to strict=False, which is not what we want.

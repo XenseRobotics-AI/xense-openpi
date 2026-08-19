@@ -103,9 +103,9 @@ class App:
         self._debug_fh = open(debug_log, "a", buffering=1) if debug_log else None  # noqa: SIM115
         self._debug_path = debug_log
         self._gate_print_every = max(1, gate_print_every)
-        self._min_pose_dist: float | None = None   # closest pose-gate approach this shoe
-        self._max_blue_area: float | None = None    # best blue area seen this shoe
-        self._gate_state: int = 0                    # state we are tracking min/max for
+        self._min_pose_dist: float | None = None  # closest pose-gate approach this shoe
+        self._max_blue_area: float | None = None  # best blue area seen this shoe
+        self._gate_state: int = 0  # state we are tracking min/max for
         cfg = getattr(detector, "cfg", None)
         self._pose_tol = getattr(cfg, "present_pose_tol", None)
         self._flip_min = getattr(cfg, "flip_min_delta", None)
@@ -120,15 +120,15 @@ class App:
         if not self._blue_frames_dir:
             return
         try:
-            import cv2  # noqa: PLC0415 — heavy, only when dumping frames
+            import cv2
 
             bd = self._detector._ensure_blue()  # BlueInsoleDetector
             present, area, bgr = bd.annotate(head)
             tag = "FIRE_" if event == "blue" else ""
-            a = int(round((area or 0) * 100))
+            a = round((area or 0) * 100)
             fn = f"{tag}s{state}_f{frame_i:05d}_a{a:02d}_{'Y' if present else 'n'}.jpg"
             cv2.imwrite(f"{self._blue_frames_dir}/{fn}", bgr)
-        except Exception:  # noqa: BLE001 — diagnostics must never break the loop
+        except Exception:
             pass
 
     # ----- obs ingress (from robot laptop) -----
@@ -267,8 +267,7 @@ class App:
                     )
                 elif isinstance(flip.get("delta"), (int, float)):
                     parts.append(
-                        f"flip.delta={flip['delta']:.2f}/{self._flip_min} "
-                        f"ready={'T' if flip.get('ready') else 'F'}"
+                        f"flip.delta={flip['delta']:.2f}/{self._flip_min} ready={'T' if flip.get('ready') else 'F'}"
                     )
                 if isinstance(area, (int, float)):
                     parts.append(
@@ -353,46 +352,64 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--obs-port", type=int, default=9100,
+        "--obs-port",
+        type=int,
+        default=9100,
         help="TCP port of the obs WebSocket server the robot laptop's ObsSubscriber pushes frames into.",
     )
     p.add_argument(
-        "--switch-port", type=int, default=9101,
+        "--switch-port",
+        type=int,
+        default=9101,
         help='TCP port of the switch WebSocket server browsers connect to; it broadcasts {"scene": id} on each committed switch.',
     )
     p.add_argument(
-        "--http-port", type=int, default=8080,
+        "--http-port",
+        type=int,
+        default=8080,
         help="TCP port of the static HTTP server for web/ (the seamless player HTML and the video clips).",
     )
     p.add_argument(
-        "--detector", default="gripper",
+        "--detector",
+        default="gripper",
         help="Which detector to run: 'shoe_sm' = per-shoe state machine (pose+gripper pick event + "
         "OpenCV blue insole); 'gripper' = simple grasp-state detector; 'stub' = brightness (link test "
         "only). See detector.make_detector.",
     )
     p.add_argument(
-        "--detector-config", default=None,
+        "--detector-config",
+        default=None,
         help="Path to a JSON config for the detector (shoe_sm only: bounding box, blue HSV, etc.). "
         "See shoe_sm.example.json. Omit to use placeholder defaults.",
     )
     p.add_argument(
-        "--confirm-frames", type=int, default=5,
+        "--confirm-frames",
+        type=int,
+        default=5,
         help="Debounce: a proposed scene must repeat for this many consecutive frames before it may commit. "
         "Higher = steadier but slower to react.",
     )
     p.add_argument(
-        "--min-dwell-s", type=float, default=1.0,
+        "--min-dwell-s",
+        type=float,
+        default=1.0,
         help="Debounce: minimum seconds to hold the current scene before another switch is allowed. "
         "Raise to ~2.5 to suppress brief flicker on a marketing display.",
     )
     p.add_argument(
-        "--debug-log", nargs="?", const="", default="",
+        "--debug-log",
+        nargs="?",
+        const="",
+        default="",
         help="Path to a JSONL debug log capturing every detector snapshot (state, pose/flip gate "
         "distances, blue area) so a stuck scene switch can be diagnosed. Default: an auto-named "
         "dewu_debug_<timestamp>.jsonl in the cwd. Pass a path to override, or '' / 'none' to disable.",
     )
     p.add_argument(
-        "--save-blue-frames", nargs="?", const="", default="",
+        "--save-blue-frames",
+        nargs="?",
+        const="",
+        default="",
         help="Directory to dump the head image (with the blue mask + ROI drawn on it) at every "
         "vision-check frame while a shoe is active, so blue FALSE positives can be inspected as "
         "pictures. Default: an auto-named dewu_blue_<timestamp>/ dir. '' / 'none' to disable.",
@@ -419,7 +436,9 @@ def main() -> None:
     if debug_log:
         print(f"[debug] logging detector snapshots to {debug_log}  (disable with --debug-log none)")
     if blue_frames_dir:
-        print(f"[debug] saving annotated blue-check frames to {blue_frames_dir}/  (disable with --save-blue-frames none)")
+        print(
+            f"[debug] saving annotated blue-check frames to {blue_frames_dir}/  (disable with --save-blue-frames none)"
+        )
 
     threading.Thread(target=_serve_static, args=(args.http_port,), daemon=True).start()
     try:

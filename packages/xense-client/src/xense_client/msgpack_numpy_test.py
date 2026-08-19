@@ -20,7 +20,7 @@ def _check(expected, actual):
         1,  # int
         1.0,  # float
         "hello",  # string
-        np.bool_(True),  # boolean scalar
+        np.bool_(True),  # noqa: FBT003  # a parametrize value, not a flag argument
         np.array([1, 2, 3])[0],  # int scalar
         np.str_("asdf"),  # string scalar
         [1, 2, 3],  # list

@@ -1,7 +1,7 @@
 from threading import Lock
 
-import numpy as np
 from lerobot.utils.robot_utils import get_logger
+import numpy as np
 
 logger = get_logger("ActionQueue")
 
@@ -136,13 +136,12 @@ class ActionQueue:
                 # as the frozen prefix, so truncating from the tail would
                 # break prefix alignment.
                 return left_over[:fixed_length]
-            else:
-                # Pad at the tail: repeat the last action to fill. The
-                # padded region is beyond the prefix window and is ignored
-                # by the model's prefix mask.
-                pad_count = fixed_length - len(left_over)
-                padding = np.repeat(left_over[-1:], pad_count, axis=0)
-                return np.concatenate([left_over, padding], axis=0)
+            # Pad at the tail: repeat the last action to fill. The
+            # padded region is beyond the prefix window and is ignored
+            # by the model's prefix mask.
+            pad_count = fixed_length - len(left_over)
+            padding = np.repeat(left_over[-1:], pad_count, axis=0)
+            return np.concatenate([left_over, padding], axis=0)
 
     def merge(
         self,
@@ -184,7 +183,7 @@ class ActionQueue:
 
         # Log outside lock to avoid blocking get() calls
         if real_delay is not None:
-            logger.info(f"RTC: Truncate at {truncate_delay}, " f"estimated={estimated_delay}, real={real_delay}")
+            logger.info(f"RTC: Truncate at {truncate_delay}, estimated={estimated_delay}, real={real_delay}")
 
     def _replace_actions_queue(
         self,
