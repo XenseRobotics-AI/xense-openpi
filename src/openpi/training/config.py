@@ -452,6 +452,36 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
                 )
             ]
         )
+    )
+
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[bi_flexiv_policy.BiFlexivInputs()],
+            outputs=[bi_flexiv_policy.BiFlexivOutputs()],
+        )
+
+        if self.use_delta_cartesian_actions:
+            # Dual-arm Cartesian: 18 TCP dims (left 0-8 + right 9-17, all delta) + 2 gripper dims (absolute)
+            # Dataset ordering: [left_tcp(0-8), right_tcp(9-17), left_gripper(18), right_gripper(19)]
+            delta_action_mask = _transforms.make_bool_mask(18, -1, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -494,35 +524,6 @@ class LeRobotBiFlexivTactileDataConfig(LeRobotBiFlexivDataConfig):
                 outputs=[_transforms.AbsoluteActions(delta_action_mask)],
             )
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
-        return dataclasses.replace(
-            self.create_base_config(assets_dirs, model_config),
-            repack_transforms=self.repack_transforms,
-            data_transforms=data_transforms,
-            model_transforms=model_transforms,
-            action_sequence_keys=self.action_sequence_keys,
-        )
-    )
-    # Action keys that will be used to read the action sequence from the dataset.
-    action_sequence_keys: Sequence[str] = ("action",)
-
-    @override
-    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
-        data_transforms = _transforms.Group(
-            inputs=[bi_flexiv_policy.BiFlexivInputs()],
-            outputs=[bi_flexiv_policy.BiFlexivOutputs()],
-        )
-
-        if self.use_delta_cartesian_actions:
-            # Dual-arm Cartesian: 18 TCP dims (left 0-8 + right 9-17, all delta) + 2 gripper dims (absolute)
-            # Dataset ordering: [left_tcp(0-8), right_tcp(9-17), left_gripper(18), right_gripper(19)]
-            delta_action_mask = _transforms.make_bool_mask(18, -1, -1)
-            data_transforms = data_transforms.push(
-                inputs=[_transforms.DeltaActions(delta_action_mask)],
-                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
-            )
-
-        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
-
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),
             repack_transforms=self.repack_transforms,
