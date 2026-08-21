@@ -1,0 +1,1009 @@
+<title>Parquet 还是 MP4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Noto+Sans+SC:wght@500;700&family=Noto+Serif+SC:wght@400;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  :root {
+    --ground:      #f6f7f9;
+    --surface:     #ffffff;
+    --surface-sunk:#eef0f4;
+    --ink:         #14181f;
+    --ink-soft:    #3b434f;
+    --muted:       #616b79;
+    --rule:        #dde2e9;
+    --rule-strong: #c3cad4;
+
+    --mp4:         #a8560c;
+    --mp4-wash:    #f6ede2;
+    --pq:          #12657e;
+    --pq-wash:     #e4f0f4;
+    --alarm:       #a32e2e;
+    --alarm-wash:  #f8eaea;
+
+    --shadow: 0 1px 2px rgba(20, 24, 31, .05), 0 8px 24px -16px rgba(20, 24, 31, .18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0e1116;
+      --surface:     #161b22;
+      --surface-sunk:#11151b;
+      --ink:         #e6eaf0;
+      --ink-soft:    #bcc5d1;
+      --muted:       #8b95a5;
+      --rule:        #242b35;
+      --rule-strong: #37414e;
+
+      --mp4:         #e0912e;
+      --mp4-wash:    #2b2116;
+      --pq:          #4cbdd8;
+      --pq-wash:     #10262e;
+      --alarm:       #e58080;
+      --alarm-wash:  #2c1a1a;
+
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0e1116;
+    --surface:     #161b22;
+    --surface-sunk:#11151b;
+    --ink:         #e6eaf0;
+    --ink-soft:    #bcc5d1;
+    --muted:       #8b95a5;
+    --rule:        #242b35;
+    --rule-strong: #37414e;
+
+    --mp4:         #e0912e;
+    --mp4-wash:    #2b2116;
+    --pq:          #4cbdd8;
+    --pq-wash:     #10262e;
+    --alarm:       #e58080;
+    --alarm-wash:  #2c1a1a;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Source Serif 4", "Noto Serif SC", Georgia, "Songti SC", serif;
+    font-size: 16.5px;
+    line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 61rem;
+    margin: 0 auto;
+    padding: clamp(2.5rem, 6vw, 5rem) clamp(1.1rem, 4vw, 2.5rem) 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.25rem;
+  }
+
+  /* ---------- 字体角色 ---------- */
+
+  h1, h2, h3, .eyebrow, .stat-n, th, .tag {
+    font-family: Archivo, "Noto Sans SC", "Helvetica Neue", "PingFang SC", sans-serif;
+  }
+
+  h1 {
+    font-size: clamp(1.95rem, 4.8vw, 2.85rem);
+    line-height: 1.22;
+    letter-spacing: -.012em;
+    font-weight: 700;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h2 {
+    font-size: clamp(1.25rem, 2.5vw, 1.55rem);
+    line-height: 1.4;
+    font-weight: 700;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-size: 1.02rem;
+    line-height: 1.5;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  p { margin: 0; max-width: 42em; }
+  a { color: var(--pq); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--pq); outline-offset: 3px; border-radius: 2px; }
+  strong { font-weight: 600; color: var(--ink); }
+
+  .eyebrow {
+    font-size: .69rem;
+    font-weight: 500;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  code, .num {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  code {
+    font-size: .84em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: .08em .34em;
+    color: var(--ink-soft);
+    word-break: break-word;
+  }
+
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+  .section-head { display: flex; flex-direction: column; gap: .35rem; }
+
+  hr.div { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+
+  /* ---------- 页首 ---------- */
+
+  header { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem .85rem;
+    font-family: "JetBrains Mono", monospace;
+    font-size: .72rem;
+    color: var(--muted);
+  }
+  .meta-strip span { white-space: nowrap; }
+  .meta-strip span::before { content: "· "; color: var(--rule-strong); }
+  .meta-strip span:first-child::before { content: ""; }
+
+  .lede {
+    font-size: 1.12rem;
+    line-height: 1.85;
+    color: var(--ink-soft);
+    max-width: 38em;
+  }
+
+  /* ---------- 结论卡 ---------- */
+
+  .verdict {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  .stat {
+    background: var(--surface);
+    padding: 1.3rem 1.4rem 1.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+  }
+
+  .stat-n {
+    font-family: "JetBrains Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(1.85rem, 4.2vw, 2.4rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -.03em;
+  }
+  .stat-n.win  { color: var(--pq); }
+  .stat-n.flat { color: var(--ink); }
+  .stat-n.cost { color: var(--mp4); }
+
+  .stat-k {
+    font-family: Archivo, "Noto Sans SC", sans-serif;
+    font-size: .76rem;
+    font-weight: 500;
+    letter-spacing: .05em;
+    color: var(--muted);
+  }
+  .stat-d { font-size: .86rem; line-height: 1.6; color: var(--ink-soft); }
+
+  /* ---------- 提示块 ---------- */
+
+  .callout {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--pq);
+    background: var(--surface);
+    border-radius: 0 6px 6px 0;
+    padding: 1.05rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .callout.alarm { border-left-color: var(--alarm); background: var(--alarm-wash); }
+  .callout p { max-width: 42em; font-size: .93rem; }
+
+  /* ---------- 表格 ---------- */
+
+  .tscroll {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .88rem;
+    min-width: 33rem;
+  }
+
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-family: Archivo, "Noto Sans SC", sans-serif;
+    font-size: .74rem;
+    font-weight: 500;
+    letter-spacing: .04em;
+    color: var(--muted);
+    padding: .85rem 1rem .5rem;
+    line-height: 1.5;
+  }
+
+  th, td {
+    padding: .58rem 1rem;
+    text-align: left;
+    border-top: 1px solid var(--rule);
+    vertical-align: baseline;
+    line-height: 1.6;
+  }
+
+  thead th {
+    font-size: .75rem;
+    font-weight: 500;
+    letter-spacing: .03em;
+    color: var(--muted);
+    background: var(--surface-sunk);
+    white-space: nowrap;
+  }
+  thead th.c-mp4 { color: var(--mp4); }
+  thead th.c-pq  { color: var(--pq); }
+
+  tbody th {
+    font-family: "Source Serif 4", "Noto Serif SC", serif;
+    font-size: .88rem;
+    font-weight: 400;
+    color: var(--ink-soft);
+  }
+
+  td.n {
+    font-family: "JetBrains Mono", monospace;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  td.mp4 { color: var(--mp4); }
+  td.pq  { color: var(--pq); font-weight: 500; }
+  td.ratio { color: var(--muted); font-size: .83rem; }
+
+  tbody tr.hi td, tbody tr.hi th { background: var(--pq-wash); }
+  tbody tr.hi td.n { font-weight: 700; }
+  tbody tr.dim th, tbody tr.dim td { color: var(--muted); }
+
+  .foot {
+    font-size: .8rem;
+    color: var(--muted);
+    line-height: 1.75;
+    max-width: 44em;
+  }
+
+  /* ---------- 代码块 ---------- */
+
+  pre {
+    margin: 0;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: .95rem 1.1rem;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", monospace;
+    font-size: .78rem;
+    line-height: 1.65;
+    color: var(--ink-soft);
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; color: inherit; }
+  pre .del { color: var(--alarm); }
+  pre .add { color: var(--pq); }
+  pre .cm  { color: var(--muted); }
+
+  /* ---------- 停顿分布 ---------- */
+
+  .trace {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--surface);
+    padding: 1.05rem 1.15rem 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: .85rem;
+  }
+  .trace-row { display: flex; flex-direction: column; gap: .3rem; }
+  .trace-lab {
+    font-family: "JetBrains Mono", monospace;
+    font-size: .72rem;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .bars {
+    display: grid;
+    grid-template-columns: repeat(260, 1fr);
+    align-items: end;
+    height: 40px;
+    background: var(--surface-sunk);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bars i { display: block; height: 100%; background: var(--mp4); }
+  .bars.pq i { background: var(--pq); }
+
+  /* ---------- 建议 ---------- */
+
+  .recs { display: flex; flex-direction: column; gap: .8rem; }
+
+  .rec {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .95rem;
+    align-items: start;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1rem 1.15rem;
+  }
+
+  .tag {
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    padding: .26rem .55rem;
+    border-radius: 3px;
+    white-space: nowrap;
+    line-height: 1.3;
+    margin-top: .3rem;
+  }
+  .tag.do   { background: var(--pq-wash);     color: var(--pq); }
+  .tag.free { background: var(--surface-sunk); color: var(--ink-soft); }
+  .tag.skip { background: var(--mp4-wash);    color: var(--mp4); }
+
+  .rec-body { display: flex; flex-direction: column; gap: .25rem; }
+  .rec-body p { font-size: .92rem; color: var(--ink-soft); }
+
+  ul.plain {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    max-width: 44em;
+    font-size: .93rem;
+    color: var(--ink-soft);
+  }
+  ul.plain::marker { color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Loader benchmark · Xense / optical-module-insertion-0731</p>
+    <h1>π0.5 训练：parquet 到底比 mp4 快多少</h1>
+    <p class="lede">
+      整个数据集从 mp4 存储转成 PNG-in-parquet，验证逐像素相同，然后在 8×H200 上各训练 260 步——
+      除 <code>repo_id</code> 外所有配置逐字段一致。
+      数据加载快了 <strong>3.7 倍</strong>，训练总时长只快了 <strong>1.12 倍</strong>。
+      这两个数字之间的落差，才是这次实验真正的结论。
+    </p>
+    <div class="meta-strip">
+      <span>151 episodes</span><span>592,853 帧</span><span>7 相机</span><span>30 fps</span>
+      <span>batch 512</span><span>64 workers</span><span>fsdp 8</span><span>h200-16</span>
+    </div>
+  </header>
+
+  <div class="verdict">
+    <div class="stat">
+      <span class="stat-k">数据加载吞吐</span>
+      <span class="stat-n win">3.7×</span>
+      <span class="stat-d">持续 206 → 765 samples/s</span>
+    </div>
+    <div class="stat">
+      <span class="stat-k">260 步总时长</span>
+      <span class="stat-n flat">1.12×</span>
+      <span class="stat-d">1585 s → 1416 s</span>
+    </div>
+    <div class="stat">
+      <span class="stat-k">磁盘占用</span>
+      <span class="stat-n cost">307×</span>
+      <span class="stat-d">2.4 GB → 737 GB，另加同等大小 Arrow 缓存</span>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">落差的来源</p>
+      <h2>GPU 本来就是瓶颈</h2>
+    </div>
+    <p>
+      这台机器上 π0.5 每步要 <span class="num">2.76 s</span> 的 GPU 时间，两个 arm 完全一致——
+      260 步就是 <span class="num">718 s</span> 的不可压缩计算，换什么存储格式都省不掉。
+      数据加载只有在跟不上时才可见。mp4 的 loader 每 <span class="num">2.489 s</span> 产出一个 batch，
+      而 GPU 每 <span class="num">2.76 s</span> 消费一个：<strong>它本来就跟得上，只是余量仅 11%</strong>。
+      parquet 把余量拉到 <strong>4.1 倍</strong>，但这部分 GPU 用不上。
+    </p>
+    <div class="tscroll">
+      <table>
+        <caption>持续加载吞吐 · 64 workers，400 batch，预取深度 128</caption>
+        <thead>
+          <tr>
+            <th scope="col">测量项</th>
+            <th scope="col" class="c-mp4">mp4</th>
+            <th scope="col" class="c-pq">parquet</th>
+            <th scope="col">倍数</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">单样本延迟（单进程）</th>
+            <td class="n mp4">312.5 ms</td>
+            <td class="n pq">61.5 ms</td>
+            <td class="n ratio">5.1×</td>
+          </tr>
+          <tr>
+            <th scope="row">单样本延迟（64 workers）</th>
+            <td class="n mp4">311.1 ms</td>
+            <td class="n pq">83.6 ms</td>
+            <td class="n ratio">3.7×</td>
+          </tr>
+          <tr class="hi">
+            <th scope="row">持续 batch 生产</th>
+            <td class="n mp4">2.489 s</td>
+            <td class="n pq">0.669 s</td>
+            <td class="n ratio">3.7×</td>
+          </tr>
+          <tr>
+            <th scope="row">相对 GPU（2.76 s/batch）的余量</th>
+            <td class="n mp4">1.11×</td>
+            <td class="n pq">4.13×</td>
+            <td class="n ratio">—</td>
+          </tr>
+          <tr>
+            <th scope="row">测量期间磁盘读</th>
+            <td class="n mp4">~0 MB/s</td>
+            <td class="n pq">1 MB/s</td>
+            <td class="n ratio">全命中缓存</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="foot">
+      两个数据集都在 page cache 里（2 TB 内存），谁都不是 I/O 瓶颈——
+      parquet 这个数字是最好情况，内存小的机器复现不出来。
+    </p>
+  </section>
+
+  <hr class="div">
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">你的问题之一</p>
+      <h2>为什么 parquet 会大这么多</h2>
+    </div>
+    <p>
+      2.4 GB 变成 737 GB，平均每帧每相机从 <span class="num">578 字节</span> 涨到
+      <span class="num">178 KB</span>。原因不是 parquet 这个容器低效——
+      内嵌的就是原始 PNG 字节，容器开销可以忽略。真正的原因是
+      <strong>视频编码和逐帧图片编码根本不是一个量级的东西</strong>。
+    </p>
+    <p>
+      下面是同一批真实帧（head 相机，640×480，300 帧）实测的逐档对比：
+    </p>
+    <div class="tscroll">
+      <table>
+        <caption>同样 300 帧，不同编码方式的每帧体积</caption>
+        <thead>
+          <tr>
+            <th scope="col">编码方式</th>
+            <th scope="col">每帧</th>
+            <th scope="col">相对原始 RGB</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="dim">
+            <th scope="row">原始 RGB（不压缩）</th>
+            <td class="n">900.0 KB</td>
+            <td class="n ratio">1.0×</td>
+          </tr>
+          <tr class="hi">
+            <th scope="row">PNG level 1（本次转换用的）</th>
+            <td class="n">160.7 KB</td>
+            <td class="n ratio">5.6×</td>
+          </tr>
+          <tr>
+            <th scope="row">PNG level 6（原生录制用的）</th>
+            <td class="n">133.0 KB</td>
+            <td class="n ratio">6.8×</td>
+          </tr>
+          <tr>
+            <th scope="row">PNG level 9</th>
+            <td class="n">126.0 KB</td>
+            <td class="n ratio">7.1×</td>
+          </tr>
+          <tr>
+            <th scope="row">WebP 无损</th>
+            <td class="n">74.8 KB</td>
+            <td class="n ratio">12.0×</td>
+          </tr>
+          <tr>
+            <th scope="row">JPEG q95</th>
+            <td class="n">47.4 KB</td>
+            <td class="n ratio">19.0×</td>
+          </tr>
+          <tr>
+            <th scope="row">JPEG q90</th>
+            <td class="n">32.2 KB</td>
+            <td class="n ratio">27.9×</td>
+          </tr>
+          <tr>
+            <th scope="row">H.264 全关键帧（g=1, crf23）</th>
+            <td class="n">8.3 KB</td>
+            <td class="n ratio">108.7×</td>
+          </tr>
+          <tr>
+            <th scope="row">H.264 正常（g=30, crf23）</th>
+            <td class="n">1.2 KB</td>
+            <td class="n ratio">775.2×</td>
+          </tr>
+          <tr class="hi">
+            <th scope="row">H.264 实际录进数据集的</th>
+            <td class="n mp4">0.3 KB</td>
+            <td class="n ratio">2863.7×</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      把 PNG-1 到实际 mp4 的 <span class="num">511</span> 倍差距拆开，是三件独立的事叠加：
+    </p>
+    <div class="tscroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">成因</th>
+            <th scope="col">贡献</th>
+            <th scope="col">说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">无损 vs 有损</th>
+            <td class="n">19.4×</td>
+            <td>PNG 保留每一个比特，包括传感器噪点；H.264 量化掉高频细节。无损压缩对照片内容本来就很无力。</td>
+          </tr>
+          <tr>
+            <th scope="row">帧内 vs 帧间</th>
+            <td class="n">7.1×</td>
+            <td>30 fps 的机器人相机，相邻两帧几乎一样。H.264 每 30 帧存一个关键帧，中间只存差分；PNG 每帧都从零编码。</td>
+          </tr>
+          <tr>
+            <th scope="row">编码器激进程度</th>
+            <td class="n">3.7×</td>
+            <td>你们录制时的码率比 crf23 还低不少。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout alarm">
+      <h3>一个反直觉的推论：你在无损保存一份已经被压坏的画面</h3>
+      <p>
+        录进数据集的 mp4 只有 <span class="num">0.3 KB/帧</span>——这是非常激进的压缩，画面里
+        H.264 的块效应和细节丢失已经发生了。转成 PNG 是把这份<em>已经降质</em>的结果原封不动地存下来，
+        花 737 GB 保护的是压缩伪影，不是真实细节。
+        既然细节早就没了，用 JPEG q90（<span class="num">32 KB/帧</span>，全量约
+        <span class="num">134 GB</span>）几乎不会再损失什么可用信息，体积却只有 PNG 的五分之一。
+      </p>
+    </div>
+    <p class="foot">
+      全数据集 7 路相机的实测投影（compress_level 6）：原分辨率 PNG 约 648 GB、JPEG q95 约 215 GB；
+      若同时预缩放到 224，则分别为 149 GB 和 51 GB。本次实际转换用的是 level 1，所以落在 737 GB。
+    </p>
+  </section>
+
+  <hr class="div">
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">你的问题之二</p>
+      <h2>转出来的 parquet 和录制出来的一样吗</h2>
+    </div>
+    <p>
+      <strong>功能上等价，字节上不同。</strong>
+      两者的 feature 定义、列结构、读取代码路径完全一致——
+      <code>dtype: image</code>、HF <code>datasets.Image()</code>、
+      Arrow 里都是 <code>struct&lt;bytes: binary, path: string&gt;</code>、<code>video_path</code> 为 null。
+      <code>LeRobotDataset</code> 分不出区别，训练侧也分不出。差异都在编码参数和文件组织上：
+    </p>
+    <div class="tscroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">项目</th>
+            <th scope="col">原生 <code>--dataset.video=false</code></th>
+            <th scope="col">本次转换</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="hi">
+            <th scope="row">像素数据</th>
+            <td>相机直出</td>
+            <td class="pq">mp4 解码结果，与源逐像素相同</td>
+          </tr>
+          <tr>
+            <th scope="row">PNG 压缩等级</th>
+            <td class="n">6</td>
+            <td class="n">1</td>
+          </tr>
+          <tr>
+            <th scope="row">parquet 压缩</th>
+            <td class="n">snappy + dictionary</td>
+            <td class="n">zstd</td>
+          </tr>
+          <tr>
+            <th scope="row">文件切分</th>
+            <td>累积到 100 MB 换一个文件</td>
+            <td>每 episode 一个文件</td>
+          </tr>
+          <tr>
+            <th scope="row">该数据集的文件数</th>
+            <td class="n">约 7,400 个</td>
+            <td class="n pq">151 个</td>
+          </tr>
+          <tr>
+            <th scope="row">Image 结构里的 <code>path</code></th>
+            <td class="n">images/{key}/episode-…/frame-….png</td>
+            <td class="n">{key}/000000000.png</td>
+          </tr>
+          <tr>
+            <th scope="row">row group</th>
+            <td>由写入批次决定</td>
+            <td class="n">200 帧</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      两处差异值得注意。一是<strong>压缩等级</strong>：原生用 level 6，比我用的 level 1 小约 17%，
+      同样的数据原生录制大概是 <span class="num">610 GB</span> 而不是 737 GB——代价是编码更慢。
+      二是<strong>文件切分</strong>：<code>data_files_size_in_mb</code> 默认 100 MB，而内嵌图像后每帧 1.24 MB，
+      算下来每个文件只装得下约 80 帧，整个数据集会变成七千多个碎文件。
+      每 episode 一个文件是更适合这种数据的布局。
+    </p>
+    <div class="callout">
+      <h3>唯一真正的语义差异：像素来自哪里</h3>
+      <p>
+        原生录制存的是相机直出的原始画面；本次转换存的是 mp4 解码后的画面——
+        也就是上一节说的、已经过一轮 H.264 有损压缩的版本。
+        用它训练与用原 mp4 训练完全等价（已验证逐像素相同），
+        但它<strong>不能</strong>还原成"当初没压过的原始数据"。
+        如果目标是保住原始画质，那只能在录制时就设 <code>--dataset.video=false</code>，转换救不回来。
+      </p>
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">阻断性缺陷 · 已定位并修复</p>
+      <h2>不打这个补丁，parquet 反而慢 9 倍</h2>
+    </div>
+    <p>
+      <code>LeRobotDataset._query_hf_dataset</code> 取 50 步 action chunk 时是按<em>整行</em>索引的。
+      在 mp4 数据集上这不花钱，因为 <code>get_hf_features_from_features</code> 会跳过
+      <code>dtype: video</code> 的列——parquet 里根本没有像素。
+      但在 image 数据集上图像就内嵌在这些行里，于是每取一个样本就要解出
+      <span class="num">50 × 7 = 350</span> 张 PNG，然后全部丢掉。
+    </p>
+    <pre><code><span class="cm"># src/lerobot/datasets/lerobot_dataset.py :1021</span>
+<span class="del">-  try:    result[key] = torch.stack(self.hf_dataset[key][relative_indices])</span>
+<span class="del">-  except: result[key] = torch.stack(self.hf_dataset[relative_indices][key])</span>
+<span class="add">+  view = views.get(key) or self.hf_dataset.select_columns([key])   # Arrow 零拷贝</span>
+<span class="add">+  result[key] = torch.stack(view[relative_indices][key])</span></code></pre>
+    <div class="tscroll">
+      <table>
+        <caption>单样本 <code>__getitem__</code>，补丁前后</caption>
+        <thead>
+          <tr>
+            <th scope="col">数据集</th>
+            <th scope="col">修复前</th>
+            <th scope="col">修复后</th>
+            <th scope="col">变化</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">mp4</th>
+            <td class="n">350.5 ms</td>
+            <td class="n mp4">312.5 ms</td>
+            <td class="n ratio">1.12×</td>
+          </tr>
+          <tr class="hi">
+            <th scope="row">parquet</th>
+            <td class="n">3212.5 ms</td>
+            <td class="n pq">61.5 ms</td>
+            <td class="n ratio">52×</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="foot">
+      补丁前后输出逐位相同。<span class="num">302</span> 个 dataset 测试通过；剩下的 2 failed / 8 errors
+      在未打补丁的代码上同样存在。补丁已应用在服务器
+      <code>/data/vertax42/projects/lerobot-xense</code>，尚未提交。
+    </p>
+  </section>
+
+  <hr class="div">
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">端到端 · 260 步，机器无其他负载</p>
+      <h2>两轮训练实际跑出来的结果</h2>
+    </div>
+    <div class="tscroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">指标</th>
+            <th scope="col" class="c-mp4">mp4</th>
+            <th scope="col" class="c-pq">parquet</th>
+            <th scope="col">倍数</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="hi">
+            <th scope="row">260 步总时长</th>
+            <td class="n mp4">1585 s</td>
+            <td class="n pq">1416 s</td>
+            <td class="n ratio">1.12×</td>
+          </tr>
+          <tr>
+            <th scope="row">GPU dispatch 中位数</th>
+            <td class="n">2.76 s</td>
+            <td class="n">2.76 s</td>
+            <td class="n ratio">对照一致 ✓</td>
+          </tr>
+          <tr>
+            <th scope="row">worker spawn</th>
+            <td class="n mp4">325 s</td>
+            <td class="n pq">346 s</td>
+            <td class="n ratio">0.94×</td>
+          </tr>
+          <tr>
+            <th scope="row">启动到首个 batch</th>
+            <td class="n mp4">523 s</td>
+            <td class="n pq">440 s</td>
+            <td class="n ratio">1.19×</td>
+          </tr>
+          <tr>
+            <th scope="row">停顿步数</th>
+            <td class="n mp4">27 / 260</td>
+            <td class="n pq">20 / 260</td>
+            <td class="n ratio">—</td>
+          </tr>
+          <tr>
+            <th scope="row">停顿损失时长</th>
+            <td class="n mp4">131 s</td>
+            <td class="n pq">145 s</td>
+            <td class="n ratio">0.90×</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      parquet 并没有消除停顿，而这不是存储格式的问题。大停顿精确落在第
+      <span class="num">63、127、191、255</span> 步——间隔正好 <span class="num">64</span>，
+      等于 <code>num_workers</code>，而且<em>两个 arm 一模一样</em>。
+      torch 严格按 worker 轮转顺序交付 batch，所以每绕一圈就必然要等最慢的那个 worker，
+      预取队列再深也没用。
+    </p>
+    <div class="trace">
+      <div class="trace-row">
+        <div class="trace-lab"><span>mp4 — 27 次停顿</span><span>step 0 → 259</span></div>
+        <div class="bars" role="img" aria-label="mp4 arm 在 260 步中的停顿位置，每 64 步聚集一次">
+          <i style="grid-column:1"></i><i style="grid-column:8"></i><i style="grid-column:15"></i><i style="grid-column:29"></i><i style="grid-column:64/66"></i><i style="grid-column:71"></i><i style="grid-column:79"></i><i style="grid-column:90"></i><i style="grid-column:111"></i><i style="grid-column:120"></i><i style="grid-column:128/130"></i><i style="grid-column:144"></i><i style="grid-column:152"></i><i style="grid-column:175"></i><i style="grid-column:192/194"></i><i style="grid-column:208"></i><i style="grid-column:215"></i><i style="grid-column:240"></i><i style="grid-column:256/258"></i><i style="grid-column:260"></i>
+        </div>
+      </div>
+      <div class="trace-row">
+        <div class="trace-lab"><span>parquet — 20 次停顿</span><span>step 0 → 259</span></div>
+        <div class="bars pq" role="img" aria-label="parquet arm 在 260 步中的停顿位置，聚集在完全相同的每 64 步位置">
+          <i style="grid-column:1"></i><i style="grid-column:19"></i><i style="grid-column:23"></i><i style="grid-column:25"></i><i style="grid-column:64/66"></i><i style="grid-column:80"></i><i style="grid-column:83"></i><i style="grid-column:87"></i><i style="grid-column:89"></i><i style="grid-column:128/130"></i><i style="grid-column:144"></i><i style="grid-column:147"></i><i style="grid-column:151"></i><i style="grid-column:153"></i><i style="grid-column:192/194"></i><i style="grid-column:208"></i><i style="grid-column:211"></i><i style="grid-column:215"></i><i style="grid-column:217"></i><i style="grid-column:256/258"></i>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">参考运行 · 同配置 40,000 步</p>
+      <h2>任何数据侧优化的天花板是 19%</h2>
+    </div>
+    <p>
+      你之前那份 40,000 步日志总共跑了 <span class="num">38.4 h</span>。其中
+      <span class="num">30.7 h</span>（80%）是 GPU 计算，按 2.76 s/step 算；
+      <span class="num">7.4 h</span>（19%）是等数据，分布在 <span class="num">6.1%</span> 的步上。
+      也就是说即使 loader 永不停顿，在这套硬件上也不可能超过 1.24×。
+      而 260 步的两个 arm 复现出的停顿率是 6.2%，与之高度吻合——短跑是有代表性的。
+    </p>
+    <div class="callout">
+      <h3>每 1157 步一次的 210 秒停顿，是 epoch 边界</h3>
+      <p>
+        592,853 帧 ÷ 512 = 1157.9 步一个 epoch。每到边界
+        <code>TorchDataLoader.__iter__</code> 会重建迭代器，预取队列排空，
+        然后整个训练循环等一个 worker 独自造完一整个 batch：512 × 单样本延迟。
+        mp4 上是 <span class="num">159 s</span>，parquet 上是 <span class="num">43 s</span>——
+        这是格式差异唯一一处以完整强度体现出来的地方。
+      </p>
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">转换</p>
+      <h2>转换流程可用，且无损</h2>
+    </div>
+    <div class="tscroll">
+      <table>
+        <tbody>
+          <tr>
+            <th scope="row">转换规模</th>
+            <td class="n">151 episodes · 592,853 帧 · 7 相机</td>
+          </tr>
+          <tr>
+            <th scope="row">耗时</th>
+            <td class="n">64 核 22.6 分钟</td>
+          </tr>
+          <tr>
+            <th scope="row">产出</th>
+            <td class="n">737 GB parquet + 约 737 GB Arrow 缓存</td>
+          </tr>
+          <tr class="hi">
+            <th scope="row">保真度</th>
+            <td class="n">7 相机 60 个抽样帧，max |src − dst| = 0.000 / 255</td>
+          </tr>
+          <tr>
+            <th scope="row">非图像字段</th>
+            <td class="n">0 处不匹配（action / state / timestamp / index / task）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      帧是顺序解码而不是随机 seek——<span class="num">5000 fps/核</span> 对
+      <span class="num">25 fps/核</span>，差 200 倍——并按 row group 分块写入，
+      所以无论 episode 多长，每个 worker 的峰值内存都稳定在 1 GB 左右。
+    </p>
+    <div class="callout alarm">
+      <h3>源数据集里的一个陷阱，会坑到任何元数据重写</h3>
+      <p>
+        <code>meta/episodes/file-000.parquet</code> 里装着全部 151 个 episode，
+        而 001–024 号文件是断点续录留下的 ep 94–140 的重复行。
+        <code>load_episodes()</code> 拼接时不去重，而 <code>meta.episodes[i]</code> 是<em>按位置</em>索引的——
+        源数据集能正常工作，只是因为 <code>file-000</code> 恰好排在最前。
+        第一版转换继承了这些重复行，<code>dataset_from_index</code> 整体偏移了一个 episode，
+        episode 边界附近的 action chunk padding 就错了。
+        像素和所有逐帧字段全程正确，25 个抽样里只有 3 个暴露出问题。
+        任何 merge、筛选或转换，都必须先按 <code>episode_index</code> 去重。
+      </p>
+    </div>
+  </section>
+
+  <hr class="div">
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">建议</p>
+      <h2>补丁要打，737 GB 可以不花</h2>
+    </div>
+    <div class="recs">
+      <div class="rec">
+        <span class="tag do">要做</span>
+        <div class="rec-body">
+          <h3>合入 <code>_query_hf_dataset</code> 补丁</h3>
+          <p>
+            任何 image 数据集要能用，这都是前提；对 mp4 路径也白赚 1.12%。
+            与要不要采用 parquet 无关。
+          </p>
+        </div>
+      </div>
+      <div class="rec">
+        <span class="tag free">免费</span>
+        <div class="rec-body">
+          <h3>别再解码那 4 路没用的触觉相机</h3>
+          <p>
+            <code>_get_query_timestamps</code> 会遍历全部 <code>meta.video_keys</code>，
+            而 <code>BiFlexivInputs.EXPECTED_CAMERAS</code> 只用 head 和两个 wrist。
+            4 路触觉占了 288 ms 解码里的 110 ms，解完直接丢弃——
+            相当于 38% 的 loader 工作量，加个相机白名单就能省掉，不用转换任何数据。
+            仅此一项就能把 mp4 的 11% 余量提到约 1.8 倍。
+          </p>
+        </div>
+      </div>
+      <div class="rec">
+        <span class="tag free">免费</span>
+        <div class="rec-body">
+          <h3>让预取队列跨 epoch 不断流</h3>
+          <p>
+            把 <code>TorchDataLoader.__iter__</code> 里"耗尽再重建"的循环换成无限 sampler。
+            约十行代码，值参考运行 7.4 h 停顿里的 2.1 h。
+          </p>
+        </div>
+      </div>
+      <div class="rec">
+        <span class="tag skip">不建议</span>
+        <div class="rec-body">
+          <h3>为了提速而转全分辨率 parquet</h3>
+          <p>
+            1.12× 的收益，换 307 倍存储和每个数据集 23 分钟转换。
+            加载确实快了，但收益全落在 GPU 用不上的余量里。
+            只有当 2.76 s/step 这个数字变小时才值得重新考虑——
+            换更快的加速卡、更小的模型，或大得多的 batch。
+          </p>
+        </div>
+      </div>
+    </div>
+    <p>
+      如果之后还是要走 parquet，建议存<strong>预缩放</strong>的帧。openpi 没有任何数据增强，
+      图像直接进 <code>resize_with_pad(224, 224)</code>，所以存"保持长宽比缩放但<em>不加 padding</em>"的版本
+      （640×480 → 224×168）在行为上完全等价，体积能降到
+      <span class="num">27–81 GB</span>。
+      注意别存成 224×224 把黑边烤进去：那样 padding 值会从 <span class="num">−1.0</span>
+      悄悄变成 <span class="num">0.0</span>，模型输入就被改了；交给训练时去 pad 则语义完全不变。
+      再叠加 JPEG q90，全量只要几十 GB。
+    </p>
+  </section>
+
+  <hr class="div">
+
+  <section>
+    <div class="section-head">
+      <p class="eyebrow">留在服务器上的东西</p>
+      <h2>产物与清理</h2>
+    </div>
+    <ul class="plain">
+      <li><code>Xense/optical-module-insertion-0731-img</code> —— 737 GB，另有约 737 GB Arrow 缓存位于 <code>$HF_HOME/datasets</code>。可以直接删，说一声即可。</li>
+      <li><code>~/v2i/convert_v2i.py</code> —— 转换器，支持 <code>--format</code>、<code>--episodes</code>、<code>--workers</code>，以及只重写元数据的 <code>--meta-only</code>。</li>
+      <li><code>~/v2i/validate.py</code> —— 与 mp4 源做逐像素和逐字段比对。</li>
+      <li><code>~/v2i/sustained.py</code> —— 持续吞吐测量。注意消费的 batch 数必须超过 <code>num_workers × prefetch_factor</code>，否则测到的是队列排空速度而不是生产速度。</li>
+      <li><code>~/v2i/whybig.py</code> —— 本文"为什么大这么多"那张表的测量脚本。</li>
+      <li><code>configs/ab_video.yaml</code>、<code>configs/ab_image.yaml</code> —— 成对的 A/B 配置。</li>
+      <li><code>lerobot-xense</code> 的补丁还在工作区未提交，位于 <code>/data/vertax42/projects/lerobot-xense</code>。</li>
+    </ul>
+  </section>
+
+</div>
