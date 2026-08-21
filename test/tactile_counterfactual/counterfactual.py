@@ -54,6 +54,9 @@ def make_counterfactual_observation(
     for key in tactile_keys:
         swapped_images[key] = tactile_donor_observation.images[key]
         if key in tactile_donor_observation.image_masks:
+            # Masks come from the donor; if the donor observation has no mask
+            # for this key (malformed input), keep the base mask rather than
+            # dropping the entry.
             swapped_masks[key] = tactile_donor_observation.image_masks[key]
 
     return dataclasses.replace(
