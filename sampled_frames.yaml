@@ -1,0 +1,3019 @@
+seed: 42
+dataset: Xense/bottle-sorting-0810
+label_rules:
+  grasp: right_gripper.pos < 0.48
+  water: release right_tcp.x >= 0.8
+  no_water: release right_tcp.x <= 0.6
+categories:
+  not_grasped:
+    count: 500
+    pool_size: 79438
+    samples:
+    - episode: 18
+      frame: 119
+    - episode: 129
+      frame: 251
+    - episode: 92
+      frame: 958
+    - episode: 98
+      frame: 122
+    - episode: 42
+      frame: 708
+    - episode: 122
+      frame: 86
+    - episode: 154
+      frame: 765
+    - episode: 1
+      frame: 1250
+    - episode: 38
+      frame: 103
+    - episode: 135
+      frame: 421
+    - episode: 85
+      frame: 598
+    - episode: 86
+      frame: 482
+    - episode: 151
+      frame: 25
+    - episode: 13
+      frame: 901
+    - episode: 79
+      frame: 479
+    - episode: 86
+      frame: 1025
+    - episode: 78
+      frame: 141
+    - episode: 133
+      frame: 437
+    - episode: 24
+      frame: 69
+    - episode: 88
+      frame: 28
+    - episode: 3
+      frame: 726
+    - episode: 21
+      frame: 787
+    - episode: 137
+      frame: 117
+    - episode: 103
+      frame: 103
+    - episode: 18
+      frame: 965
+    - episode: 26
+      frame: 724
+    - episode: 124
+      frame: 12
+    - episode: 120
+      frame: 552
+    - episode: 116
+      frame: 156
+    - episode: 77
+      frame: 741
+    - episode: 160
+      frame: 463
+    - episode: 143
+      frame: 364
+    - episode: 85
+      frame: 27
+    - episode: 116
+      frame: 787
+    - episode: 46
+      frame: 671
+    - episode: 73
+      frame: 472
+    - episode: 67
+      frame: 16
+    - episode: 50
+      frame: 681
+    - episode: 80
+      frame: 161
+    - episode: 78
+      frame: 114
+    - episode: 118
+      frame: 413
+    - episode: 16
+      frame: 933
+    - episode: 130
+      frame: 71
+    - episode: 69
+      frame: 142
+    - episode: 97
+      frame: 436
+    - episode: 125
+      frame: 377
+    - episode: 67
+      frame: 310
+    - episode: 20
+      frame: 1015
+    - episode: 72
+      frame: 112
+    - episode: 98
+      frame: 492
+    - episode: 40
+      frame: 596
+    - episode: 44
+      frame: 121
+    - episode: 90
+      frame: 542
+    - episode: 20
+      frame: 91
+    - episode: 71
+      frame: 162
+    - episode: 114
+      frame: 41
+    - episode: 115
+      frame: 110
+    - episode: 73
+      frame: 116
+    - episode: 147
+      frame: 380
+    - episode: 107
+      frame: 97
+    - episode: 76
+      frame: 783
+    - episode: 47
+      frame: 613
+    - episode: 114
+      frame: 604
+    - episode: 87
+      frame: 130
+    - episode: 117
+      frame: 709
+    - episode: 68
+      frame: 405
+    - episode: 151
+      frame: 126
+    - episode: 16
+      frame: 544
+    - episode: 105
+      frame: 426
+    - episode: 132
+      frame: 369
+    - episode: 3
+      frame: 769
+    - episode: 40
+      frame: 1
+    - episode: 18
+      frame: 937
+    - episode: 39
+      frame: 630
+    - episode: 150
+      frame: 755
+    - episode: 155
+      frame: 802
+    - episode: 47
+      frame: 80
+    - episode: 120
+      frame: 32
+    - episode: 133
+      frame: 418
+    - episode: 98
+      frame: 499
+    - episode: 72
+      frame: 398
+    - episode: 89
+      frame: 123
+    - episode: 48
+      frame: 370
+    - episode: 155
+      frame: 457
+    - episode: 20
+      frame: 62
+    - episode: 136
+      frame: 731
+    - episode: 33
+      frame: 139
+    - episode: 73
+      frame: 2
+    - episode: 102
+      frame: 615
+    - episode: 105
+      frame: 757
+    - episode: 133
+      frame: 613
+    - episode: 142
+      frame: 554
+    - episode: 62
+      frame: 788
+    - episode: 94
+      frame: 195
+    - episode: 55
+      frame: 798
+    - episode: 15
+      frame: 623
+    - episode: 78
+      frame: 819
+    - episode: 157
+      frame: 482
+    - episode: 69
+      frame: 321
+    - episode: 41
+      frame: 318
+    - episode: 109
+      frame: 140
+    - episode: 3
+      frame: 1226
+    - episode: 79
+      frame: 65
+    - episode: 18
+      frame: 125
+    - episode: 62
+      frame: 509
+    - episode: 86
+      frame: 928
+    - episode: 64
+      frame: 24
+    - episode: 65
+      frame: 763
+    - episode: 15
+      frame: 941
+    - episode: 43
+      frame: 377
+    - episode: 118
+      frame: 669
+    - episode: 68
+      frame: 147
+    - episode: 17
+      frame: 83
+    - episode: 69
+      frame: 661
+    - episode: 97
+      frame: 416
+    - episode: 126
+      frame: 639
+    - episode: 134
+      frame: 446
+    - episode: 54
+      frame: 554
+    - episode: 26
+      frame: 670
+    - episode: 82
+      frame: 862
+    - episode: 153
+      frame: 171
+    - episode: 15
+      frame: 131
+    - episode: 155
+      frame: 494
+    - episode: 150
+      frame: 476
+    - episode: 146
+      frame: 330
+    - episode: 93
+      frame: 977
+    - episode: 109
+      frame: 319
+    - episode: 113
+      frame: 9
+    - episode: 75
+      frame: 693
+    - episode: 106
+      frame: 393
+    - episode: 3
+      frame: 685
+    - episode: 117
+      frame: 452
+    - episode: 71
+      frame: 692
+    - episode: 6
+      frame: 43
+    - episode: 141
+      frame: 106
+    - episode: 82
+      frame: 432
+    - episode: 154
+      frame: 496
+    - episode: 80
+      frame: 705
+    - episode: 23
+      frame: 597
+    - episode: 49
+      frame: 162
+    - episode: 94
+      frame: 972
+    - episode: 3
+      frame: 12
+    - episode: 43
+      frame: 718
+    - episode: 159
+      frame: 736
+    - episode: 73
+      frame: 442
+    - episode: 97
+      frame: 147
+    - episode: 7
+      frame: 1715
+    - episode: 46
+      frame: 375
+    - episode: 43
+      frame: 45
+    - episode: 77
+      frame: 77
+    - episode: 3
+      frame: 3
+    - episode: 137
+      frame: 456
+    - episode: 126
+      frame: 626
+    - episode: 15
+      frame: 856
+    - episode: 122
+      frame: 671
+    - episode: 11
+      frame: 22
+    - episode: 137
+      frame: 793
+    - episode: 149
+      frame: 102
+    - episode: 127
+      frame: 15
+    - episode: 68
+      frame: 777
+    - episode: 8
+      frame: 54
+    - episode: 154
+      frame: 382
+    - episode: 78
+      frame: 832
+    - episode: 45
+      frame: 391
+    - episode: 16
+      frame: 527
+    - episode: 29
+      frame: 114
+    - episode: 113
+      frame: 143
+    - episode: 49
+      frame: 130
+    - episode: 40
+      frame: 351
+    - episode: 120
+      frame: 66
+    - episode: 67
+      frame: 33
+    - episode: 131
+      frame: 577
+    - episode: 102
+      frame: 654
+    - episode: 34
+      frame: 102
+    - episode: 132
+      frame: 611
+    - episode: 110
+      frame: 676
+    - episode: 114
+      frame: 7
+    - episode: 42
+      frame: 361
+    - episode: 14
+      frame: 759
+    - episode: 66
+      frame: 445
+    - episode: 155
+      frame: 510
+    - episode: 103
+      frame: 678
+    - episode: 9
+      frame: 1080
+    - episode: 109
+      frame: 98
+    - episode: 66
+      frame: 812
+    - episode: 10
+      frame: 953
+    - episode: 102
+      frame: 401
+    - episode: 89
+      frame: 471
+    - episode: 50
+      frame: 145
+    - episode: 27
+      frame: 28
+    - episode: 106
+      frame: 692
+    - episode: 74
+      frame: 154
+    - episode: 63
+      frame: 694
+    - episode: 125
+      frame: 107
+    - episode: 147
+      frame: 354
+    - episode: 159
+      frame: 143
+    - episode: 144
+      frame: 18
+    - episode: 152
+      frame: 514
+    - episode: 71
+      frame: 85
+    - episode: 37
+      frame: 37
+    - episode: 37
+      frame: 649
+    - episode: 155
+      frame: 26
+    - episode: 11
+      frame: 1050
+    - episode: 22
+      frame: 953
+    - episode: 103
+      frame: 317
+    - episode: 121
+      frame: 763
+    - episode: 13
+      frame: 531
+    - episode: 137
+      frame: 525
+    - episode: 27
+      frame: 142
+    - episode: 78
+      frame: 710
+    - episode: 49
+      frame: 656
+    - episode: 88
+      frame: 518
+    - episode: 4
+      frame: 1174
+    - episode: 10
+      frame: 575
+    - episode: 56
+      frame: 445
+    - episode: 1
+      frame: 1315
+    - episode: 136
+      frame: 130
+    - episode: 110
+      frame: 666
+    - episode: 104
+      frame: 601
+    - episode: 22
+      frame: 232
+    - episode: 153
+      frame: 777
+    - episode: 153
+      frame: 146
+    - episode: 61
+      frame: 49
+    - episode: 144
+      frame: 392
+    - episode: 116
+      frame: 692
+    - episode: 36
+      frame: 77
+    - episode: 62
+      frame: 418
+    - episode: 122
+      frame: 729
+    - episode: 66
+      frame: 473
+    - episode: 8
+      frame: 274
+    - episode: 12
+      frame: 107
+    - episode: 159
+      frame: 504
+    - episode: 124
+      frame: 45
+    - episode: 62
+      frame: 158
+    - episode: 31
+      frame: 646
+    - episode: 144
+      frame: 118
+    - episode: 122
+      frame: 118
+    - episode: 45
+      frame: 5
+    - episode: 3
+      frame: 779
+    - episode: 149
+      frame: 402
+    - episode: 71
+      frame: 764
+    - episode: 69
+      frame: 666
+    - episode: 58
+      frame: 496
+    - episode: 78
+      frame: 844
+    - episode: 30
+      frame: 658
+    - episode: 93
+      frame: 568
+    - episode: 122
+      frame: 370
+    - episode: 155
+      frame: 857
+    - episode: 137
+      frame: 795
+    - episode: 18
+      frame: 176
+    - episode: 79
+      frame: 832
+    - episode: 87
+      frame: 1051
+    - episode: 88
+      frame: 585
+    - episode: 44
+      frame: 311
+    - episode: 135
+      frame: 15
+    - episode: 110
+      frame: 40
+    - episode: 73
+      frame: 99
+    - episode: 67
+      frame: 121
+    - episode: 154
+      frame: 13
+    - episode: 125
+      frame: 651
+    - episode: 15
+      frame: 155
+    - episode: 54
+      frame: 439
+    - episode: 142
+      frame: 729
+    - episode: 94
+      frame: 109
+    - episode: 21
+      frame: 45
+    - episode: 5
+      frame: 1194
+    - episode: 121
+      frame: 415
+    - episode: 4
+      frame: 693
+    - episode: 86
+      frame: 635
+    - episode: 74
+      frame: 80
+    - episode: 2
+      frame: 93
+    - episode: 32
+      frame: 310
+    - episode: 151
+      frame: 31
+    - episode: 15
+      frame: 49
+    - episode: 35
+      frame: 116
+    - episode: 9
+      frame: 667
+    - episode: 86
+      frame: 507
+    - episode: 156
+      frame: 177
+    - episode: 91
+      frame: 465
+    - episode: 82
+      frame: 117
+    - episode: 13
+      frame: 836
+    - episode: 82
+      frame: 10
+    - episode: 73
+      frame: 434
+    - episode: 98
+      frame: 698
+    - episode: 23
+      frame: 703
+    - episode: 81
+      frame: 404
+    - episode: 115
+      frame: 648
+    - episode: 123
+      frame: 756
+    - episode: 125
+      frame: 387
+    - episode: 51
+      frame: 497
+    - episode: 50
+      frame: 326
+    - episode: 104
+      frame: 709
+    - episode: 21
+      frame: 844
+    - episode: 101
+      frame: 63
+    - episode: 47
+      frame: 606
+    - episode: 39
+      frame: 635
+    - episode: 120
+      frame: 331
+    - episode: 123
+      frame: 602
+    - episode: 78
+      frame: 7
+    - episode: 16
+      frame: 149
+    - episode: 85
+      frame: 137
+    - episode: 124
+      frame: 681
+    - episode: 3
+      frame: 1245
+    - episode: 145
+      frame: 355
+    - episode: 24
+      frame: 64
+    - episode: 95
+      frame: 428
+    - episode: 129
+      frame: 111
+    - episode: 45
+      frame: 682
+    - episode: 10
+      frame: 186
+    - episode: 46
+      frame: 633
+    - episode: 100
+      frame: 868
+    - episode: 52
+      frame: 107
+    - episode: 69
+      frame: 58
+    - episode: 136
+      frame: 661
+    - episode: 124
+      frame: 8
+    - episode: 1
+      frame: 828
+    - episode: 144
+      frame: 558
+    - episode: 56
+      frame: 4
+    - episode: 85
+      frame: 831
+    - episode: 137
+      frame: 830
+    - episode: 54
+      frame: 842
+    - episode: 133
+      frame: 398
+    - episode: 131
+      frame: 421
+    - episode: 33
+      frame: 98
+    - episode: 113
+      frame: 628
+    - episode: 11
+      frame: 187
+    - episode: 31
+      frame: 136
+    - episode: 37
+      frame: 336
+    - episode: 90
+      frame: 821
+    - episode: 47
+      frame: 619
+    - episode: 53
+      frame: 131
+    - episode: 143
+      frame: 664
+    - episode: 41
+      frame: 661
+    - episode: 106
+      frame: 36
+    - episode: 3
+      frame: 132
+    - episode: 55
+      frame: 55
+    - episode: 66
+      frame: 772
+    - episode: 156
+      frame: 96
+    - episode: 18
+      frame: 216
+    - episode: 148
+      frame: 73
+    - episode: 117
+      frame: 167
+    - episode: 93
+      frame: 32
+    - episode: 12
+      frame: 53
+    - episode: 148
+      frame: 718
+    - episode: 109
+      frame: 138
+    - episode: 97
+      frame: 525
+    - episode: 10
+      frame: 53
+    - episode: 103
+      frame: 395
+    - episode: 156
+      frame: 530
+    - episode: 19
+      frame: 980
+    - episode: 67
+      frame: 752
+    - episode: 27
+      frame: 360
+    - episode: 44
+      frame: 90
+    - episode: 61
+      frame: 819
+    - episode: 150
+      frame: 665
+    - episode: 64
+      frame: 50
+    - episode: 56
+      frame: 744
+    - episode: 18
+      frame: 187
+    - episode: 2
+      frame: 822
+    - episode: 90
+      frame: 951
+    - episode: 96
+      frame: 472
+    - episode: 21
+      frame: 42
+    - episode: 129
+      frame: 0
+    - episode: 110
+      frame: 1
+    - episode: 23
+      frame: 586
+    - episode: 145
+      frame: 574
+    - episode: 67
+      frame: 156
+    - episode: 124
+      frame: 623
+    - episode: 128
+      frame: 660
+    - episode: 19
+      frame: 964
+    - episode: 63
+      frame: 138
+    - episode: 57
+      frame: 535
+    - episode: 4
+      frame: 598
+    - episode: 9
+      frame: 655
+    - episode: 46
+      frame: 40
+    - episode: 90
+      frame: 174
+    - episode: 86
+      frame: 1005
+    - episode: 55
+      frame: 35
+    - episode: 19
+      frame: 1014
+    - episode: 63
+      frame: 829
+    - episode: 6
+      frame: 36
+    - episode: 148
+      frame: 626
+    - episode: 67
+      frame: 56
+    - episode: 41
+      frame: 708
+    - episode: 45
+      frame: 732
+    - episode: 159
+      frame: 26
+    - episode: 7
+      frame: 912
+    - episode: 85
+      frame: 82
+    - episode: 150
+      frame: 757
+    - episode: 149
+      frame: 393
+    - episode: 129
+      frame: 307
+    - episode: 37
+      frame: 296
+    - episode: 77
+      frame: 801
+    - episode: 121
+      frame: 416
+    - episode: 64
+      frame: 375
+    - episode: 5
+      frame: 185
+    - episode: 119
+      frame: 21
+    - episode: 85
+      frame: 483
+    - episode: 103
+      frame: 613
+    - episode: 10
+      frame: 197
+    - episode: 13
+      frame: 100
+    - episode: 25
+      frame: 0
+    - episode: 34
+      frame: 22
+    - episode: 77
+      frame: 415
+    - episode: 156
+      frame: 578
+    - episode: 88
+      frame: 42
+    - episode: 160
+      frame: 743
+    - episode: 106
+      frame: 375
+    - episode: 123
+      frame: 60
+    - episode: 18
+      frame: 511
+    - episode: 159
+      frame: 416
+    - episode: 146
+      frame: 94
+    - episode: 21
+      frame: 480
+    - episode: 42
+      frame: 29
+    - episode: 33
+      frame: 441
+    - episode: 50
+      frame: 42
+    - episode: 127
+      frame: 596
+    - episode: 8
+      frame: 273
+    - episode: 21
+      frame: 482
+    - episode: 97
+      frame: 538
+    - episode: 109
+      frame: 686
+    - episode: 118
+      frame: 407
+    - episode: 70
+      frame: 727
+    - episode: 55
+      frame: 444
+    - episode: 79
+      frame: 455
+    - episode: 67
+      frame: 412
+    - episode: 55
+      frame: 808
+    - episode: 67
+      frame: 730
+    - episode: 145
+      frame: 35
+    - episode: 150
+      frame: 679
+    - episode: 120
+      frame: 289
+    - episode: 124
+      frame: 624
+    - episode: 103
+      frame: 109
+    - episode: 98
+      frame: 491
+    - episode: 128
+      frame: 334
+    - episode: 17
+      frame: 118
+    - episode: 19
+      frame: 544
+    - episode: 39
+      frame: 91
+    - episode: 69
+      frame: 655
+    - episode: 103
+      frame: 72
+    - episode: 11
+      frame: 1044
+    - episode: 83
+      frame: 1065
+    - episode: 133
+      frame: 668
+    - episode: 13
+      frame: 543
+    - episode: 42
+      frame: 322
+    - episode: 60
+      frame: 494
+    - episode: 39
+      frame: 647
+    - episode: 103
+      frame: 32
+    - episode: 113
+      frame: 93
+    - episode: 143
+      frame: 597
+    - episode: 86
+      frame: 616
+    - episode: 120
+      frame: 361
+    - episode: 52
+      frame: 102
+    - episode: 154
+      frame: 27
+    - episode: 124
+      frame: 43
+    - episode: 57
+      frame: 526
+    - episode: 104
+      frame: 68
+    - episode: 133
+      frame: 390
+    - episode: 99
+      frame: 522
+    - episode: 32
+      frame: 729
+    - episode: 11
+      frame: 987
+    - episode: 5
+      frame: 1029
+    - episode: 72
+      frame: 655
+    - episode: 113
+      frame: 104
+    - episode: 25
+      frame: 65
+    - episode: 92
+      frame: 9
+    - episode: 140
+      frame: 118
+    - episode: 72
+      frame: 18
+    - episode: 31
+      frame: 120
+    - episode: 76
+      frame: 393
+    - episode: 17
+      frame: 25
+    - episode: 132
+      frame: 692
+    - episode: 9
+      frame: 131
+    - episode: 149
+      frame: 557
+    - episode: 32
+      frame: 334
+    - episode: 40
+      frame: 562
+    - episode: 93
+      frame: 190
+    - episode: 128
+      frame: 197
+    - episode: 126
+      frame: 648
+    - episode: 11
+      frame: 100
+    - episode: 151
+      frame: 21
+    - episode: 23
+      frame: 105
+    - episode: 11
+      frame: 577
+    - episode: 139
+      frame: 464
+    - episode: 25
+      frame: 736
+    - episode: 21
+      frame: 814
+    - episode: 26
+      frame: 321
+    - episode: 22
+      frame: 907
+    - episode: 14
+      frame: 1108
+    - episode: 83
+      frame: 739
+    - episode: 5
+      frame: 165
+    - episode: 11
+      frame: 138
+    - episode: 101
+      frame: 130
+    - episode: 43
+      frame: 786
+    - episode: 114
+      frame: 19
+    - episode: 44
+      frame: 399
+    - episode: 117
+      frame: 381
+    - episode: 14
+      frame: 14
+    - episode: 31
+      frame: 670
+    - episode: 85
+      frame: 477
+  water:
+    count: 500
+    pool_size: 33874
+    samples:
+    - episode: 142
+      frame: 417
+    - episode: 86
+      frame: 734
+    - episode: 43
+      frame: 604
+    - episode: 157
+      frame: 343
+    - episode: 125
+      frame: 424
+    - episode: 98
+      frame: 666
+    - episode: 3
+      frame: 270
+    - episode: 79
+      frame: 234
+    - episode: 85
+      frame: 767
+    - episode: 87
+      frame: 717
+    - episode: 70
+      frame: 467
+    - episode: 16
+      frame: 760
+    - episode: 153
+      frame: 322
+    - episode: 148
+      frame: 567
+    - episode: 133
+      frame: 261
+    - episode: 20
+      frame: 772
+    - episode: 9
+      frame: 989
+    - episode: 72
+      frame: 248
+    - episode: 1
+      frame: 994
+    - episode: 3
+      frame: 517
+    - episode: 47
+      frame: 538
+    - episode: 58
+      frame: 301
+    - episode: 131
+      frame: 209
+    - episode: 85
+      frame: 313
+    - episode: 14
+      frame: 534
+    - episode: 160
+      frame: 355
+    - episode: 82
+      frame: 725
+    - episode: 79
+      frame: 221
+    - episode: 90
+      frame: 455
+    - episode: 86
+      frame: 833
+    - episode: 148
+      frame: 450
+    - episode: 1
+      frame: 548
+    - episode: 47
+      frame: 498
+    - episode: 121
+      frame: 583
+    - episode: 145
+      frame: 440
+    - episode: 59
+      frame: 340
+    - episode: 61
+      frame: 502
+    - episode: 71
+      frame: 179
+    - episode: 49
+      frame: 512
+    - episode: 10
+      frame: 228
+    - episode: 61
+      frame: 516
+    - episode: 98
+      frame: 587
+    - episode: 60
+      frame: 268
+    - episode: 1
+      frame: 520
+    - episode: 151
+      frame: 248
+    - episode: 3
+      frame: 974
+    - episode: 86
+      frame: 779
+    - episode: 152
+      frame: 349
+    - episode: 48
+      frame: 537
+    - episode: 124
+      frame: 537
+    - episode: 6
+      frame: 1084
+    - episode: 64
+      frame: 547
+    - episode: 156
+      frame: 388
+    - episode: 73
+      frame: 186
+    - episode: 4
+      frame: 976
+    - episode: 16
+      frame: 785
+    - episode: 52
+      frame: 361
+    - episode: 14
+      frame: 329
+    - episode: 91
+      frame: 643
+    - episode: 157
+      frame: 291
+    - episode: 75
+      frame: 254
+    - episode: 140
+      frame: 434
+    - episode: 43
+      frame: 602
+    - episode: 137
+      frame: 212
+    - episode: 17
+      frame: 749
+    - episode: 159
+      frame: 330
+    - episode: 10
+      frame: 837
+    - episode: 4
+      frame: 255
+    - episode: 141
+      frame: 563
+    - episode: 11
+      frame: 460
+    - episode: 6
+      frame: 1275
+    - episode: 96
+      frame: 563
+    - episode: 14
+      frame: 496
+    - episode: 160
+      frame: 345
+    - episode: 65
+      frame: 682
+    - episode: 99
+      frame: 661
+    - episode: 89
+      frame: 648
+    - episode: 58
+      frame: 353
+    - episode: 94
+      frame: 820
+    - episode: 80
+      frame: 376
+    - episode: 13
+      frame: 645
+    - episode: 3
+      frame: 255
+    - episode: 126
+      frame: 510
+    - episode: 55
+      frame: 266
+    - episode: 83
+      frame: 407
+    - episode: 15
+      frame: 282
+    - episode: 98
+      frame: 540
+    - episode: 100
+      frame: 687
+    - episode: 157
+      frame: 375
+    - episode: 51
+      frame: 419
+    - episode: 87
+      frame: 423
+    - episode: 142
+      frame: 398
+    - episode: 5
+      frame: 334
+    - episode: 139
+      frame: 279
+    - episode: 99
+      frame: 358
+    - episode: 20
+      frame: 709
+    - episode: 20
+      frame: 768
+    - episode: 6
+      frame: 1243
+    - episode: 62
+      frame: 694
+    - episode: 1
+      frame: 1100
+    - episode: 18
+      frame: 804
+    - episode: 86
+      frame: 402
+    - episode: 53
+      frame: 268
+    - episode: 69
+      frame: 514
+    - episode: 16
+      frame: 293
+    - episode: 63
+      frame: 559
+    - episode: 69
+      frame: 481
+    - episode: 3
+      frame: 268
+    - episode: 58
+      frame: 320
+    - episode: 82
+      frame: 323
+    - episode: 131
+      frame: 199
+    - episode: 83
+      frame: 543
+    - episode: 76
+      frame: 220
+    - episode: 19
+      frame: 489
+    - episode: 43
+      frame: 465
+    - episode: 6
+      frame: 1002
+    - episode: 91
+      frame: 623
+    - episode: 66
+      frame: 665
+    - episode: 84
+      frame: 261
+    - episode: 97
+      frame: 312
+    - episode: 10
+      frame: 731
+    - episode: 147
+      frame: 451
+    - episode: 151
+      frame: 262
+    - episode: 144
+      frame: 453
+    - episode: 99
+      frame: 636
+    - episode: 82
+      frame: 416
+    - episode: 9
+      frame: 297
+    - episode: 16
+      frame: 237
+    - episode: 6
+      frame: 1313
+    - episode: 157
+      frame: 198
+    - episode: 92
+      frame: 651
+    - episode: 96
+      frame: 223
+    - episode: 3
+      frame: 486
+    - episode: 151
+      frame: 234
+    - episode: 130
+      frame: 444
+    - episode: 44
+      frame: 508
+    - episode: 132
+      frame: 310
+    - episode: 4
+      frame: 423
+    - episode: 89
+      frame: 598
+    - episode: 63
+      frame: 658
+    - episode: 95
+      frame: 737
+    - episode: 11
+      frame: 738
+    - episode: 18
+      frame: 731
+    - episode: 8
+      frame: 345
+    - episode: 7
+      frame: 510
+    - episode: 138
+      frame: 381
+    - episode: 3
+      frame: 603
+    - episode: 96
+      frame: 663
+    - episode: 1
+      frame: 326
+    - episode: 7
+      frame: 1549
+    - episode: 9
+      frame: 370
+    - episode: 154
+      frame: 245
+    - episode: 6
+      frame: 669
+    - episode: 52
+      frame: 267
+    - episode: 11
+      frame: 262
+    - episode: 53
+      frame: 242
+    - episode: 86
+      frame: 686
+    - episode: 14
+      frame: 476
+    - episode: 60
+      frame: 354
+    - episode: 157
+      frame: 203
+    - episode: 4
+      frame: 430
+    - episode: 138
+      frame: 179
+    - episode: 67
+      frame: 572
+    - episode: 61
+      frame: 547
+    - episode: 143
+      frame: 404
+    - episode: 93
+      frame: 305
+    - episode: 96
+      frame: 567
+    - episode: 56
+      frame: 188
+    - episode: 41
+      frame: 480
+    - episode: 2
+      frame: 302
+    - episode: 100
+      frame: 297
+    - episode: 158
+      frame: 297
+    - episode: 15
+      frame: 346
+    - episode: 146
+      frame: 599
+    - episode: 95
+      frame: 639
+    - episode: 89
+      frame: 395
+    - episode: 80
+      frame: 333
+    - episode: 3
+      frame: 1053
+    - episode: 80
+      frame: 284
+    - episode: 99
+      frame: 591
+    - episode: 91
+      frame: 655
+    - episode: 8
+      frame: 1034
+    - episode: 98
+      frame: 357
+    - episode: 12
+      frame: 702
+    - episode: 122
+      frame: 486
+    - episode: 12
+      frame: 762
+    - episode: 12
+      frame: 428
+    - episode: 93
+      frame: 319
+    - episode: 17
+      frame: 344
+    - episode: 94
+      frame: 807
+    - episode: 51
+      frame: 197
+    - episode: 9
+      frame: 821
+    - episode: 153
+      frame: 340
+    - episode: 69
+      frame: 565
+    - episode: 97
+      frame: 723
+    - episode: 7
+      frame: 481
+    - episode: 5
+      frame: 521
+    - episode: 141
+      frame: 494
+    - episode: 18
+      frame: 430
+    - episode: 69
+      frame: 475
+    - episode: 5
+      frame: 420
+    - episode: 138
+      frame: 263
+    - episode: 156
+      frame: 252
+    - episode: 91
+      frame: 652
+    - episode: 6
+      frame: 956
+    - episode: 60
+      frame: 257
+    - episode: 19
+      frame: 447
+    - episode: 20
+      frame: 304
+    - episode: 5
+      frame: 799
+    - episode: 128
+      frame: 512
+    - episode: 130
+      frame: 421
+    - episode: 7
+      frame: 350
+    - episode: 51
+      frame: 389
+    - episode: 47
+      frame: 410
+    - episode: 8
+      frame: 1109
+    - episode: 88
+      frame: 232
+    - episode: 87
+      frame: 715
+    - episode: 17
+      frame: 787
+    - episode: 72
+      frame: 277
+    - episode: 91
+      frame: 686
+    - episode: 86
+      frame: 758
+    - episode: 94
+      frame: 734
+    - episode: 73
+      frame: 288
+    - episode: 55
+      frame: 369
+    - episode: 52
+      frame: 262
+    - episode: 87
+      frame: 457
+    - episode: 156
+      frame: 383
+    - episode: 98
+      frame: 230
+    - episode: 153
+      frame: 242
+    - episode: 96
+      frame: 580
+    - episode: 72
+      frame: 247
+    - episode: 78
+      frame: 274
+    - episode: 5
+      frame: 834
+    - episode: 62
+      frame: 617
+    - episode: 140
+      frame: 483
+    - episode: 20
+      frame: 395
+    - episode: 95
+      frame: 265
+    - episode: 134
+      frame: 300
+    - episode: 160
+      frame: 351
+    - episode: 95
+      frame: 184
+    - episode: 93
+      frame: 410
+    - episode: 74
+      frame: 344
+    - episode: 78
+      frame: 354
+    - episode: 92
+      frame: 316
+    - episode: 57
+      frame: 406
+    - episode: 125
+      frame: 410
+    - episode: 1
+      frame: 426
+    - episode: 59
+      frame: 310
+    - episode: 159
+      frame: 279
+    - episode: 15
+      frame: 401
+    - episode: 53
+      frame: 274
+    - episode: 20
+      frame: 408
+    - episode: 2
+      frame: 411
+    - episode: 63
+      frame: 580
+    - episode: 6
+      frame: 1158
+    - episode: 7
+      frame: 762
+    - episode: 158
+      frame: 158
+    - episode: 55
+      frame: 338
+    - episode: 57
+      frame: 402
+    - episode: 15
+      frame: 734
+    - episode: 71
+      frame: 209
+    - episode: 3
+      frame: 962
+    - episode: 57
+      frame: 282
+    - episode: 6
+      frame: 1257
+    - episode: 156
+      frame: 374
+    - episode: 17
+      frame: 654
+    - episode: 19
+      frame: 192
+    - episode: 80
+      frame: 368
+    - episode: 16
+      frame: 213
+    - episode: 16
+      frame: 826
+    - episode: 84
+      frame: 593
+    - episode: 18
+      frame: 773
+    - episode: 7
+      frame: 1358
+    - episode: 99
+      frame: 220
+    - episode: 66
+      frame: 554
+    - episode: 89
+      frame: 314
+    - episode: 2
+      frame: 399
+    - episode: 151
+      frame: 298
+    - episode: 126
+      frame: 420
+    - episode: 86
+      frame: 737
+    - episode: 67
+      frame: 526
+    - episode: 10
+      frame: 293
+    - episode: 144
+      frame: 471
+    - episode: 20
+      frame: 347
+    - episode: 90
+      frame: 699
+    - episode: 17
+      frame: 337
+    - episode: 160
+      frame: 317
+    - episode: 6
+      frame: 1340
+    - episode: 3
+      frame: 259
+    - episode: 97
+      frame: 311
+    - episode: 1
+      frame: 633
+    - episode: 2
+      frame: 1059
+    - episode: 75
+      frame: 240
+    - episode: 10
+      frame: 669
+    - episode: 48
+      frame: 511
+    - episode: 56
+      frame: 335
+    - episode: 65
+      frame: 656
+    - episode: 81
+      frame: 668
+    - episode: 7
+      frame: 505
+    - episode: 13
+      frame: 735
+    - episode: 6
+      frame: 684
+    - episode: 92
+      frame: 215
+    - episode: 41
+      frame: 543
+    - episode: 56
+      frame: 331
+    - episode: 79
+      frame: 272
+    - episode: 87
+      frame: 929
+    - episode: 135
+      frame: 187
+    - episode: 89
+      frame: 417
+    - episode: 2
+      frame: 1028
+    - episode: 80
+      frame: 245
+    - episode: 94
+      frame: 696
+    - episode: 160
+      frame: 315
+    - episode: 99
+      frame: 354
+    - episode: 1
+      frame: 316
+    - episode: 13
+      frame: 637
+    - episode: 5
+      frame: 840
+    - episode: 16
+      frame: 259
+    - episode: 78
+      frame: 387
+    - episode: 135
+      frame: 209
+    - episode: 75
+      frame: 195
+    - episode: 72
+      frame: 236
+    - episode: 16
+      frame: 312
+    - episode: 83
+      frame: 538
+    - episode: 83
+      frame: 346
+    - episode: 4
+      frame: 240
+    - episode: 131
+      frame: 253
+    - episode: 131
+      frame: 175
+    - episode: 75
+      frame: 360
+    - episode: 14
+      frame: 458
+    - episode: 18
+      frame: 368
+    - episode: 41
+      frame: 567
+    - episode: 87
+      frame: 838
+    - episode: 155
+      frame: 394
+    - episode: 88
+      frame: 744
+    - episode: 1
+      frame: 561
+    - episode: 56
+      frame: 248
+    - episode: 90
+      frame: 345
+    - episode: 10
+      frame: 704
+    - episode: 152
+      frame: 393
+    - episode: 125
+      frame: 522
+    - episode: 11
+      frame: 931
+    - episode: 89
+      frame: 654
+    - episode: 159
+      frame: 326
+    - episode: 55
+      frame: 366
+    - episode: 69
+      frame: 525
+    - episode: 139
+      frame: 207
+    - episode: 43
+      frame: 486
+    - episode: 137
+      frame: 285
+    - episode: 18
+      frame: 292
+    - episode: 131
+      frame: 234
+    - episode: 7
+      frame: 1439
+    - episode: 1
+      frame: 331
+    - episode: 1
+      frame: 969
+    - episode: 14
+      frame: 853
+    - episode: 153
+      frame: 360
+    - episode: 61
+      frame: 635
+    - episode: 55
+      frame: 282
+    - episode: 67
+      frame: 609
+    - episode: 13
+      frame: 777
+    - episode: 95
+      frame: 716
+    - episode: 139
+      frame: 259
+    - episode: 55
+      frame: 396
+    - episode: 19
+      frame: 267
+    - episode: 74
+      frame: 184
+    - episode: 48
+      frame: 497
+    - episode: 16
+      frame: 713
+    - episode: 93
+      frame: 757
+    - episode: 42
+      frame: 595
+    - episode: 85
+      frame: 421
+    - episode: 77
+      frame: 224
+    - episode: 127
+      frame: 443
+    - episode: 70
+      frame: 578
+    - episode: 4
+      frame: 978
+    - episode: 136
+      frame: 216
+    - episode: 72
+      frame: 205
+    - episode: 141
+      frame: 545
+    - episode: 91
+      frame: 690
+    - episode: 100
+      frame: 323
+    - episode: 58
+      frame: 231
+    - episode: 19
+      frame: 852
+    - episode: 8
+      frame: 992
+    - episode: 9
+      frame: 750
+    - episode: 138
+      frame: 264
+    - episode: 18
+      frame: 671
+    - episode: 8
+      frame: 987
+    - episode: 3
+      frame: 612
+    - episode: 81
+      frame: 639
+    - episode: 5
+      frame: 302
+    - episode: 53
+      frame: 416
+    - episode: 95
+      frame: 328
+    - episode: 60
+      frame: 228
+    - episode: 94
+      frame: 417
+    - episode: 97
+      frame: 359
+    - episode: 83
+      frame: 530
+    - episode: 88
+      frame: 630
+    - episode: 126
+      frame: 458
+    - episode: 89
+      frame: 742
+    - episode: 60
+      frame: 167
+    - episode: 68
+      frame: 496
+    - episode: 52
+      frame: 370
+    - episode: 18
+      frame: 350
+    - episode: 13
+      frame: 706
+    - episode: 14
+      frame: 343
+    - episode: 51
+      frame: 346
+    - episode: 100
+      frame: 302
+    - episode: 127
+      frame: 519
+    - episode: 82
+      frame: 644
+    - episode: 135
+      frame: 206
+    - episode: 2
+      frame: 564
+    - episode: 99
+      frame: 606
+    - episode: 142
+      frame: 498
+    - episode: 9
+      frame: 813
+    - episode: 68
+      frame: 578
+    - episode: 54
+      frame: 282
+    - episode: 60
+      frame: 178
+    - episode: 86
+      frame: 288
+    - episode: 132
+      frame: 298
+    - episode: 7
+      frame: 1564
+    - episode: 14
+      frame: 486
+    - episode: 55
+      frame: 231
+    - episode: 14
+      frame: 325
+    - episode: 86
+      frame: 841
+    - episode: 122
+      frame: 557
+    - episode: 84
+      frame: 597
+    - episode: 8
+      frame: 383
+    - episode: 159
+      frame: 301
+    - episode: 98
+      frame: 355
+    - episode: 139
+      frame: 369
+    - episode: 19
+      frame: 357
+    - episode: 71
+      frame: 306
+    - episode: 19
+      frame: 203
+    - episode: 159
+      frame: 296
+    - episode: 132
+      frame: 279
+    - episode: 92
+      frame: 695
+    - episode: 98
+      frame: 223
+    - episode: 18
+      frame: 659
+    - episode: 139
+      frame: 245
+    - episode: 9
+      frame: 324
+    - episode: 129
+      frame: 410
+    - episode: 153
+      frame: 234
+    - episode: 87
+      frame: 938
+    - episode: 75
+      frame: 383
+    - episode: 85
+      frame: 419
+    - episode: 11
+      frame: 916
+    - episode: 156
+      frame: 356
+    - episode: 92
+      frame: 743
+    - episode: 7
+      frame: 644
+    - episode: 17
+      frame: 380
+    - episode: 126
+      frame: 560
+    - episode: 94
+      frame: 347
+    - episode: 78
+      frame: 334
+    - episode: 43
+      frame: 584
+    - episode: 74
+      frame: 190
+    - episode: 3
+      frame: 958
+    - episode: 8
+      frame: 610
+    - episode: 76
+      frame: 314
+    - episode: 122
+      frame: 590
+    - episode: 3
+      frame: 374
+    - episode: 94
+      frame: 361
+    - episode: 51
+      frame: 229
+    - episode: 133
+      frame: 242
+    - episode: 70
+      frame: 533
+    - episode: 156
+      frame: 366
+    - episode: 19
+      frame: 370
+    - episode: 70
+      frame: 525
+    - episode: 99
+      frame: 725
+    - episode: 19
+      frame: 868
+    - episode: 135
+      frame: 260
+    - episode: 129
+      frame: 419
+    - episode: 65
+      frame: 521
+    - episode: 93
+      frame: 827
+    - episode: 95
+      frame: 615
+    - episode: 129
+      frame: 359
+    - episode: 4
+      frame: 893
+    - episode: 3
+      frame: 527
+    - episode: 89
+      frame: 268
+    - episode: 69
+      frame: 583
+    - episode: 54
+      frame: 405
+    - episode: 14
+      frame: 996
+    - episode: 87
+      frame: 500
+    - episode: 1
+      frame: 433
+    - episode: 132
+      frame: 190
+    - episode: 154
+      frame: 270
+    - episode: 68
+      frame: 551
+    - episode: 2
+      frame: 557
+    - episode: 42
+      frame: 492
+    - episode: 4
+      frame: 753
+    - episode: 86
+      frame: 292
+    - episode: 128
+      frame: 439
+    - episode: 100
+      frame: 720
+    - episode: 83
+      frame: 364
+    - episode: 43
+      frame: 525
+    - episode: 6
+      frame: 965
+    - episode: 93
+      frame: 340
+    - episode: 151
+      frame: 239
+    - episode: 51
+      frame: 261
+    - episode: 10
+      frame: 857
+    - episode: 78
+      frame: 386
+    - episode: 123
+      frame: 432
+    - episode: 65
+      frame: 718
+  no_water:
+    count: 500
+    pool_size: 23523
+    samples:
+    - episode: 137
+      frame: 637
+    - episode: 122
+      frame: 306
+    - episode: 38
+      frame: 173
+    - episode: 65
+      frame: 265
+    - episode: 106
+      frame: 561
+    - episode: 144
+      frame: 245
+    - episode: 45
+      frame: 292
+    - episode: 56
+      frame: 577
+    - episode: 58
+      frame: 538
+    - episode: 79
+      frame: 660
+    - episode: 25
+      frame: 196
+    - episode: 42
+      frame: 251
+    - episode: 58
+      frame: 618
+    - episode: 56
+      frame: 615
+    - episode: 159
+      frame: 598
+    - episode: 35
+      frame: 457
+    - episode: 133
+      frame: 535
+    - episode: 109
+      frame: 538
+    - episode: 31
+      frame: 527
+    - episode: 27
+      frame: 197
+    - episode: 35
+      frame: 242
+    - episode: 79
+      frame: 581
+    - episode: 65
+      frame: 366
+    - episode: 29
+      frame: 200
+    - episode: 38
+      frame: 214
+    - episode: 65
+      frame: 183
+    - episode: 28
+      frame: 478
+    - episode: 138
+      frame: 576
+    - episode: 38
+      frame: 491
+    - episode: 22
+      frame: 705
+    - episode: 112
+      frame: 218
+    - episode: 51
+      frame: 746
+    - episode: 37
+      frame: 177
+    - episode: 71
+      frame: 525
+    - episode: 105
+      frame: 284
+    - episode: 72
+      frame: 608
+    - episode: 38
+      frame: 518
+    - episode: 56
+      frame: 536
+    - episode: 25
+      frame: 421
+    - episode: 72
+      frame: 623
+    - episode: 145
+      frame: 278
+    - episode: 129
+      frame: 232
+    - episode: 73
+      frame: 494
+    - episode: 127
+      frame: 268
+    - episode: 72
+      frame: 516
+    - episode: 28
+      frame: 256
+    - episode: 138
+      frame: 545
+    - episode: 129
+      frame: 222
+    - episode: 34
+      frame: 597
+    - episode: 120
+      frame: 160
+    - episode: 109
+      frame: 438
+    - episode: 119
+      frame: 432
+    - episode: 138
+      frame: 648
+    - episode: 106
+      frame: 201
+    - episode: 38
+      frame: 454
+    - episode: 21
+      frame: 597
+    - episode: 21
+      frame: 254
+    - episode: 58
+      frame: 670
+    - episode: 26
+      frame: 183
+    - episode: 130
+      frame: 225
+    - episode: 112
+      frame: 172
+    - episode: 109
+      frame: 198
+    - episode: 103
+      frame: 478
+    - episode: 69
+      frame: 239
+    - episode: 53
+      frame: 732
+    - episode: 34
+      frame: 254
+    - episode: 79
+      frame: 616
+    - episode: 31
+      frame: 478
+    - episode: 47
+      frame: 178
+    - episode: 118
+      frame: 219
+    - episode: 61
+      frame: 279
+    - episode: 33
+      frame: 577
+    - episode: 103
+      frame: 418
+    - episode: 57
+      frame: 611
+    - episode: 158
+      frame: 529
+    - episode: 29
+      frame: 187
+    - episode: 118
+      frame: 433
+    - episode: 45
+      frame: 167
+    - episode: 65
+      frame: 295
+    - episode: 49
+      frame: 325
+    - episode: 45
+      frame: 205
+    - episode: 107
+      frame: 457
+    - episode: 74
+      frame: 585
+    - episode: 160
+      frame: 578
+    - episode: 106
+      frame: 298
+    - episode: 145
+      frame: 214
+    - episode: 24
+      frame: 546
+    - episode: 101
+      frame: 165
+    - episode: 22
+      frame: 697
+    - episode: 71
+      frame: 556
+    - episode: 114
+      frame: 469
+    - episode: 59
+      frame: 798
+    - episode: 127
+      frame: 274
+    - episode: 61
+      frame: 255
+    - episode: 102
+      frame: 524
+    - episode: 117
+      frame: 496
+    - episode: 104
+      frame: 175
+    - episode: 21
+      frame: 529
+    - episode: 116
+      frame: 599
+    - episode: 44
+      frame: 160
+    - episode: 50
+      frame: 186
+    - episode: 148
+      frame: 260
+    - episode: 110
+      frame: 461
+    - episode: 72
+      frame: 618
+    - episode: 39
+      frame: 435
+    - episode: 160
+      frame: 510
+    - episode: 36
+      frame: 452
+    - episode: 70
+      frame: 187
+    - episode: 135
+      frame: 611
+    - episode: 150
+      frame: 271
+    - episode: 153
+      frame: 635
+    - episode: 150
+      frame: 210
+    - episode: 136
+      frame: 499
+    - episode: 35
+      frame: 552
+    - episode: 62
+      frame: 285
+    - episode: 143
+      frame: 184
+    - episode: 69
+      frame: 223
+    - episode: 35
+      frame: 459
+    - episode: 110
+      frame: 302
+    - episode: 155
+      frame: 653
+    - episode: 32
+      frame: 217
+    - episode: 132
+      frame: 544
+    - episode: 156
+      frame: 597
+    - episode: 113
+      frame: 587
+    - episode: 63
+      frame: 207
+    - episode: 25
+      frame: 465
+    - episode: 127
+      frame: 176
+    - episode: 24
+      frame: 262
+    - episode: 35
+      frame: 243
+    - episode: 34
+      frame: 260
+    - episode: 35
+      frame: 265
+    - episode: 56
+      frame: 503
+    - episode: 27
+      frame: 535
+    - episode: 118
+      frame: 519
+    - episode: 30
+      frame: 304
+    - episode: 151
+      frame: 631
+    - episode: 118
+      frame: 198
+    - episode: 110
+      frame: 202
+    - episode: 38
+      frame: 382
+    - episode: 108
+      frame: 227
+    - episode: 39
+      frame: 406
+    - episode: 64
+      frame: 309
+    - episode: 59
+      frame: 744
+    - episode: 53
+      frame: 628
+    - episode: 71
+      frame: 594
+    - episode: 115
+      frame: 237
+    - episode: 118
+      frame: 177
+    - episode: 101
+      frame: 495
+    - episode: 77
+      frame: 569
+    - episode: 37
+      frame: 446
+    - episode: 118
+      frame: 228
+    - episode: 55
+      frame: 557
+    - episode: 45
+      frame: 160
+    - episode: 105
+      frame: 525
+    - episode: 117
+      frame: 233
+    - episode: 102
+      frame: 320
+    - episode: 62
+      frame: 338
+    - episode: 66
+      frame: 196
+    - episode: 160
+      frame: 552
+    - episode: 24
+      frame: 252
+    - episode: 126
+      frame: 237
+    - episode: 70
+      frame: 219
+    - episode: 102
+      frame: 169
+    - episode: 103
+      frame: 179
+    - episode: 127
+      frame: 208
+    - episode: 46
+      frame: 253
+    - episode: 134
+      frame: 540
+    - episode: 25
+      frame: 561
+    - episode: 32
+      frame: 611
+    - episode: 22
+      frame: 694
+    - episode: 34
+      frame: 526
+    - episode: 56
+      frame: 632
+    - episode: 127
+      frame: 215
+    - episode: 117
+      frame: 573
+    - episode: 110
+      frame: 309
+    - episode: 56
+      frame: 538
+    - episode: 23
+      frame: 261
+    - episode: 28
+      frame: 485
+    - episode: 120
+      frame: 178
+    - episode: 132
+      frame: 524
+    - episode: 67
+      frame: 302
+    - episode: 27
+      frame: 558
+    - episode: 21
+      frame: 242
+    - episode: 40
+      frame: 213
+    - episode: 24
+      frame: 628
+    - episode: 78
+      frame: 573
+    - episode: 26
+      frame: 225
+    - episode: 49
+      frame: 175
+    - episode: 101
+      frame: 402
+    - episode: 53
+      frame: 612
+    - episode: 33
+      frame: 497
+    - episode: 54
+      frame: 785
+    - episode: 28
+      frame: 294
+    - episode: 143
+      frame: 206
+    - episode: 137
+      frame: 594
+    - episode: 104
+      frame: 311
+    - episode: 32
+      frame: 546
+    - episode: 46
+      frame: 238
+    - episode: 139
+      frame: 558
+    - episode: 39
+      frame: 483
+    - episode: 75
+      frame: 659
+    - episode: 34
+      frame: 517
+    - episode: 124
+      frame: 153
+    - episode: 115
+      frame: 281
+    - episode: 118
+      frame: 187
+    - episode: 41
+      frame: 203
+    - episode: 54
+      frame: 689
+    - episode: 62
+      frame: 362
+    - episode: 65
+      frame: 303
+    - episode: 147
+      frame: 204
+    - episode: 127
+      frame: 202
+    - episode: 141
+      frame: 296
+    - episode: 129
+      frame: 182
+    - episode: 112
+      frame: 487
+    - episode: 121
+      frame: 248
+    - episode: 54
+      frame: 743
+    - episode: 58
+      frame: 519
+    - episode: 119
+      frame: 231
+    - episode: 112
+      frame: 177
+    - episode: 59
+      frame: 792
+    - episode: 24
+      frame: 598
+    - episode: 38
+      frame: 437
+    - episode: 66
+      frame: 256
+    - episode: 35
+      frame: 438
+    - episode: 71
+      frame: 551
+    - episode: 51
+      frame: 707
+    - episode: 54
+      frame: 621
+    - episode: 54
+      frame: 671
+    - episode: 154
+      frame: 596
+    - episode: 30
+      frame: 300
+    - episode: 116
+      frame: 536
+    - episode: 113
+      frame: 189
+    - episode: 28
+      frame: 277
+    - episode: 29
+      frame: 253
+    - episode: 79
+      frame: 576
+    - episode: 23
+      frame: 192
+    - episode: 158
+      frame: 580
+    - episode: 22
+      frame: 635
+    - episode: 157
+      frame: 567
+    - episode: 21
+      frame: 259
+    - episode: 110
+      frame: 473
+    - episode: 123
+      frame: 223
+    - episode: 113
+      frame: 261
+    - episode: 51
+      frame: 668
+    - episode: 77
+      frame: 538
+    - episode: 42
+      frame: 293
+    - episode: 103
+      frame: 202
+    - episode: 77
+      frame: 671
+    - episode: 66
+      frame: 237
+    - episode: 33
+      frame: 558
+    - episode: 35
+      frame: 288
+    - episode: 105
+      frame: 175
+    - episode: 129
+      frame: 224
+    - episode: 115
+      frame: 234
+    - episode: 29
+      frame: 514
+    - episode: 70
+      frame: 210
+    - episode: 111
+      frame: 317
+    - episode: 40
+      frame: 158
+    - episode: 138
+      frame: 608
+    - episode: 73
+      frame: 599
+    - episode: 47
+      frame: 229
+    - episode: 43
+      frame: 285
+    - episode: 122
+      frame: 274
+    - episode: 105
+      frame: 614
+    - episode: 32
+      frame: 255
+    - episode: 148
+      frame: 226
+    - episode: 26
+      frame: 279
+    - episode: 109
+      frame: 173
+    - episode: 155
+      frame: 639
+    - episode: 50
+      frame: 248
+    - episode: 147
+      frame: 177
+    - episode: 137
+      frame: 630
+    - episode: 108
+      frame: 176
+    - episode: 63
+      frame: 327
+    - episode: 66
+      frame: 232
+    - episode: 22
+      frame: 698
+    - episode: 33
+      frame: 521
+    - episode: 150
+      frame: 203
+    - episode: 37
+      frame: 157
+    - episode: 50
+      frame: 177
+    - episode: 159
+      frame: 515
+    - episode: 70
+      frame: 176
+    - episode: 62
+      frame: 284
+    - episode: 30
+      frame: 239
+    - episode: 30
+      frame: 247
+    - episode: 107
+      frame: 146
+    - episode: 120
+      frame: 255
+    - episode: 114
+      frame: 268
+    - episode: 32
+      frame: 266
+    - episode: 41
+      frame: 207
+    - episode: 131
+      frame: 495
+    - episode: 31
+      frame: 555
+    - episode: 124
+      frame: 134
+    - episode: 70
+      frame: 271
+    - episode: 56
+      frame: 532
+    - episode: 23
+      frame: 497
+    - episode: 21
+      frame: 555
+    - episode: 59
+      frame: 757
+    - episode: 34
+      frame: 541
+    - episode: 104
+      frame: 520
+    - episode: 135
+      frame: 492
+    - episode: 50
+      frame: 282
+    - episode: 126
+      frame: 280
+    - episode: 111
+      frame: 208
+    - episode: 39
+      frame: 434
+    - episode: 50
+      frame: 183
+    - episode: 65
+      frame: 188
+    - episode: 59
+      frame: 680
+    - episode: 105
+      frame: 579
+    - episode: 71
+      frame: 603
+    - episode: 45
+      frame: 209
+    - episode: 52
+      frame: 729
+    - episode: 50
+      frame: 253
+    - episode: 109
+      frame: 228
+    - episode: 110
+      frame: 226
+    - episode: 107
+      frame: 195
+    - episode: 42
+      frame: 230
+    - episode: 114
+      frame: 380
+    - episode: 71
+      frame: 483
+    - episode: 108
+      frame: 570
+    - episode: 74
+      frame: 571
+    - episode: 29
+      frame: 245
+    - episode: 119
+      frame: 386
+    - episode: 41
+      frame: 183
+    - episode: 119
+      frame: 436
+    - episode: 159
+      frame: 517
+    - episode: 118
+      frame: 189
+    - episode: 22
+      frame: 396
+    - episode: 155
+      frame: 637
+    - episode: 148
+      frame: 231
+    - episode: 132
+      frame: 479
+    - episode: 54
+      frame: 601
+    - episode: 145
+      frame: 279
+    - episode: 151
+      frame: 649
+    - episode: 144
+      frame: 162
+    - episode: 64
+      frame: 184
+    - episode: 43
+      frame: 181
+    - episode: 126
+      frame: 147
+    - episode: 56
+      frame: 500
+    - episode: 126
+      frame: 238
+    - episode: 109
+      frame: 208
+    - episode: 69
+      frame: 185
+    - episode: 76
+      frame: 501
+    - episode: 114
+      frame: 511
+    - episode: 102
+      frame: 514
+    - episode: 134
+      frame: 597
+    - episode: 54
+      frame: 750
+    - episode: 55
+      frame: 641
+    - episode: 134
+      frame: 538
+    - episode: 133
+      frame: 519
+    - episode: 148
+      frame: 247
+    - episode: 35
+      frame: 428
+    - episode: 69
+      frame: 217
+    - episode: 59
+      frame: 697
+    - episode: 107
+      frame: 416
+    - episode: 153
+      frame: 567
+    - episode: 137
+      frame: 644
+    - episode: 114
+      frame: 431
+    - episode: 63
+      frame: 337
+    - episode: 102
+      frame: 283
+    - episode: 22
+      frame: 626
+    - episode: 102
+      frame: 521
+    - episode: 113
+      frame: 326
+    - episode: 68
+      frame: 318
+    - episode: 63
+      frame: 330
+    - episode: 80
+      frame: 579
+    - episode: 155
+      frame: 625
+    - episode: 116
+      frame: 266
+    - episode: 54
+      frame: 716
+    - episode: 25
+      frame: 550
+    - episode: 108
+      frame: 584
+    - episode: 53
+      frame: 664
+    - episode: 45
+      frame: 162
+    - episode: 118
+      frame: 237
+    - episode: 107
+      frame: 425
+    - episode: 105
+      frame: 535
+    - episode: 151
+      frame: 654
+    - episode: 120
+      frame: 203
+    - episode: 114
+      frame: 459
+    - episode: 102
+      frame: 566
+    - episode: 102
+      frame: 475
+    - episode: 153
+      frame: 548
+    - episode: 38
+      frame: 184
+    - episode: 117
+      frame: 609
+    - episode: 143
+      frame: 254
+    - episode: 144
+      frame: 248
+    - episode: 112
+      frame: 454
+    - episode: 49
+      frame: 243
+    - episode: 49
+      frame: 300
+    - episode: 49
+      frame: 231
+    - episode: 32
+      frame: 288
+    - episode: 119
+      frame: 516
+    - episode: 48
+      frame: 239
+    - episode: 137
+      frame: 583
+    - episode: 31
+      frame: 453
+    - episode: 35
+      frame: 215
+    - episode: 112
+      frame: 194
+    - episode: 144
+      frame: 232
+    - episode: 43
+      frame: 254
+    - episode: 118
+      frame: 522
+    - episode: 135
+      frame: 580
+    - episode: 149
+      frame: 239
+    - episode: 121
+      frame: 177
+    - episode: 34
+      frame: 307
+    - episode: 37
+      frame: 412
+    - episode: 125
+      frame: 266
+    - episode: 55
+      frame: 623
+    - episode: 139
+      frame: 612
+    - episode: 22
+      frame: 371
+    - episode: 53
+      frame: 613
+    - episode: 111
+      frame: 517
+    - episode: 117
+      frame: 312
+    - episode: 111
+      frame: 234
+    - episode: 31
+      frame: 501
+    - episode: 112
+      frame: 197
+    - episode: 55
+      frame: 587
+    - episode: 28
+      frame: 214
+    - episode: 129
+      frame: 238
+    - episode: 31
+      frame: 231
+    - episode: 45
+      frame: 254
+    - episode: 68
+      frame: 335
+    - episode: 72
+      frame: 563
+    - episode: 65
+      frame: 193
+    - episode: 114
+      frame: 377
+    - episode: 57
+      frame: 589
+    - episode: 64
+      frame: 218
+    - episode: 110
+      frame: 462
+    - episode: 36
+      frame: 448
+    - episode: 66
+      frame: 215
+    - episode: 55
+      frame: 722
+    - episode: 143
+      frame: 220
+    - episode: 116
+      frame: 618
+    - episode: 78
+      frame: 673
+    - episode: 106
+      frame: 227
+    - episode: 116
+      frame: 356
+    - episode: 33
+      frame: 279
+    - episode: 104
+      frame: 260
+    - episode: 141
+      frame: 224
+    - episode: 64
+      frame: 233
+    - episode: 63
+      frame: 232
+    - episode: 117
+      frame: 580
+    - episode: 117
+      frame: 492
+    - episode: 60
+      frame: 515
+    - episode: 116
+      frame: 239
+    - episode: 151
+      frame: 592
+    - episode: 59
+      frame: 698
+    - episode: 52
+      frame: 702
+    - episode: 35
+      frame: 227
+    - episode: 111
+      frame: 474
+    - episode: 118
+      frame: 553
+    - episode: 101
+      frame: 485
+    - episode: 70
+      frame: 306
+    - episode: 159
+      frame: 527
+    - episode: 49
+      frame: 183
+    - episode: 118
+      frame: 525
+    - episode: 118
+      frame: 450
+    - episode: 141
+      frame: 198
+    - episode: 51
+      frame: 604
+    - episode: 70
+      frame: 233
+    - episode: 158
+      frame: 534
+    - episode: 23
+      frame: 529
+    - episode: 105
+      frame: 615
+    - episode: 133
+      frame: 584
+    - episode: 158
+      frame: 496
+    - episode: 113
+      frame: 224
+    - episode: 28
+      frame: 194
+    - episode: 35
+      frame: 467
+    - episode: 103
+      frame: 512
+    - episode: 57
+      frame: 613
+    - episode: 101
+      frame: 252
+    - episode: 152
+      frame: 561
+    - episode: 108
+      frame: 165
+    - episode: 73
+      frame: 621
+    - episode: 26
+      frame: 503
+    - episode: 106
+      frame: 594
+    - episode: 111
+      frame: 450
+    - episode: 111
+      frame: 491
+    - episode: 52
+      frame: 721
+    - episode: 72
+      frame: 512
+    - episode: 116
+      frame: 522
+    - episode: 117
+      frame: 201
+    - episode: 65
+      frame: 353
+    - episode: 54
+      frame: 722
+    - episode: 110
+      frame: 513
+    - episode: 146
+      frame: 218
+    - episode: 33
+      frame: 534
+    - episode: 63
+      frame: 220
+    - episode: 77
+      frame: 565
+    - episode: 109
+      frame: 392
+    - episode: 123
+      frame: 213
+    - episode: 33
+      frame: 515
+    - episode: 68
+      frame: 225
+    - episode: 31
+      frame: 458
+    - episode: 125
+      frame: 169
+    - episode: 71
+      frame: 606
+    - episode: 63
+      frame: 332
+    - episode: 25
+      frame: 509
+    - episode: 138
+      frame: 661
+    - episode: 49
+      frame: 270
+    - episode: 49
+      frame: 264
