@@ -284,6 +284,20 @@ class ProbeRunner:
                 f"available image keys: {sorted(obs.images)}. The data pipeline "
                 "(repack/data transforms) does not expose the tactile cameras."
             )
+        # The model's own preprocess resizes to IMAGE_RESOLUTION when needed;
+        # the training model transforms already resize to 224x224, so the
+        # preprocess should be a no-op. Warn if that assumption is violated.
+        for key in obs.images:
+            shape = tuple(np.asarray(obs.images[key]).shape[1:3])
+            if shape != _model.IMAGE_RESOLUTION:
+                logger.warning(
+                    "Observation image '%s' has resolution %s, expected %s; the model "
+                    "preprocess will resize it (equivalent on both paired conditions, "
+                    "but double-check the probe's model transforms).",
+                    key,
+                    shape,
+                    _model.IMAGE_RESOLUTION,
+                )
 
     # ------------------------------------------------------------------ #
 
@@ -411,6 +425,22 @@ class ProbeRunner:
         base_label = {"F": "full", "E": "empty"}
         traces: dict[str, Any] = {}
         run_metadatas: dict[str, dict] = {}
+        # Every swapped condition must actually differ from its base in the
+        # tactile inputs — otherwise the "counterfactual" is a no-op and the
+        # deltas would be ~0 by construction.
+        for cond in ("F_E", "E_F"):
+            base_obs, donor_obs = (obs_full, obs_empty) if cond == "F_E" else (obs_empty, obs_full)
+            identical = [
+                key
+                for key in self.tactile_keys
+                if np.array_equal(np.asarray(base_obs.images[key]), np.asarray(donor_obs.images[key]))
+            ]
+            if identical:
+                raise AssertionError(
+                    f"pair {pair.pair_id} {cond}: tactile images {identical} are identical between "
+                    "the base and donor samples; the counterfactual swap would be a no-op. "
+                    "Check the pair's (episode, frame) entries."
+                )
         for cond in CONDITIONS:
             base_is_full = cond.startswith("F")
             tactile_is_full = cond.endswith("F")
@@ -510,6 +540,13 @@ class ProbeRunner:
             "equivalence": eq_result,
             "pairs": {},
         }
+
+        if resume:
+            previous = self.writer.load_summary()
+            if previous is not None:
+                # Keep metrics of pairs completed before this resumed run.
+                summary["pairs"] = dict(previous.get("pairs") or {})
+                summary.setdefault("sanity_checks", previous.get("sanity_checks"))
 
         if dry_run:
             logger.info("DRY RUN: running first-pair sanity checks only (no experiment loop).")

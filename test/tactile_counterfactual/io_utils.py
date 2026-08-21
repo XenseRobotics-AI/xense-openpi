@@ -32,7 +32,11 @@ def _flow_list(dumper: yaml.Dumper, data: list) -> yaml.Node:
     return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=True)
 
 
-yaml.add_representer(list, _flow_list)
+class _FlowListDumper(yaml.SafeDumper):
+    """SafeDumper that renders lists in flow style (compact, readable)."""
+
+
+_FlowListDumper.add_representer(list, _flow_list)
 
 
 def _to_python(value: Any) -> Any:
@@ -129,8 +133,9 @@ class RunWriter:
                     conds.append(None)
                 else:
                     conds.append(np.asarray(s.adarms_cond)[0].astype(self._hidden_dtype, copy=False))
-            # Only store the 3D (per-token) case in npz; the 2D (b, emb) case
-            # is small enough for the YAML.
+            # Per-token 3D cond (b, s, emb) is bulky -> npz; the 2D (b, emb)
+            # case (scalar timestep, standard mode) is small enough for YAML.
+            # After the batch squeeze the 3D case has ndim 2, the 2D case ndim 1.
             if conds and all(c is not None and c.ndim >= 2 for c in conds):
                 stacked = np.stack(conds)
                 npz_arrays["adarms_cond"] = stacked
@@ -203,7 +208,7 @@ class RunWriter:
 
         # -- write files ------------------------------------------------------
         yaml_path = self._run_dir / "runs" / f"{run_id}.yaml"
-        text = yaml.safe_dump(_to_python(out), sort_keys=False, width=200)
+        text = yaml.dump(_to_python(out), Dumper=_FlowListDumper, sort_keys=False, width=200)
         yaml_path.write_text(text, encoding="utf-8")
         written["yaml"] = str(yaml_path.relative_to(self._run_dir))
 
@@ -216,8 +221,15 @@ class RunWriter:
 
     def write_summary(self, summary: dict[str, Any]) -> None:
         (self._run_dir / "summary.yaml").write_text(
-            yaml.safe_dump(_to_python(summary), sort_keys=False, width=200), encoding="utf-8"
+            yaml.dump(_to_python(summary), Dumper=_FlowListDumper, sort_keys=False, width=200), encoding="utf-8"
         )
+
+    def load_summary(self) -> dict[str, Any] | None:
+        path = self._run_dir / "summary.yaml"
+        if not path.is_file():
+            return None
+        with open(path, encoding="utf-8") as f:
+            return yaml.safe_load(f)
 
     # ------------------------------------------------------------------ #
     # Progress / resume                                                   #

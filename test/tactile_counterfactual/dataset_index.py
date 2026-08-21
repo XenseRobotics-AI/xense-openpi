@@ -157,7 +157,7 @@ class ProbeDataset:
         converts every input to ``jnp.asarray`` before calling the sampler.
         """
         observation = _model.Observation.from_dict(sample)
-        return jax.tree.map(lambda x: jnp.asarray(x), observation)
+        return jax.tree.map(jnp.asarray, observation)
 
     # ------------------------------------------------------------------ #
     # Dataset metadata used by the transforms                            #
