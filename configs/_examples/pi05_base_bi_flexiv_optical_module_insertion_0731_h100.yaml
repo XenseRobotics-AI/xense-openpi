@@ -1,0 +1,20 @@
+model:
+  type: Pi0Config
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotBiFlexivDataConfig
+  repo_id: Xense/optical-module-insertion-0731
+  base_config:
+    prompt_from_task: true
+  default_prompt: Pick up the optical module with the left hand, and insert it into the network port with the right hand.
+batch_size: 256
+num_workers: 64
+num_train_steps: 60000
+fsdp_devices: 8

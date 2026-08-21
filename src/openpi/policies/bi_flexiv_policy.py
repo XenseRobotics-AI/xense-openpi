@@ -190,6 +190,79 @@ class BiFlexivTactileInputs(transforms.DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class BiFlexivTactileDiffInputs(transforms.DataTransformFn):
+    """Like :class:`BiFlexivTactileInputs`, but each tactile view also carries a reference frame.
+
+    Camera mapping adds, on top of the four tactile views:
+        left_tactile_top_ref      -> tactile_0_rgb_ref
+        left_tactile_bottom_ref   -> tactile_1_rgb_ref
+        right_tactile_top_ref     -> tactile_2_rgb_ref
+        right_tactile_bottom_ref  -> tactile_3_rgb_ref
+
+    The reference is the tactile frame with the gripper open and the gel
+    undeformed: episode frame 0 in training (all 160 episodes of
+    bottle-sorting-0810 start with both grippers at 1.0), the frame captured at
+    env reset when serving. :class:`openpi.transforms.TactileDifference` consumes
+    the pairs immediately after this transform and leaves four tactile keys.
+
+    Unlike the visual cameras, a missing tactile view is an error rather than a
+    zero-filled, masked-out placeholder. That fallback is what let the tactile
+    branch sit silently disabled through a whole training run.
+    """
+
+    EXPECTED_CAMERAS: ClassVar[tuple[str, ...]] = (
+        *BiFlexivTactileInputs.EXPECTED_CAMERAS,
+        "left_tactile_top_ref",
+        "left_tactile_bottom_ref",
+        "right_tactile_top_ref",
+        "right_tactile_bottom_ref",
+    )
+
+    _TACTILE_MAP: ClassVar[dict[str, str]] = {
+        "tactile_0_rgb": "left_tactile_top",
+        "tactile_1_rgb": "left_tactile_bottom",
+        "tactile_2_rgb": "right_tactile_top",
+        "tactile_3_rgb": "right_tactile_bottom",
+    }
+
+    def __call__(self, data: dict) -> dict:
+        data = _decode_bi_flexiv(data)
+
+        in_images = data["images"]
+        if unexpected := set(in_images) - set(self.EXPECTED_CAMERAS):
+            raise ValueError(f"Unexpected cameras {sorted(unexpected)}; expected {self.EXPECTED_CAMERAS}")
+        if "head" not in in_images:
+            raise ValueError("BiFlexivTactileDiffInputs requires a 'head' camera")
+
+        head_image = in_images["head"]
+        images: dict = {"base_0_rgb": head_image}
+        image_masks: dict = {"base_0_rgb": np.True_}
+
+        for dest, source in {"left_wrist_0_rgb": "left_wrist", "right_wrist_0_rgb": "right_wrist"}.items():
+            present = source in in_images
+            images[dest] = in_images[source] if present else np.zeros_like(head_image)
+            image_masks[dest] = np.True_ if present else np.False_
+
+        for dest, source in self._TACTILE_MAP.items():
+            missing = [name for name in (source, f"{source}_ref") if name not in in_images]
+            if missing:
+                raise ValueError(
+                    f"BiFlexivTactileDiffInputs requires {missing} for {dest}. In training these come from the "
+                    "reference store; when serving, the client must send the frame captured at env reset."
+                )
+            images[dest] = in_images[source]
+            images[f"{dest}_ref"] = in_images[f"{source}_ref"]
+            image_masks[dest] = np.True_
+
+        inputs = {"image": images, "image_mask": image_masks, "state": data["state"]}
+        if "actions" in data:
+            inputs["actions"] = np.asarray(data["actions"])
+        if "prompt" in data:
+            inputs["prompt"] = data["prompt"]
+        return inputs
+
+
+@dataclasses.dataclass(frozen=True)
 class BiFlexivOutputs(transforms.DataTransformFn):
     """Outputs for the bi flexiv policy.
 
