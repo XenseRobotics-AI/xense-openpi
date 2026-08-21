@@ -69,7 +69,7 @@ class FakeDataset:
                 tokenized_prompt_mask=np.ones((1, 200), dtype=bool),
             )
         # Same conversion the production policy path applies.
-        return jax.tree.map(lambda x: jnp.asarray(x), obs)
+        return jax.tree.map(jnp.asarray, obs)
 
 
 @pytest.fixture(scope="module")

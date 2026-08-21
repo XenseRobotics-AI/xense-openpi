@@ -246,6 +246,9 @@ class TraceSampler:
             if prev_chunk_left_over is None:
                 prev_chunk_left_over = jnp.zeros((batch_size, 20, self._model.action_dim))
                 inference_delay = 0
+            if inference_delay is None:
+                # Production (pi0.py) defaults a missing delay to 0.
+                inference_delay = 0
             inference_delay = jnp.atleast_1d(jnp.asarray(inference_delay))
             if inference_delay.shape[0] == 1 and batch_size > 1:
                 inference_delay = jnp.broadcast_to(inference_delay, (batch_size,))
