@@ -122,7 +122,10 @@ class ModelTransformFactory(GroupFactory):
 
     def __call__(self, model_config: _model.BaseModelConfig) -> _transforms.Group:
         match model_config.model_type:
-            case _model.ModelType.PI0:
+            # The tactile variants keep the exact same data pipeline: the extra tactile
+            # image keys ride along inside `images` and every transform below
+            # (ResizeImages in particular) is key-agnostic.
+            case _model.ModelType.PI0 | _model.ModelType.PI0_TACTILE:
                 return _transforms.Group(
                     inputs=[
                         _transforms.InjectDefaultPrompt(self.default_prompt),
@@ -133,7 +136,7 @@ class ModelTransformFactory(GroupFactory):
                         _transforms.PadStatesAndActions(model_config.action_dim),
                     ],
                 )
-            case _model.ModelType.PI05:
+            case _model.ModelType.PI05 | _model.ModelType.PI05_TACTILE:
                 assert isinstance(model_config, pi0_config.Pi0Config)
                 return _transforms.Group(
                     inputs=[
@@ -171,6 +174,11 @@ class ModelTransformFactory(GroupFactory):
                         )
                     ],
                 )
+            case unhandled:
+                # Without this, an unlisted model type falls off the match and the
+                # factory silently returns None, which only surfaces much later as
+                # `NoneType has no attribute 'inputs'` inside the data loader.
+                raise ValueError(f"ModelTransformFactory has no case for model type {unhandled}")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -533,6 +541,97 @@ class LeRobotBiFlexivTactileDataConfig(LeRobotBiFlexivDataConfig):
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),
             repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBiFlexivTactileDiffDataConfig(LeRobotBiFlexivTactileDataConfig):
+    """Tactile BiFlexiv config that feeds the tactile branch *differences*, not raw frames.
+
+    Each tactile view is replaced by ``clip(gain * (frame - episode_reference), -1, 1)``.
+    The reference is frame 0 of the episode, precomputed into a memory-mapped
+    store by ``scripts/compute_tactile_refs.py``.
+
+    Why: a gel sensor's undeformed appearance drifts between recording sessions,
+    so an absolute frame separates the heavy and light bottle barely above the
+    majority-class baseline (linear probe 0.58 vs 0.556) while the difference
+    reaches 0.88 under a block-held-out split. See
+    docs/tactile-ignored-experiment.md section 8.
+
+    The reference injection sits in ``repack_transforms`` on purpose: serving runs
+    ``data_transforms`` but not repack, and when serving the reference comes off
+    the robot at env reset instead of out of this store. ``TactileDifference``
+    itself is in ``data_transforms`` so training and serving share it.
+    """
+
+    # Written by scripts/compute_tactile_refs.py. Required.
+    tactile_ref_path: str = tyro.MISSING
+    # Scales the difference before clipping. Unscaled, mean |d| is ~0.01 in
+    # [-1, 1] units -- effectively a flat grey image, which is the collapse this
+    # whole transform exists to avoid. Too high is also bad: clipping compresses
+    # deformation *magnitude*, and magnitude is exactly what separates the full
+    # bottle from the empty one. Measured end-to-end (see
+    # docs/tactile-ignored-experiment.md section 8.5), held-out probe accuracy is
+    # flat at 0.88 for gain 1-8 and decays past 16, while std at peak deformation
+    # climbs 0.07 -> 0.27 -> 0.49. 8 is the knee: clear of flat grey, only 4.4%
+    # of pixels saturated, separability statistically tied with the maximum.
+    tactile_gain: float = 8.0
+    # How a 400x700 tactile frame becomes 224x224. "pad" matches the visual
+    # cameras but spends 43% of the result on black bars; "center_crop" keeps
+    # resolution at the cost of the gel's left/right thirds. Whatever is set here
+    # must match what the inference client does.
+    tactile_resize_mode: str = "center_crop"
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        if self.tactile_ref_path is tyro.MISSING:
+            raise ValueError("tactile_ref_path is required; run scripts/compute_tactile_refs.py first")
+        tactile_keys = tuple(getattr(model_config, "tactile_image_keys", ()))
+        if not tactile_keys:
+            raise ValueError(f"{type(model_config).__name__} has no tactile_image_keys; use a tactile model config")
+
+        policy_names = ("left_tactile_top", "left_tactile_bottom", "right_tactile_top", "right_tactile_bottom")
+        # episode_index has to survive the repack, otherwise the reference lookup
+        # has no key to index the store with.
+        repack = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        **self.repack_transforms.inputs[0].structure,
+                        "episode_index": "episode_index",
+                    }
+                ),
+                _transforms.InjectTactileReference(
+                    ref_path=self.tactile_ref_path,
+                    camera_names=policy_names,
+                ),
+            ]
+        )
+
+        data_transforms = _transforms.Group(
+            inputs=[
+                bi_flexiv_policy.BiFlexivTactileDiffInputs(),
+                _transforms.TactileDifference(
+                    tactile_keys=tactile_keys,
+                    gain=self.tactile_gain,
+                    resize_mode=self.tactile_resize_mode,
+                ),
+            ],
+            outputs=[bi_flexiv_policy.BiFlexivOutputs()],
+        )
+        if self.use_delta_cartesian_actions:
+            delta_action_mask = _transforms.make_bool_mask(18, -1, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,
