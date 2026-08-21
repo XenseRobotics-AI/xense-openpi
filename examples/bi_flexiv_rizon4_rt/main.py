@@ -229,6 +229,15 @@ class Args:
     right_tactile_top_cam: str = "right_tactile_top"
     right_tactile_bottom_cam: str = "right_tactile_bottom"
 
+    # Set both of these when serving a *_diff policy (LeRobotBiFlexivTactileDiffDataConfig).
+    # capture_tactile_reference snapshots the undeformed gel right after reset and
+    # sends it alongside every observation; the server subtracts it. Without it a
+    # diff policy errors out instead of running on wrong inputs.
+    # tactile_resize_mode MUST equal the train config's `tactile_resize_mode` —
+    # a mismatch silently feeds the model a differently-framed gel.
+    capture_tactile_reference: bool = False
+    tactile_resize_mode: str = "center_crop"
+
     # Image rendering
     render_height: int = 224
     render_width: int = 224
@@ -355,6 +364,9 @@ def main(args: Args) -> None:
         render_height=args.render_height,
         render_width=args.render_width,
         setup_robot=True,
+        enable_tactile_sensors=args.enable_tactile_sensors,
+        capture_tactile_reference=args.capture_tactile_reference,
+        tactile_resize_mode=args.tactile_resize_mode,
         tactile_camera_mapping={
             "left_tactile_top": args.left_tactile_top_cam,
             "left_tactile_bottom": args.left_tactile_bottom_cam,

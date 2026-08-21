@@ -1,0 +1,76 @@
+# Pi0.5 backbone + FastViT-T12 tactile tokens injected into the action expert.
+#
+# Architecture (see docs/pi0_architecture.html, section "Pi05 + FastViT 触觉经
+# action_expert 融合架构图" and docs/tactile_fastvit_encoder_integration.md):
+#   - 3 RGB cameras + prompt + discrete state  -> paligemma prefix (unchanged pi05)
+#   - 4 tactile cameras -> FastViT-T12 -> tactile_proj -> 4 action_expert suffix
+#     tokens, prepended to the 50 action tokens. Tactile never enters SigLIP.
+#   - suffix_out[:, -50:] -> action_out_proj -> v_t
+
+model:
+  type: Pi0TactileFastVitConfig
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+  # RTC delay window in steps; 10 steps = 333 ms @ 30 fps, which matches this
+  # dataset's fps. Left at the default, spelled out because it only has meaning
+  # when enable_training_time_rtc is true.
+  max_delay: 10
+  # ---- tactile branch ----
+  tactile_encoder_name: fastvit_t12
+  # Flax weights produced by scripts/convert_fastvit_torch_to_flax.py. `~` is
+  # expanded at load time, which keeps this file free of a machine-local absolute
+  # path (config_yaml_test enforces that for everything under _examples/). Put the
+  # converted safetensors there, or override on the CLI:
+  #   uv run scripts/train.py <this-config> --exp-name=... \
+  #     --model.tactile_pretrained_path=/path/to/params.safetensors
+  # A missing file raises FileNotFoundError in __init__ rather than silently
+  # training FastViT from scratch.
+  tactile_pretrained_path: ~/.cache/fastvit_t12_apple_dist_in1k_flax/params.safetensors
+  # tactile_image_keys stays at its default (tactile_0..3_rgb). BiFlexivTactileInputs
+  # fills it as 0=left_top, 1=left_bottom, 2=right_top, 3=right_bottom, and that is
+  # also the suffix token order. Overriding it here would make the model config
+  # unhashable (YAML gives a list, the field wants a tuple).
+  #
+  # FastViT forward/matmul precision. Params stay fp32.
+  tactile_compute_dtype: bfloat16
+
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+  # REQUIRED for this model. pi05_base has no tactile_encoder/tactile_proj
+  # weights, and _merge_params only backfills reference params whose key matches
+  # this regex. With the default ".*lora.*" the 450 tactile leaves are dropped and
+  # _load_weights_and_validate fails the pytree structure check before step 0.
+  # Backfilled entries keep whatever Pi0TactileFastVit.__init__ produced, i.e. the
+  # ImageNet FastViT weights loaded from tactile_pretrained_path.
+  missing_regex: (.*lora.*)|(.*tactile.*)
+
+ema_decay: null
+
+data:
+  type: LeRobotBiFlexivTactileDataConfig
+  # 160 episodes / 136,959 frames @ 30 fps. Provides the 4 tactile video streams
+  # (observation.images.{left,right}_tactile_{0,1}) this model requires.
+  repo_id: Xense/bottle-sorting-0810
+  base_config:
+    prompt_from_task: true
+  default_prompt: Pick up the bottle, and place it in the far bin if it is heavy, or in the near bin if it is light.
+
+# The default CosineDecaySchedule decays over 30k steps, so with num_train_steps
+# 60000 the last 30k steps would all run at the floor LR. Keep decay_steps ==
+# num_train_steps.
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 60000
+  decay_lr: 2.5e-6
+
+batch_size: 256
+num_workers: 64
+num_train_steps: 60000
+fsdp_devices: 8
+save_interval: 10000
+keep_period: 10000

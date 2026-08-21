@@ -1,0 +1,67 @@
+# Pi0.5 + FastViT tactile, fed DIFFERENCES instead of raw tactile frames.
+#
+# Sibling of pi05_base_bi_flexiv_bottle_sorting_0817_fastvit_h100_h100.yaml; the
+# only intended differences are the tactile input representation and the resize
+# mode, so the two runs can be compared directly.
+#
+# Rationale (docs/tactile-ignored-experiment.md):
+#   - The previous run's tactile encoder collapsed: contact vs no-contact came
+#     out at 1.011x token separation, below frame-to-frame jitter.
+#   - A linear probe on the raw frame reaches 0.58 against a 0.556 baseline; on
+#     (frame - episode reference) it reaches 0.88 under a block-held-out split.
+#   - So the encoder is handed the deformation directly instead of being asked to
+#     infer it from an absolute image whose baseline drifts every session.
+
+model:
+  type: Pi0TactileFastVitConfig
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+  max_delay: 10
+  tactile_encoder_name: fastvit_t12
+  tactile_pretrained_path: ~/.cache/fastvit_t12_apple_dist_in1k_flax/params.safetensors
+  tactile_compute_dtype: bfloat16
+
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+  # pi05_base has no tactile_encoder/tactile_proj; without this the 450 tactile
+  # leaves are dropped and the pytree structure check fails before step 0.
+  missing_regex: (.*lora.*)|(.*tactile.*)
+
+ema_decay: null
+
+data:
+  type: LeRobotBiFlexivTactileDiffDataConfig
+  repo_id: Xense/bottle-sorting-0810
+  base_config:
+    prompt_from_task: true
+  default_prompt: Pick up the bottle, and place it in the far bin if it is heavy, or in the near bin if it is light.
+  # Per-episode frame-0 references; regenerate with
+  #   python scripts/compute_tactile_refs.py --repo-id Xense/bottle-sorting-0810 \
+  #       --out assets/tactile_refs/bottle-sorting-0810.npy
+  tactile_ref_path: assets/tactile_refs/bottle-sorting-0810.npy
+  # Unscaled the difference is ~0.01 mean|d| — a flat grey image. Too high and
+  # clipping eats the deformation magnitude that distinguishes full from empty.
+  # Gain sweep through the real pipeline (held-out probe / std@grasp+45 / %sat):
+  #   1 -> 0.887 / 0.07 / 0%   8 -> 0.881 / 0.27 / 4.4%   32 -> 0.838 / 0.49 / 17%
+  tactile_gain: 8.0
+  # Not "pad": resize_with_pad spends 43% of a tactile frame on black bars and
+  # drops 3.1x of vertical resolution. The inference client must match this.
+  tactile_resize_mode: center_crop
+
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 60000
+  decay_lr: 2.5e-6
+
+batch_size: 256
+num_workers: 64
+num_train_steps: 60000
+fsdp_devices: 8
+
+save_interval: 10000
+keep_period: 10000
