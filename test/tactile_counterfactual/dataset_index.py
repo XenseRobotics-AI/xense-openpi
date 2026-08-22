@@ -153,11 +153,14 @@ class ProbeDataset:
     def observation_from_sample(self, sample: dict[str, Any]) -> _model.Observation:
         """Convert a transformed sample dict into a model Observation.
 
-        Mirrors the production policy path (``policy.Policy.infer``), which
-        converts every input to ``jnp.asarray`` before calling the sampler.
+        Mirrors the production policy path (``policy.Policy.infer``): add the
+        leading batch axis and convert to ``jnp`` arrays *first*, then build the
+        Observation. Order matters - the transformed sample carries numpy scalar
+        masks (``np.True_``) and f64/i64 arrays, which only become the batched
+        f32/i32 arrays ``Observation`` is typed for after this conversion.
         """
-        observation = _model.Observation.from_dict(sample)
-        return jax.tree.map(jnp.asarray, observation)
+        batched = jax.tree.map(lambda x: jnp.asarray(x)[jnp.newaxis, ...], sample)
+        return _model.Observation.from_dict(batched)
 
     # ------------------------------------------------------------------ #
     # Dataset metadata used by the transforms                            #

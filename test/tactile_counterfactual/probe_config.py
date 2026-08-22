@@ -83,6 +83,15 @@ class ExperimentSpec:
     num_steps: int = 10
     base_seed: int = 12345
     batch_size: int = 1
+    # Tolerance of the trace-vs-production equivalence gate. The trace runs the
+    # same ops as the production loop but jits them per denoising step instead of
+    # as one while_loop, so XLA fuses them differently. With bf16 activations and
+    # GPU TF32 matmuls that reordering alone moves the final action by ~3e-3
+    # (measured; the two paths are bit-identical under float32 +
+    # jax_default_matmul_precision="highest"). Defaults sit above that floor and
+    # well below any real logic error, which shifts actions by O(0.1-1).
+    eq_rtol: float = 1e-2
+    eq_atol: float = 5e-3
 
 
 @dataclasses.dataclass(frozen=True)
@@ -155,6 +164,8 @@ def from_dict(raw: dict[str, Any]) -> ProbeConfig:
         num_steps=int(experiment_raw.get("num_steps", 10)),
         base_seed=int(experiment_raw.get("base_seed", 12345)),
         batch_size=int(experiment_raw.get("batch_size", 1)),
+        eq_rtol=float(experiment_raw.get("eq_rtol", 1e-2)),
+        eq_atol=float(experiment_raw.get("eq_atol", 5e-3)),
     )
     output = OutputSpec(
         dir=output_raw.get("dir", "outputs/tactile_counterfactual"),
