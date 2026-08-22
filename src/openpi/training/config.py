@@ -19,6 +19,7 @@ import tyro
 
 import openpi.models.model as _model
 import openpi.models.pi0_config as pi0_config
+import openpi.models.pi0_tactile_config as pi0_tactile_config
 import openpi.models.pi0_tactile_fastvit_config as pi0_tactile_fastvit_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
@@ -137,7 +138,12 @@ class ModelTransformFactory(GroupFactory):
                     ],
                 )
             case _model.ModelType.PI05 | _model.ModelType.PI05_TACTILE:
-                assert isinstance(model_config, pi0_config.Pi0Config)
+                # Pi0TactileFastVitConfig subclasses Pi0Config, but Pi0TactileConfig
+                # derives straight from BaseModelConfig while still reporting
+                # PI05_TACTILE -- it would trip a Pi0Config-only assert here.
+                assert isinstance(
+                    model_config, pi0_config.Pi0Config | pi0_tactile_config.Pi0TactileConfig
+                )
                 return _transforms.Group(
                     inputs=[
                         _transforms.InjectDefaultPrompt(self.default_prompt),
