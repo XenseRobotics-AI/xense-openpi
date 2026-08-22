@@ -1,0 +1,3539 @@
+dataset:
+  repo_id: Xense/bottle-sorting-0810
+  revision: null
+  root: null
+model:
+  checkpoint_dir: /home/li/hubo/xense-openpi/checkpoints/pi05_base_bi_flexiv_bottle_sorting_0817_fastvit_h100/59999
+  inline:
+    type: Pi0TactileFastVitConfig
+    paligemma_variant: gemma_2b
+    action_expert_variant: gemma_300m
+    pi05: true
+    enable_training_time_rtc: true
+    max_delay: 10
+    tactile_encoder_name: fastvit_t12
+    tactile_pretrained_path: null
+experiment:
+  inference_mode: rtc
+  num_steps: 10
+  base_seed: 12345
+  batch_size: 1
+output:
+  dir: outputs/tactile_counterfactual
+  shard_size: 50
+  save_fastvit_features: false
+  save_tactile_tokens: false
+  save_suffix_tokens: false
+  save_adarms_cond: true
+  save_action_hidden: true
+  save_v_t: true
+  save_x_t: true
+  hidden_storage_dtype: float16
+pairs:
+- pair_id: 0
+  full:
+    episode_index: 141
+    frame_index: 417
+  empty:
+    episode_index: 136
+    frame_index: 637
+- pair_id: 1
+  full:
+    episode_index: 85
+    frame_index: 734
+  empty:
+    episode_index: 121
+    frame_index: 306
+- pair_id: 2
+  full:
+    episode_index: 42
+    frame_index: 604
+  empty:
+    episode_index: 37
+    frame_index: 173
+- pair_id: 3
+  full:
+    episode_index: 156
+    frame_index: 343
+  empty:
+    episode_index: 64
+    frame_index: 265
+- pair_id: 4
+  full:
+    episode_index: 124
+    frame_index: 424
+  empty:
+    episode_index: 105
+    frame_index: 561
+- pair_id: 5
+  full:
+    episode_index: 97
+    frame_index: 666
+  empty:
+    episode_index: 143
+    frame_index: 245
+- pair_id: 6
+  full:
+    episode_index: 2
+    frame_index: 270
+  empty:
+    episode_index: 44
+    frame_index: 292
+- pair_id: 7
+  full:
+    episode_index: 78
+    frame_index: 234
+  empty:
+    episode_index: 55
+    frame_index: 577
+- pair_id: 8
+  full:
+    episode_index: 84
+    frame_index: 767
+  empty:
+    episode_index: 57
+    frame_index: 538
+- pair_id: 9
+  full:
+    episode_index: 86
+    frame_index: 717
+  empty:
+    episode_index: 78
+    frame_index: 660
+- pair_id: 10
+  full:
+    episode_index: 69
+    frame_index: 467
+  empty:
+    episode_index: 24
+    frame_index: 196
+- pair_id: 11
+  full:
+    episode_index: 15
+    frame_index: 760
+  empty:
+    episode_index: 41
+    frame_index: 251
+- pair_id: 12
+  full:
+    episode_index: 152
+    frame_index: 322
+  empty:
+    episode_index: 57
+    frame_index: 618
+- pair_id: 13
+  full:
+    episode_index: 147
+    frame_index: 567
+  empty:
+    episode_index: 55
+    frame_index: 615
+- pair_id: 14
+  full:
+    episode_index: 132
+    frame_index: 261
+  empty:
+    episode_index: 158
+    frame_index: 598
+- pair_id: 15
+  full:
+    episode_index: 19
+    frame_index: 772
+  empty:
+    episode_index: 34
+    frame_index: 457
+- pair_id: 16
+  full:
+    episode_index: 8
+    frame_index: 989
+  empty:
+    episode_index: 132
+    frame_index: 535
+- pair_id: 17
+  full:
+    episode_index: 71
+    frame_index: 248
+  empty:
+    episode_index: 108
+    frame_index: 538
+- pair_id: 18
+  full:
+    episode_index: 0
+    frame_index: 994
+  empty:
+    episode_index: 30
+    frame_index: 527
+- pair_id: 19
+  full:
+    episode_index: 2
+    frame_index: 517
+  empty:
+    episode_index: 26
+    frame_index: 197
+- pair_id: 20
+  full:
+    episode_index: 46
+    frame_index: 538
+  empty:
+    episode_index: 34
+    frame_index: 242
+- pair_id: 21
+  full:
+    episode_index: 57
+    frame_index: 301
+  empty:
+    episode_index: 78
+    frame_index: 581
+- pair_id: 22
+  full:
+    episode_index: 130
+    frame_index: 209
+  empty:
+    episode_index: 64
+    frame_index: 366
+- pair_id: 23
+  full:
+    episode_index: 84
+    frame_index: 313
+  empty:
+    episode_index: 28
+    frame_index: 200
+- pair_id: 24
+  full:
+    episode_index: 13
+    frame_index: 534
+  empty:
+    episode_index: 37
+    frame_index: 214
+- pair_id: 25
+  full:
+    episode_index: 159
+    frame_index: 355
+  empty:
+    episode_index: 64
+    frame_index: 183
+- pair_id: 26
+  full:
+    episode_index: 81
+    frame_index: 725
+  empty:
+    episode_index: 27
+    frame_index: 478
+- pair_id: 27
+  full:
+    episode_index: 78
+    frame_index: 221
+  empty:
+    episode_index: 137
+    frame_index: 576
+- pair_id: 28
+  full:
+    episode_index: 89
+    frame_index: 455
+  empty:
+    episode_index: 37
+    frame_index: 491
+- pair_id: 29
+  full:
+    episode_index: 85
+    frame_index: 833
+  empty:
+    episode_index: 21
+    frame_index: 705
+- pair_id: 30
+  full:
+    episode_index: 147
+    frame_index: 450
+  empty:
+    episode_index: 111
+    frame_index: 218
+- pair_id: 31
+  full:
+    episode_index: 0
+    frame_index: 548
+  empty:
+    episode_index: 50
+    frame_index: 746
+- pair_id: 32
+  full:
+    episode_index: 46
+    frame_index: 498
+  empty:
+    episode_index: 36
+    frame_index: 177
+- pair_id: 33
+  full:
+    episode_index: 120
+    frame_index: 583
+  empty:
+    episode_index: 70
+    frame_index: 525
+- pair_id: 34
+  full:
+    episode_index: 144
+    frame_index: 440
+  empty:
+    episode_index: 104
+    frame_index: 284
+- pair_id: 35
+  full:
+    episode_index: 58
+    frame_index: 340
+  empty:
+    episode_index: 71
+    frame_index: 608
+- pair_id: 36
+  full:
+    episode_index: 60
+    frame_index: 502
+  empty:
+    episode_index: 37
+    frame_index: 518
+- pair_id: 37
+  full:
+    episode_index: 70
+    frame_index: 179
+  empty:
+    episode_index: 55
+    frame_index: 536
+- pair_id: 38
+  full:
+    episode_index: 48
+    frame_index: 512
+  empty:
+    episode_index: 24
+    frame_index: 421
+- pair_id: 39
+  full:
+    episode_index: 9
+    frame_index: 228
+  empty:
+    episode_index: 71
+    frame_index: 623
+- pair_id: 40
+  full:
+    episode_index: 60
+    frame_index: 516
+  empty:
+    episode_index: 144
+    frame_index: 278
+- pair_id: 41
+  full:
+    episode_index: 97
+    frame_index: 587
+  empty:
+    episode_index: 128
+    frame_index: 232
+- pair_id: 42
+  full:
+    episode_index: 59
+    frame_index: 268
+  empty:
+    episode_index: 72
+    frame_index: 494
+- pair_id: 43
+  full:
+    episode_index: 0
+    frame_index: 520
+  empty:
+    episode_index: 126
+    frame_index: 268
+- pair_id: 44
+  full:
+    episode_index: 150
+    frame_index: 248
+  empty:
+    episode_index: 71
+    frame_index: 516
+- pair_id: 45
+  full:
+    episode_index: 2
+    frame_index: 974
+  empty:
+    episode_index: 27
+    frame_index: 256
+- pair_id: 46
+  full:
+    episode_index: 85
+    frame_index: 779
+  empty:
+    episode_index: 137
+    frame_index: 545
+- pair_id: 47
+  full:
+    episode_index: 151
+    frame_index: 349
+  empty:
+    episode_index: 128
+    frame_index: 222
+- pair_id: 48
+  full:
+    episode_index: 47
+    frame_index: 537
+  empty:
+    episode_index: 33
+    frame_index: 597
+- pair_id: 49
+  full:
+    episode_index: 123
+    frame_index: 537
+  empty:
+    episode_index: 119
+    frame_index: 160
+- pair_id: 50
+  full:
+    episode_index: 5
+    frame_index: 1084
+  empty:
+    episode_index: 108
+    frame_index: 438
+- pair_id: 51
+  full:
+    episode_index: 63
+    frame_index: 547
+  empty:
+    episode_index: 118
+    frame_index: 432
+- pair_id: 52
+  full:
+    episode_index: 155
+    frame_index: 388
+  empty:
+    episode_index: 137
+    frame_index: 648
+- pair_id: 53
+  full:
+    episode_index: 72
+    frame_index: 186
+  empty:
+    episode_index: 105
+    frame_index: 201
+- pair_id: 54
+  full:
+    episode_index: 3
+    frame_index: 976
+  empty:
+    episode_index: 37
+    frame_index: 454
+- pair_id: 55
+  full:
+    episode_index: 15
+    frame_index: 785
+  empty:
+    episode_index: 20
+    frame_index: 597
+- pair_id: 56
+  full:
+    episode_index: 51
+    frame_index: 361
+  empty:
+    episode_index: 20
+    frame_index: 254
+- pair_id: 57
+  full:
+    episode_index: 13
+    frame_index: 329
+  empty:
+    episode_index: 57
+    frame_index: 670
+- pair_id: 58
+  full:
+    episode_index: 90
+    frame_index: 643
+  empty:
+    episode_index: 25
+    frame_index: 183
+- pair_id: 59
+  full:
+    episode_index: 156
+    frame_index: 291
+  empty:
+    episode_index: 129
+    frame_index: 225
+- pair_id: 60
+  full:
+    episode_index: 74
+    frame_index: 254
+  empty:
+    episode_index: 111
+    frame_index: 172
+- pair_id: 61
+  full:
+    episode_index: 139
+    frame_index: 434
+  empty:
+    episode_index: 108
+    frame_index: 198
+- pair_id: 62
+  full:
+    episode_index: 42
+    frame_index: 602
+  empty:
+    episode_index: 102
+    frame_index: 478
+- pair_id: 63
+  full:
+    episode_index: 136
+    frame_index: 212
+  empty:
+    episode_index: 68
+    frame_index: 239
+- pair_id: 64
+  full:
+    episode_index: 16
+    frame_index: 749
+  empty:
+    episode_index: 52
+    frame_index: 732
+- pair_id: 65
+  full:
+    episode_index: 158
+    frame_index: 330
+  empty:
+    episode_index: 33
+    frame_index: 254
+- pair_id: 66
+  full:
+    episode_index: 9
+    frame_index: 837
+  empty:
+    episode_index: 78
+    frame_index: 616
+- pair_id: 67
+  full:
+    episode_index: 3
+    frame_index: 255
+  empty:
+    episode_index: 30
+    frame_index: 478
+- pair_id: 68
+  full:
+    episode_index: 140
+    frame_index: 563
+  empty:
+    episode_index: 46
+    frame_index: 178
+- pair_id: 69
+  full:
+    episode_index: 10
+    frame_index: 460
+  empty:
+    episode_index: 117
+    frame_index: 219
+- pair_id: 70
+  full:
+    episode_index: 5
+    frame_index: 1275
+  empty:
+    episode_index: 60
+    frame_index: 279
+- pair_id: 71
+  full:
+    episode_index: 95
+    frame_index: 563
+  empty:
+    episode_index: 32
+    frame_index: 577
+- pair_id: 72
+  full:
+    episode_index: 13
+    frame_index: 496
+  empty:
+    episode_index: 102
+    frame_index: 418
+- pair_id: 73
+  full:
+    episode_index: 159
+    frame_index: 345
+  empty:
+    episode_index: 56
+    frame_index: 611
+- pair_id: 74
+  full:
+    episode_index: 64
+    frame_index: 682
+  empty:
+    episode_index: 157
+    frame_index: 529
+- pair_id: 75
+  full:
+    episode_index: 98
+    frame_index: 661
+  empty:
+    episode_index: 28
+    frame_index: 187
+- pair_id: 76
+  full:
+    episode_index: 88
+    frame_index: 648
+  empty:
+    episode_index: 117
+    frame_index: 433
+- pair_id: 77
+  full:
+    episode_index: 57
+    frame_index: 353
+  empty:
+    episode_index: 44
+    frame_index: 167
+- pair_id: 78
+  full:
+    episode_index: 93
+    frame_index: 820
+  empty:
+    episode_index: 64
+    frame_index: 295
+- pair_id: 79
+  full:
+    episode_index: 79
+    frame_index: 376
+  empty:
+    episode_index: 48
+    frame_index: 325
+- pair_id: 80
+  full:
+    episode_index: 12
+    frame_index: 645
+  empty:
+    episode_index: 44
+    frame_index: 205
+- pair_id: 81
+  full:
+    episode_index: 2
+    frame_index: 255
+  empty:
+    episode_index: 106
+    frame_index: 457
+- pair_id: 82
+  full:
+    episode_index: 125
+    frame_index: 510
+  empty:
+    episode_index: 73
+    frame_index: 585
+- pair_id: 83
+  full:
+    episode_index: 54
+    frame_index: 266
+  empty:
+    episode_index: 159
+    frame_index: 578
+- pair_id: 84
+  full:
+    episode_index: 82
+    frame_index: 407
+  empty:
+    episode_index: 105
+    frame_index: 298
+- pair_id: 85
+  full:
+    episode_index: 14
+    frame_index: 282
+  empty:
+    episode_index: 144
+    frame_index: 214
+- pair_id: 86
+  full:
+    episode_index: 97
+    frame_index: 540
+  empty:
+    episode_index: 23
+    frame_index: 546
+- pair_id: 87
+  full:
+    episode_index: 99
+    frame_index: 687
+  empty:
+    episode_index: 100
+    frame_index: 165
+- pair_id: 88
+  full:
+    episode_index: 156
+    frame_index: 375
+  empty:
+    episode_index: 21
+    frame_index: 697
+- pair_id: 89
+  full:
+    episode_index: 50
+    frame_index: 419
+  empty:
+    episode_index: 70
+    frame_index: 556
+- pair_id: 90
+  full:
+    episode_index: 86
+    frame_index: 423
+  empty:
+    episode_index: 113
+    frame_index: 469
+- pair_id: 91
+  full:
+    episode_index: 141
+    frame_index: 398
+  empty:
+    episode_index: 58
+    frame_index: 798
+- pair_id: 92
+  full:
+    episode_index: 4
+    frame_index: 334
+  empty:
+    episode_index: 126
+    frame_index: 274
+- pair_id: 93
+  full:
+    episode_index: 138
+    frame_index: 279
+  empty:
+    episode_index: 60
+    frame_index: 255
+- pair_id: 94
+  full:
+    episode_index: 98
+    frame_index: 358
+  empty:
+    episode_index: 101
+    frame_index: 524
+- pair_id: 95
+  full:
+    episode_index: 19
+    frame_index: 709
+  empty:
+    episode_index: 116
+    frame_index: 496
+- pair_id: 96
+  full:
+    episode_index: 19
+    frame_index: 768
+  empty:
+    episode_index: 103
+    frame_index: 175
+- pair_id: 97
+  full:
+    episode_index: 5
+    frame_index: 1243
+  empty:
+    episode_index: 20
+    frame_index: 529
+- pair_id: 98
+  full:
+    episode_index: 61
+    frame_index: 694
+  empty:
+    episode_index: 115
+    frame_index: 599
+- pair_id: 99
+  full:
+    episode_index: 0
+    frame_index: 1100
+  empty:
+    episode_index: 43
+    frame_index: 160
+- pair_id: 100
+  full:
+    episode_index: 17
+    frame_index: 804
+  empty:
+    episode_index: 49
+    frame_index: 186
+- pair_id: 101
+  full:
+    episode_index: 85
+    frame_index: 402
+  empty:
+    episode_index: 147
+    frame_index: 260
+- pair_id: 102
+  full:
+    episode_index: 52
+    frame_index: 268
+  empty:
+    episode_index: 109
+    frame_index: 461
+- pair_id: 103
+  full:
+    episode_index: 68
+    frame_index: 514
+  empty:
+    episode_index: 71
+    frame_index: 618
+- pair_id: 104
+  full:
+    episode_index: 15
+    frame_index: 293
+  empty:
+    episode_index: 38
+    frame_index: 435
+- pair_id: 105
+  full:
+    episode_index: 62
+    frame_index: 559
+  empty:
+    episode_index: 159
+    frame_index: 510
+- pair_id: 106
+  full:
+    episode_index: 68
+    frame_index: 481
+  empty:
+    episode_index: 35
+    frame_index: 452
+- pair_id: 107
+  full:
+    episode_index: 2
+    frame_index: 268
+  empty:
+    episode_index: 69
+    frame_index: 187
+- pair_id: 108
+  full:
+    episode_index: 57
+    frame_index: 320
+  empty:
+    episode_index: 134
+    frame_index: 611
+- pair_id: 109
+  full:
+    episode_index: 81
+    frame_index: 323
+  empty:
+    episode_index: 149
+    frame_index: 271
+- pair_id: 110
+  full:
+    episode_index: 130
+    frame_index: 199
+  empty:
+    episode_index: 152
+    frame_index: 635
+- pair_id: 111
+  full:
+    episode_index: 82
+    frame_index: 543
+  empty:
+    episode_index: 149
+    frame_index: 210
+- pair_id: 112
+  full:
+    episode_index: 75
+    frame_index: 220
+  empty:
+    episode_index: 135
+    frame_index: 499
+- pair_id: 113
+  full:
+    episode_index: 18
+    frame_index: 489
+  empty:
+    episode_index: 34
+    frame_index: 552
+- pair_id: 114
+  full:
+    episode_index: 42
+    frame_index: 465
+  empty:
+    episode_index: 61
+    frame_index: 285
+- pair_id: 115
+  full:
+    episode_index: 5
+    frame_index: 1002
+  empty:
+    episode_index: 142
+    frame_index: 184
+- pair_id: 116
+  full:
+    episode_index: 90
+    frame_index: 623
+  empty:
+    episode_index: 68
+    frame_index: 223
+- pair_id: 117
+  full:
+    episode_index: 65
+    frame_index: 665
+  empty:
+    episode_index: 34
+    frame_index: 459
+- pair_id: 118
+  full:
+    episode_index: 83
+    frame_index: 261
+  empty:
+    episode_index: 109
+    frame_index: 302
+- pair_id: 119
+  full:
+    episode_index: 96
+    frame_index: 312
+  empty:
+    episode_index: 154
+    frame_index: 653
+- pair_id: 120
+  full:
+    episode_index: 9
+    frame_index: 731
+  empty:
+    episode_index: 31
+    frame_index: 217
+- pair_id: 121
+  full:
+    episode_index: 146
+    frame_index: 451
+  empty:
+    episode_index: 131
+    frame_index: 544
+- pair_id: 122
+  full:
+    episode_index: 150
+    frame_index: 262
+  empty:
+    episode_index: 155
+    frame_index: 597
+- pair_id: 123
+  full:
+    episode_index: 143
+    frame_index: 453
+  empty:
+    episode_index: 112
+    frame_index: 587
+- pair_id: 124
+  full:
+    episode_index: 98
+    frame_index: 636
+  empty:
+    episode_index: 62
+    frame_index: 207
+- pair_id: 125
+  full:
+    episode_index: 81
+    frame_index: 416
+  empty:
+    episode_index: 24
+    frame_index: 465
+- pair_id: 126
+  full:
+    episode_index: 8
+    frame_index: 297
+  empty:
+    episode_index: 126
+    frame_index: 176
+- pair_id: 127
+  full:
+    episode_index: 15
+    frame_index: 237
+  empty:
+    episode_index: 23
+    frame_index: 262
+- pair_id: 128
+  full:
+    episode_index: 5
+    frame_index: 1313
+  empty:
+    episode_index: 34
+    frame_index: 243
+- pair_id: 129
+  full:
+    episode_index: 156
+    frame_index: 198
+  empty:
+    episode_index: 33
+    frame_index: 260
+- pair_id: 130
+  full:
+    episode_index: 91
+    frame_index: 651
+  empty:
+    episode_index: 34
+    frame_index: 265
+- pair_id: 131
+  full:
+    episode_index: 95
+    frame_index: 223
+  empty:
+    episode_index: 55
+    frame_index: 503
+- pair_id: 132
+  full:
+    episode_index: 2
+    frame_index: 486
+  empty:
+    episode_index: 26
+    frame_index: 535
+- pair_id: 133
+  full:
+    episode_index: 150
+    frame_index: 234
+  empty:
+    episode_index: 117
+    frame_index: 519
+- pair_id: 134
+  full:
+    episode_index: 129
+    frame_index: 444
+  empty:
+    episode_index: 29
+    frame_index: 304
+- pair_id: 135
+  full:
+    episode_index: 43
+    frame_index: 508
+  empty:
+    episode_index: 150
+    frame_index: 631
+- pair_id: 136
+  full:
+    episode_index: 131
+    frame_index: 310
+  empty:
+    episode_index: 117
+    frame_index: 198
+- pair_id: 137
+  full:
+    episode_index: 3
+    frame_index: 423
+  empty:
+    episode_index: 109
+    frame_index: 202
+- pair_id: 138
+  full:
+    episode_index: 88
+    frame_index: 598
+  empty:
+    episode_index: 37
+    frame_index: 382
+- pair_id: 139
+  full:
+    episode_index: 62
+    frame_index: 658
+  empty:
+    episode_index: 107
+    frame_index: 227
+- pair_id: 140
+  full:
+    episode_index: 94
+    frame_index: 737
+  empty:
+    episode_index: 38
+    frame_index: 406
+- pair_id: 141
+  full:
+    episode_index: 10
+    frame_index: 738
+  empty:
+    episode_index: 63
+    frame_index: 309
+- pair_id: 142
+  full:
+    episode_index: 17
+    frame_index: 731
+  empty:
+    episode_index: 58
+    frame_index: 744
+- pair_id: 143
+  full:
+    episode_index: 7
+    frame_index: 345
+  empty:
+    episode_index: 52
+    frame_index: 628
+- pair_id: 144
+  full:
+    episode_index: 6
+    frame_index: 510
+  empty:
+    episode_index: 70
+    frame_index: 594
+- pair_id: 145
+  full:
+    episode_index: 137
+    frame_index: 381
+  empty:
+    episode_index: 114
+    frame_index: 237
+- pair_id: 146
+  full:
+    episode_index: 2
+    frame_index: 603
+  empty:
+    episode_index: 117
+    frame_index: 177
+- pair_id: 147
+  full:
+    episode_index: 95
+    frame_index: 663
+  empty:
+    episode_index: 100
+    frame_index: 495
+- pair_id: 148
+  full:
+    episode_index: 0
+    frame_index: 326
+  empty:
+    episode_index: 76
+    frame_index: 569
+- pair_id: 149
+  full:
+    episode_index: 6
+    frame_index: 1549
+  empty:
+    episode_index: 36
+    frame_index: 446
+- pair_id: 150
+  full:
+    episode_index: 8
+    frame_index: 370
+  empty:
+    episode_index: 117
+    frame_index: 228
+- pair_id: 151
+  full:
+    episode_index: 153
+    frame_index: 245
+  empty:
+    episode_index: 54
+    frame_index: 557
+- pair_id: 152
+  full:
+    episode_index: 5
+    frame_index: 669
+  empty:
+    episode_index: 44
+    frame_index: 160
+- pair_id: 153
+  full:
+    episode_index: 51
+    frame_index: 267
+  empty:
+    episode_index: 104
+    frame_index: 525
+- pair_id: 154
+  full:
+    episode_index: 10
+    frame_index: 262
+  empty:
+    episode_index: 116
+    frame_index: 233
+- pair_id: 155
+  full:
+    episode_index: 52
+    frame_index: 242
+  empty:
+    episode_index: 101
+    frame_index: 320
+- pair_id: 156
+  full:
+    episode_index: 85
+    frame_index: 686
+  empty:
+    episode_index: 61
+    frame_index: 338
+- pair_id: 157
+  full:
+    episode_index: 13
+    frame_index: 476
+  empty:
+    episode_index: 65
+    frame_index: 196
+- pair_id: 158
+  full:
+    episode_index: 59
+    frame_index: 354
+  empty:
+    episode_index: 159
+    frame_index: 552
+- pair_id: 159
+  full:
+    episode_index: 156
+    frame_index: 203
+  empty:
+    episode_index: 23
+    frame_index: 252
+- pair_id: 160
+  full:
+    episode_index: 3
+    frame_index: 430
+  empty:
+    episode_index: 125
+    frame_index: 237
+- pair_id: 161
+  full:
+    episode_index: 137
+    frame_index: 179
+  empty:
+    episode_index: 69
+    frame_index: 219
+- pair_id: 162
+  full:
+    episode_index: 66
+    frame_index: 572
+  empty:
+    episode_index: 101
+    frame_index: 169
+- pair_id: 163
+  full:
+    episode_index: 60
+    frame_index: 547
+  empty:
+    episode_index: 102
+    frame_index: 179
+- pair_id: 164
+  full:
+    episode_index: 142
+    frame_index: 404
+  empty:
+    episode_index: 126
+    frame_index: 208
+- pair_id: 165
+  full:
+    episode_index: 92
+    frame_index: 305
+  empty:
+    episode_index: 45
+    frame_index: 253
+- pair_id: 166
+  full:
+    episode_index: 95
+    frame_index: 567
+  empty:
+    episode_index: 133
+    frame_index: 540
+- pair_id: 167
+  full:
+    episode_index: 55
+    frame_index: 188
+  empty:
+    episode_index: 24
+    frame_index: 561
+- pair_id: 168
+  full:
+    episode_index: 40
+    frame_index: 480
+  empty:
+    episode_index: 31
+    frame_index: 611
+- pair_id: 169
+  full:
+    episode_index: 1
+    frame_index: 302
+  empty:
+    episode_index: 21
+    frame_index: 694
+- pair_id: 170
+  full:
+    episode_index: 99
+    frame_index: 297
+  empty:
+    episode_index: 33
+    frame_index: 526
+- pair_id: 171
+  full:
+    episode_index: 157
+    frame_index: 297
+  empty:
+    episode_index: 55
+    frame_index: 632
+- pair_id: 172
+  full:
+    episode_index: 14
+    frame_index: 346
+  empty:
+    episode_index: 126
+    frame_index: 215
+- pair_id: 173
+  full:
+    episode_index: 145
+    frame_index: 599
+  empty:
+    episode_index: 116
+    frame_index: 573
+- pair_id: 174
+  full:
+    episode_index: 94
+    frame_index: 639
+  empty:
+    episode_index: 109
+    frame_index: 309
+- pair_id: 175
+  full:
+    episode_index: 88
+    frame_index: 395
+  empty:
+    episode_index: 55
+    frame_index: 538
+- pair_id: 176
+  full:
+    episode_index: 79
+    frame_index: 333
+  empty:
+    episode_index: 22
+    frame_index: 261
+- pair_id: 177
+  full:
+    episode_index: 2
+    frame_index: 1053
+  empty:
+    episode_index: 27
+    frame_index: 485
+- pair_id: 178
+  full:
+    episode_index: 79
+    frame_index: 284
+  empty:
+    episode_index: 119
+    frame_index: 178
+- pair_id: 179
+  full:
+    episode_index: 98
+    frame_index: 591
+  empty:
+    episode_index: 131
+    frame_index: 524
+- pair_id: 180
+  full:
+    episode_index: 90
+    frame_index: 655
+  empty:
+    episode_index: 66
+    frame_index: 302
+- pair_id: 181
+  full:
+    episode_index: 7
+    frame_index: 1034
+  empty:
+    episode_index: 26
+    frame_index: 558
+- pair_id: 182
+  full:
+    episode_index: 97
+    frame_index: 357
+  empty:
+    episode_index: 20
+    frame_index: 242
+- pair_id: 183
+  full:
+    episode_index: 11
+    frame_index: 702
+  empty:
+    episode_index: 39
+    frame_index: 213
+- pair_id: 184
+  full:
+    episode_index: 121
+    frame_index: 486
+  empty:
+    episode_index: 23
+    frame_index: 628
+- pair_id: 185
+  full:
+    episode_index: 11
+    frame_index: 762
+  empty:
+    episode_index: 77
+    frame_index: 573
+- pair_id: 186
+  full:
+    episode_index: 11
+    frame_index: 428
+  empty:
+    episode_index: 25
+    frame_index: 225
+- pair_id: 187
+  full:
+    episode_index: 92
+    frame_index: 319
+  empty:
+    episode_index: 48
+    frame_index: 175
+- pair_id: 188
+  full:
+    episode_index: 16
+    frame_index: 344
+  empty:
+    episode_index: 100
+    frame_index: 402
+- pair_id: 189
+  full:
+    episode_index: 93
+    frame_index: 807
+  empty:
+    episode_index: 52
+    frame_index: 612
+- pair_id: 190
+  full:
+    episode_index: 50
+    frame_index: 197
+  empty:
+    episode_index: 32
+    frame_index: 497
+- pair_id: 191
+  full:
+    episode_index: 8
+    frame_index: 821
+  empty:
+    episode_index: 53
+    frame_index: 785
+- pair_id: 192
+  full:
+    episode_index: 152
+    frame_index: 340
+  empty:
+    episode_index: 27
+    frame_index: 294
+- pair_id: 193
+  full:
+    episode_index: 68
+    frame_index: 565
+  empty:
+    episode_index: 142
+    frame_index: 206
+- pair_id: 194
+  full:
+    episode_index: 96
+    frame_index: 723
+  empty:
+    episode_index: 136
+    frame_index: 594
+- pair_id: 195
+  full:
+    episode_index: 6
+    frame_index: 481
+  empty:
+    episode_index: 103
+    frame_index: 311
+- pair_id: 196
+  full:
+    episode_index: 4
+    frame_index: 521
+  empty:
+    episode_index: 31
+    frame_index: 546
+- pair_id: 197
+  full:
+    episode_index: 140
+    frame_index: 494
+  empty:
+    episode_index: 45
+    frame_index: 238
+- pair_id: 198
+  full:
+    episode_index: 17
+    frame_index: 430
+  empty:
+    episode_index: 138
+    frame_index: 558
+- pair_id: 199
+  full:
+    episode_index: 68
+    frame_index: 475
+  empty:
+    episode_index: 38
+    frame_index: 483
+- pair_id: 200
+  full:
+    episode_index: 4
+    frame_index: 420
+  empty:
+    episode_index: 74
+    frame_index: 659
+- pair_id: 201
+  full:
+    episode_index: 137
+    frame_index: 263
+  empty:
+    episode_index: 33
+    frame_index: 517
+- pair_id: 202
+  full:
+    episode_index: 155
+    frame_index: 252
+  empty:
+    episode_index: 123
+    frame_index: 153
+- pair_id: 203
+  full:
+    episode_index: 90
+    frame_index: 652
+  empty:
+    episode_index: 114
+    frame_index: 281
+- pair_id: 204
+  full:
+    episode_index: 5
+    frame_index: 956
+  empty:
+    episode_index: 117
+    frame_index: 187
+- pair_id: 205
+  full:
+    episode_index: 59
+    frame_index: 257
+  empty:
+    episode_index: 40
+    frame_index: 203
+- pair_id: 206
+  full:
+    episode_index: 18
+    frame_index: 447
+  empty:
+    episode_index: 53
+    frame_index: 689
+- pair_id: 207
+  full:
+    episode_index: 19
+    frame_index: 304
+  empty:
+    episode_index: 61
+    frame_index: 362
+- pair_id: 208
+  full:
+    episode_index: 4
+    frame_index: 799
+  empty:
+    episode_index: 64
+    frame_index: 303
+- pair_id: 209
+  full:
+    episode_index: 127
+    frame_index: 512
+  empty:
+    episode_index: 146
+    frame_index: 204
+- pair_id: 210
+  full:
+    episode_index: 129
+    frame_index: 421
+  empty:
+    episode_index: 126
+    frame_index: 202
+- pair_id: 211
+  full:
+    episode_index: 6
+    frame_index: 350
+  empty:
+    episode_index: 140
+    frame_index: 296
+- pair_id: 212
+  full:
+    episode_index: 50
+    frame_index: 389
+  empty:
+    episode_index: 128
+    frame_index: 182
+- pair_id: 213
+  full:
+    episode_index: 46
+    frame_index: 410
+  empty:
+    episode_index: 111
+    frame_index: 487
+- pair_id: 214
+  full:
+    episode_index: 7
+    frame_index: 1109
+  empty:
+    episode_index: 120
+    frame_index: 248
+- pair_id: 215
+  full:
+    episode_index: 87
+    frame_index: 232
+  empty:
+    episode_index: 53
+    frame_index: 743
+- pair_id: 216
+  full:
+    episode_index: 86
+    frame_index: 715
+  empty:
+    episode_index: 57
+    frame_index: 519
+- pair_id: 217
+  full:
+    episode_index: 16
+    frame_index: 787
+  empty:
+    episode_index: 118
+    frame_index: 231
+- pair_id: 218
+  full:
+    episode_index: 71
+    frame_index: 277
+  empty:
+    episode_index: 111
+    frame_index: 177
+- pair_id: 219
+  full:
+    episode_index: 90
+    frame_index: 686
+  empty:
+    episode_index: 58
+    frame_index: 792
+- pair_id: 220
+  full:
+    episode_index: 85
+    frame_index: 758
+  empty:
+    episode_index: 23
+    frame_index: 598
+- pair_id: 221
+  full:
+    episode_index: 93
+    frame_index: 734
+  empty:
+    episode_index: 37
+    frame_index: 437
+- pair_id: 222
+  full:
+    episode_index: 72
+    frame_index: 288
+  empty:
+    episode_index: 65
+    frame_index: 256
+- pair_id: 223
+  full:
+    episode_index: 54
+    frame_index: 369
+  empty:
+    episode_index: 34
+    frame_index: 438
+- pair_id: 224
+  full:
+    episode_index: 51
+    frame_index: 262
+  empty:
+    episode_index: 70
+    frame_index: 551
+- pair_id: 225
+  full:
+    episode_index: 86
+    frame_index: 457
+  empty:
+    episode_index: 50
+    frame_index: 707
+- pair_id: 226
+  full:
+    episode_index: 155
+    frame_index: 383
+  empty:
+    episode_index: 53
+    frame_index: 621
+- pair_id: 227
+  full:
+    episode_index: 97
+    frame_index: 230
+  empty:
+    episode_index: 53
+    frame_index: 671
+- pair_id: 228
+  full:
+    episode_index: 152
+    frame_index: 242
+  empty:
+    episode_index: 153
+    frame_index: 596
+- pair_id: 229
+  full:
+    episode_index: 95
+    frame_index: 580
+  empty:
+    episode_index: 29
+    frame_index: 300
+- pair_id: 230
+  full:
+    episode_index: 71
+    frame_index: 247
+  empty:
+    episode_index: 115
+    frame_index: 536
+- pair_id: 231
+  full:
+    episode_index: 77
+    frame_index: 274
+  empty:
+    episode_index: 112
+    frame_index: 189
+- pair_id: 232
+  full:
+    episode_index: 4
+    frame_index: 834
+  empty:
+    episode_index: 27
+    frame_index: 277
+- pair_id: 233
+  full:
+    episode_index: 61
+    frame_index: 617
+  empty:
+    episode_index: 28
+    frame_index: 253
+- pair_id: 234
+  full:
+    episode_index: 139
+    frame_index: 483
+  empty:
+    episode_index: 78
+    frame_index: 576
+- pair_id: 235
+  full:
+    episode_index: 19
+    frame_index: 395
+  empty:
+    episode_index: 22
+    frame_index: 192
+- pair_id: 236
+  full:
+    episode_index: 94
+    frame_index: 265
+  empty:
+    episode_index: 157
+    frame_index: 580
+- pair_id: 237
+  full:
+    episode_index: 133
+    frame_index: 300
+  empty:
+    episode_index: 21
+    frame_index: 635
+- pair_id: 238
+  full:
+    episode_index: 159
+    frame_index: 351
+  empty:
+    episode_index: 156
+    frame_index: 567
+- pair_id: 239
+  full:
+    episode_index: 94
+    frame_index: 184
+  empty:
+    episode_index: 20
+    frame_index: 259
+- pair_id: 240
+  full:
+    episode_index: 92
+    frame_index: 410
+  empty:
+    episode_index: 109
+    frame_index: 473
+- pair_id: 241
+  full:
+    episode_index: 73
+    frame_index: 344
+  empty:
+    episode_index: 122
+    frame_index: 223
+- pair_id: 242
+  full:
+    episode_index: 77
+    frame_index: 354
+  empty:
+    episode_index: 112
+    frame_index: 261
+- pair_id: 243
+  full:
+    episode_index: 91
+    frame_index: 316
+  empty:
+    episode_index: 50
+    frame_index: 668
+- pair_id: 244
+  full:
+    episode_index: 56
+    frame_index: 406
+  empty:
+    episode_index: 76
+    frame_index: 538
+- pair_id: 245
+  full:
+    episode_index: 124
+    frame_index: 410
+  empty:
+    episode_index: 41
+    frame_index: 293
+- pair_id: 246
+  full:
+    episode_index: 0
+    frame_index: 426
+  empty:
+    episode_index: 102
+    frame_index: 202
+- pair_id: 247
+  full:
+    episode_index: 58
+    frame_index: 310
+  empty:
+    episode_index: 76
+    frame_index: 671
+- pair_id: 248
+  full:
+    episode_index: 158
+    frame_index: 279
+  empty:
+    episode_index: 65
+    frame_index: 237
+- pair_id: 249
+  full:
+    episode_index: 14
+    frame_index: 401
+  empty:
+    episode_index: 32
+    frame_index: 558
+- pair_id: 250
+  full:
+    episode_index: 52
+    frame_index: 274
+  empty:
+    episode_index: 34
+    frame_index: 288
+- pair_id: 251
+  full:
+    episode_index: 19
+    frame_index: 408
+  empty:
+    episode_index: 104
+    frame_index: 175
+- pair_id: 252
+  full:
+    episode_index: 1
+    frame_index: 411
+  empty:
+    episode_index: 128
+    frame_index: 224
+- pair_id: 253
+  full:
+    episode_index: 62
+    frame_index: 580
+  empty:
+    episode_index: 114
+    frame_index: 234
+- pair_id: 254
+  full:
+    episode_index: 5
+    frame_index: 1158
+  empty:
+    episode_index: 28
+    frame_index: 514
+- pair_id: 255
+  full:
+    episode_index: 6
+    frame_index: 762
+  empty:
+    episode_index: 69
+    frame_index: 210
+- pair_id: 256
+  full:
+    episode_index: 157
+    frame_index: 158
+  empty:
+    episode_index: 110
+    frame_index: 317
+- pair_id: 257
+  full:
+    episode_index: 54
+    frame_index: 338
+  empty:
+    episode_index: 39
+    frame_index: 158
+- pair_id: 258
+  full:
+    episode_index: 56
+    frame_index: 402
+  empty:
+    episode_index: 137
+    frame_index: 608
+- pair_id: 259
+  full:
+    episode_index: 14
+    frame_index: 734
+  empty:
+    episode_index: 72
+    frame_index: 599
+- pair_id: 260
+  full:
+    episode_index: 70
+    frame_index: 209
+  empty:
+    episode_index: 46
+    frame_index: 229
+- pair_id: 261
+  full:
+    episode_index: 2
+    frame_index: 962
+  empty:
+    episode_index: 42
+    frame_index: 285
+- pair_id: 262
+  full:
+    episode_index: 56
+    frame_index: 282
+  empty:
+    episode_index: 121
+    frame_index: 274
+- pair_id: 263
+  full:
+    episode_index: 5
+    frame_index: 1257
+  empty:
+    episode_index: 104
+    frame_index: 614
+- pair_id: 264
+  full:
+    episode_index: 155
+    frame_index: 374
+  empty:
+    episode_index: 31
+    frame_index: 255
+- pair_id: 265
+  full:
+    episode_index: 16
+    frame_index: 654
+  empty:
+    episode_index: 147
+    frame_index: 226
+- pair_id: 266
+  full:
+    episode_index: 18
+    frame_index: 192
+  empty:
+    episode_index: 25
+    frame_index: 279
+- pair_id: 267
+  full:
+    episode_index: 79
+    frame_index: 368
+  empty:
+    episode_index: 108
+    frame_index: 173
+- pair_id: 268
+  full:
+    episode_index: 15
+    frame_index: 213
+  empty:
+    episode_index: 154
+    frame_index: 639
+- pair_id: 269
+  full:
+    episode_index: 15
+    frame_index: 826
+  empty:
+    episode_index: 49
+    frame_index: 248
+- pair_id: 270
+  full:
+    episode_index: 83
+    frame_index: 593
+  empty:
+    episode_index: 146
+    frame_index: 177
+- pair_id: 271
+  full:
+    episode_index: 17
+    frame_index: 773
+  empty:
+    episode_index: 136
+    frame_index: 630
+- pair_id: 272
+  full:
+    episode_index: 6
+    frame_index: 1358
+  empty:
+    episode_index: 107
+    frame_index: 176
+- pair_id: 273
+  full:
+    episode_index: 98
+    frame_index: 220
+  empty:
+    episode_index: 62
+    frame_index: 327
+- pair_id: 274
+  full:
+    episode_index: 65
+    frame_index: 554
+  empty:
+    episode_index: 65
+    frame_index: 232
+- pair_id: 275
+  full:
+    episode_index: 88
+    frame_index: 314
+  empty:
+    episode_index: 21
+    frame_index: 698
+- pair_id: 276
+  full:
+    episode_index: 1
+    frame_index: 399
+  empty:
+    episode_index: 32
+    frame_index: 521
+- pair_id: 277
+  full:
+    episode_index: 150
+    frame_index: 298
+  empty:
+    episode_index: 149
+    frame_index: 203
+- pair_id: 278
+  full:
+    episode_index: 125
+    frame_index: 420
+  empty:
+    episode_index: 36
+    frame_index: 157
+- pair_id: 279
+  full:
+    episode_index: 85
+    frame_index: 737
+  empty:
+    episode_index: 49
+    frame_index: 177
+- pair_id: 280
+  full:
+    episode_index: 66
+    frame_index: 526
+  empty:
+    episode_index: 158
+    frame_index: 515
+- pair_id: 281
+  full:
+    episode_index: 9
+    frame_index: 293
+  empty:
+    episode_index: 69
+    frame_index: 176
+- pair_id: 282
+  full:
+    episode_index: 143
+    frame_index: 471
+  empty:
+    episode_index: 61
+    frame_index: 284
+- pair_id: 283
+  full:
+    episode_index: 19
+    frame_index: 347
+  empty:
+    episode_index: 29
+    frame_index: 239
+- pair_id: 284
+  full:
+    episode_index: 89
+    frame_index: 699
+  empty:
+    episode_index: 29
+    frame_index: 247
+- pair_id: 285
+  full:
+    episode_index: 16
+    frame_index: 337
+  empty:
+    episode_index: 106
+    frame_index: 146
+- pair_id: 286
+  full:
+    episode_index: 159
+    frame_index: 317
+  empty:
+    episode_index: 119
+    frame_index: 255
+- pair_id: 287
+  full:
+    episode_index: 5
+    frame_index: 1340
+  empty:
+    episode_index: 113
+    frame_index: 268
+- pair_id: 288
+  full:
+    episode_index: 2
+    frame_index: 259
+  empty:
+    episode_index: 31
+    frame_index: 266
+- pair_id: 289
+  full:
+    episode_index: 96
+    frame_index: 311
+  empty:
+    episode_index: 40
+    frame_index: 207
+- pair_id: 290
+  full:
+    episode_index: 0
+    frame_index: 633
+  empty:
+    episode_index: 130
+    frame_index: 495
+- pair_id: 291
+  full:
+    episode_index: 1
+    frame_index: 1059
+  empty:
+    episode_index: 30
+    frame_index: 555
+- pair_id: 292
+  full:
+    episode_index: 74
+    frame_index: 240
+  empty:
+    episode_index: 123
+    frame_index: 134
+- pair_id: 293
+  full:
+    episode_index: 9
+    frame_index: 669
+  empty:
+    episode_index: 69
+    frame_index: 271
+- pair_id: 294
+  full:
+    episode_index: 47
+    frame_index: 511
+  empty:
+    episode_index: 55
+    frame_index: 532
+- pair_id: 295
+  full:
+    episode_index: 55
+    frame_index: 335
+  empty:
+    episode_index: 22
+    frame_index: 497
+- pair_id: 296
+  full:
+    episode_index: 64
+    frame_index: 656
+  empty:
+    episode_index: 20
+    frame_index: 555
+- pair_id: 297
+  full:
+    episode_index: 80
+    frame_index: 668
+  empty:
+    episode_index: 58
+    frame_index: 757
+- pair_id: 298
+  full:
+    episode_index: 6
+    frame_index: 505
+  empty:
+    episode_index: 33
+    frame_index: 541
+- pair_id: 299
+  full:
+    episode_index: 12
+    frame_index: 735
+  empty:
+    episode_index: 103
+    frame_index: 520
+- pair_id: 300
+  full:
+    episode_index: 5
+    frame_index: 684
+  empty:
+    episode_index: 134
+    frame_index: 492
+- pair_id: 301
+  full:
+    episode_index: 91
+    frame_index: 215
+  empty:
+    episode_index: 49
+    frame_index: 282
+- pair_id: 302
+  full:
+    episode_index: 40
+    frame_index: 543
+  empty:
+    episode_index: 125
+    frame_index: 280
+- pair_id: 303
+  full:
+    episode_index: 55
+    frame_index: 331
+  empty:
+    episode_index: 110
+    frame_index: 208
+- pair_id: 304
+  full:
+    episode_index: 78
+    frame_index: 272
+  empty:
+    episode_index: 38
+    frame_index: 434
+- pair_id: 305
+  full:
+    episode_index: 86
+    frame_index: 929
+  empty:
+    episode_index: 49
+    frame_index: 183
+- pair_id: 306
+  full:
+    episode_index: 134
+    frame_index: 187
+  empty:
+    episode_index: 64
+    frame_index: 188
+- pair_id: 307
+  full:
+    episode_index: 88
+    frame_index: 417
+  empty:
+    episode_index: 58
+    frame_index: 680
+- pair_id: 308
+  full:
+    episode_index: 1
+    frame_index: 1028
+  empty:
+    episode_index: 104
+    frame_index: 579
+- pair_id: 309
+  full:
+    episode_index: 79
+    frame_index: 245
+  empty:
+    episode_index: 70
+    frame_index: 603
+- pair_id: 310
+  full:
+    episode_index: 93
+    frame_index: 696
+  empty:
+    episode_index: 44
+    frame_index: 209
+- pair_id: 311
+  full:
+    episode_index: 159
+    frame_index: 315
+  empty:
+    episode_index: 51
+    frame_index: 729
+- pair_id: 312
+  full:
+    episode_index: 98
+    frame_index: 354
+  empty:
+    episode_index: 49
+    frame_index: 253
+- pair_id: 313
+  full:
+    episode_index: 0
+    frame_index: 316
+  empty:
+    episode_index: 108
+    frame_index: 228
+- pair_id: 314
+  full:
+    episode_index: 12
+    frame_index: 637
+  empty:
+    episode_index: 109
+    frame_index: 226
+- pair_id: 315
+  full:
+    episode_index: 4
+    frame_index: 840
+  empty:
+    episode_index: 106
+    frame_index: 195
+- pair_id: 316
+  full:
+    episode_index: 15
+    frame_index: 259
+  empty:
+    episode_index: 41
+    frame_index: 230
+- pair_id: 317
+  full:
+    episode_index: 77
+    frame_index: 387
+  empty:
+    episode_index: 113
+    frame_index: 380
+- pair_id: 318
+  full:
+    episode_index: 134
+    frame_index: 209
+  empty:
+    episode_index: 70
+    frame_index: 483
+- pair_id: 319
+  full:
+    episode_index: 74
+    frame_index: 195
+  empty:
+    episode_index: 107
+    frame_index: 570
+- pair_id: 320
+  full:
+    episode_index: 71
+    frame_index: 236
+  empty:
+    episode_index: 73
+    frame_index: 571
+- pair_id: 321
+  full:
+    episode_index: 15
+    frame_index: 312
+  empty:
+    episode_index: 28
+    frame_index: 245
+- pair_id: 322
+  full:
+    episode_index: 82
+    frame_index: 538
+  empty:
+    episode_index: 118
+    frame_index: 386
+- pair_id: 323
+  full:
+    episode_index: 82
+    frame_index: 346
+  empty:
+    episode_index: 40
+    frame_index: 183
+- pair_id: 324
+  full:
+    episode_index: 3
+    frame_index: 240
+  empty:
+    episode_index: 118
+    frame_index: 436
+- pair_id: 325
+  full:
+    episode_index: 130
+    frame_index: 253
+  empty:
+    episode_index: 158
+    frame_index: 517
+- pair_id: 326
+  full:
+    episode_index: 130
+    frame_index: 175
+  empty:
+    episode_index: 117
+    frame_index: 189
+- pair_id: 327
+  full:
+    episode_index: 74
+    frame_index: 360
+  empty:
+    episode_index: 21
+    frame_index: 396
+- pair_id: 328
+  full:
+    episode_index: 13
+    frame_index: 458
+  empty:
+    episode_index: 154
+    frame_index: 637
+- pair_id: 329
+  full:
+    episode_index: 17
+    frame_index: 368
+  empty:
+    episode_index: 147
+    frame_index: 231
+- pair_id: 330
+  full:
+    episode_index: 40
+    frame_index: 567
+  empty:
+    episode_index: 131
+    frame_index: 479
+- pair_id: 331
+  full:
+    episode_index: 86
+    frame_index: 838
+  empty:
+    episode_index: 53
+    frame_index: 601
+- pair_id: 332
+  full:
+    episode_index: 154
+    frame_index: 394
+  empty:
+    episode_index: 144
+    frame_index: 279
+- pair_id: 333
+  full:
+    episode_index: 87
+    frame_index: 744
+  empty:
+    episode_index: 150
+    frame_index: 649
+- pair_id: 334
+  full:
+    episode_index: 0
+    frame_index: 561
+  empty:
+    episode_index: 143
+    frame_index: 162
+- pair_id: 335
+  full:
+    episode_index: 55
+    frame_index: 248
+  empty:
+    episode_index: 63
+    frame_index: 184
+- pair_id: 336
+  full:
+    episode_index: 89
+    frame_index: 345
+  empty:
+    episode_index: 42
+    frame_index: 181
+- pair_id: 337
+  full:
+    episode_index: 9
+    frame_index: 704
+  empty:
+    episode_index: 125
+    frame_index: 147
+- pair_id: 338
+  full:
+    episode_index: 151
+    frame_index: 393
+  empty:
+    episode_index: 55
+    frame_index: 500
+- pair_id: 339
+  full:
+    episode_index: 124
+    frame_index: 522
+  empty:
+    episode_index: 125
+    frame_index: 238
+- pair_id: 340
+  full:
+    episode_index: 10
+    frame_index: 931
+  empty:
+    episode_index: 108
+    frame_index: 208
+- pair_id: 341
+  full:
+    episode_index: 88
+    frame_index: 654
+  empty:
+    episode_index: 68
+    frame_index: 185
+- pair_id: 342
+  full:
+    episode_index: 158
+    frame_index: 326
+  empty:
+    episode_index: 75
+    frame_index: 501
+- pair_id: 343
+  full:
+    episode_index: 54
+    frame_index: 366
+  empty:
+    episode_index: 113
+    frame_index: 511
+- pair_id: 344
+  full:
+    episode_index: 68
+    frame_index: 525
+  empty:
+    episode_index: 101
+    frame_index: 514
+- pair_id: 345
+  full:
+    episode_index: 138
+    frame_index: 207
+  empty:
+    episode_index: 133
+    frame_index: 597
+- pair_id: 346
+  full:
+    episode_index: 42
+    frame_index: 486
+  empty:
+    episode_index: 53
+    frame_index: 750
+- pair_id: 347
+  full:
+    episode_index: 136
+    frame_index: 285
+  empty:
+    episode_index: 54
+    frame_index: 641
+- pair_id: 348
+  full:
+    episode_index: 17
+    frame_index: 292
+  empty:
+    episode_index: 133
+    frame_index: 538
+- pair_id: 349
+  full:
+    episode_index: 130
+    frame_index: 234
+  empty:
+    episode_index: 132
+    frame_index: 519
+- pair_id: 350
+  full:
+    episode_index: 6
+    frame_index: 1439
+  empty:
+    episode_index: 147
+    frame_index: 247
+- pair_id: 351
+  full:
+    episode_index: 0
+    frame_index: 331
+  empty:
+    episode_index: 34
+    frame_index: 428
+- pair_id: 352
+  full:
+    episode_index: 0
+    frame_index: 969
+  empty:
+    episode_index: 68
+    frame_index: 217
+- pair_id: 353
+  full:
+    episode_index: 13
+    frame_index: 853
+  empty:
+    episode_index: 58
+    frame_index: 697
+- pair_id: 354
+  full:
+    episode_index: 152
+    frame_index: 360
+  empty:
+    episode_index: 106
+    frame_index: 416
+- pair_id: 355
+  full:
+    episode_index: 60
+    frame_index: 635
+  empty:
+    episode_index: 152
+    frame_index: 567
+- pair_id: 356
+  full:
+    episode_index: 54
+    frame_index: 282
+  empty:
+    episode_index: 136
+    frame_index: 644
+- pair_id: 357
+  full:
+    episode_index: 66
+    frame_index: 609
+  empty:
+    episode_index: 113
+    frame_index: 431
+- pair_id: 358
+  full:
+    episode_index: 12
+    frame_index: 777
+  empty:
+    episode_index: 62
+    frame_index: 337
+- pair_id: 359
+  full:
+    episode_index: 94
+    frame_index: 716
+  empty:
+    episode_index: 101
+    frame_index: 283
+- pair_id: 360
+  full:
+    episode_index: 138
+    frame_index: 259
+  empty:
+    episode_index: 21
+    frame_index: 626
+- pair_id: 361
+  full:
+    episode_index: 54
+    frame_index: 396
+  empty:
+    episode_index: 101
+    frame_index: 521
+- pair_id: 362
+  full:
+    episode_index: 18
+    frame_index: 267
+  empty:
+    episode_index: 112
+    frame_index: 326
+- pair_id: 363
+  full:
+    episode_index: 73
+    frame_index: 184
+  empty:
+    episode_index: 67
+    frame_index: 318
+- pair_id: 364
+  full:
+    episode_index: 47
+    frame_index: 497
+  empty:
+    episode_index: 62
+    frame_index: 330
+- pair_id: 365
+  full:
+    episode_index: 15
+    frame_index: 713
+  empty:
+    episode_index: 79
+    frame_index: 579
+- pair_id: 366
+  full:
+    episode_index: 92
+    frame_index: 757
+  empty:
+    episode_index: 154
+    frame_index: 625
+- pair_id: 367
+  full:
+    episode_index: 41
+    frame_index: 595
+  empty:
+    episode_index: 115
+    frame_index: 266
+- pair_id: 368
+  full:
+    episode_index: 84
+    frame_index: 421
+  empty:
+    episode_index: 53
+    frame_index: 716
+- pair_id: 369
+  full:
+    episode_index: 76
+    frame_index: 224
+  empty:
+    episode_index: 24
+    frame_index: 550
+- pair_id: 370
+  full:
+    episode_index: 126
+    frame_index: 443
+  empty:
+    episode_index: 107
+    frame_index: 584
+- pair_id: 371
+  full:
+    episode_index: 69
+    frame_index: 578
+  empty:
+    episode_index: 52
+    frame_index: 664
+- pair_id: 372
+  full:
+    episode_index: 3
+    frame_index: 978
+  empty:
+    episode_index: 44
+    frame_index: 162
+- pair_id: 373
+  full:
+    episode_index: 135
+    frame_index: 216
+  empty:
+    episode_index: 117
+    frame_index: 237
+- pair_id: 374
+  full:
+    episode_index: 71
+    frame_index: 205
+  empty:
+    episode_index: 106
+    frame_index: 425
+- pair_id: 375
+  full:
+    episode_index: 140
+    frame_index: 545
+  empty:
+    episode_index: 104
+    frame_index: 535
+- pair_id: 376
+  full:
+    episode_index: 90
+    frame_index: 690
+  empty:
+    episode_index: 150
+    frame_index: 654
+- pair_id: 377
+  full:
+    episode_index: 99
+    frame_index: 323
+  empty:
+    episode_index: 119
+    frame_index: 203
+- pair_id: 378
+  full:
+    episode_index: 57
+    frame_index: 231
+  empty:
+    episode_index: 113
+    frame_index: 459
+- pair_id: 379
+  full:
+    episode_index: 18
+    frame_index: 852
+  empty:
+    episode_index: 101
+    frame_index: 566
+- pair_id: 380
+  full:
+    episode_index: 7
+    frame_index: 992
+  empty:
+    episode_index: 101
+    frame_index: 475
+- pair_id: 381
+  full:
+    episode_index: 8
+    frame_index: 750
+  empty:
+    episode_index: 152
+    frame_index: 548
+- pair_id: 382
+  full:
+    episode_index: 137
+    frame_index: 264
+  empty:
+    episode_index: 37
+    frame_index: 184
+- pair_id: 383
+  full:
+    episode_index: 17
+    frame_index: 671
+  empty:
+    episode_index: 116
+    frame_index: 609
+- pair_id: 384
+  full:
+    episode_index: 7
+    frame_index: 987
+  empty:
+    episode_index: 142
+    frame_index: 254
+- pair_id: 385
+  full:
+    episode_index: 2
+    frame_index: 612
+  empty:
+    episode_index: 143
+    frame_index: 248
+- pair_id: 386
+  full:
+    episode_index: 80
+    frame_index: 639
+  empty:
+    episode_index: 111
+    frame_index: 454
+- pair_id: 387
+  full:
+    episode_index: 4
+    frame_index: 302
+  empty:
+    episode_index: 48
+    frame_index: 243
+- pair_id: 388
+  full:
+    episode_index: 52
+    frame_index: 416
+  empty:
+    episode_index: 48
+    frame_index: 300
+- pair_id: 389
+  full:
+    episode_index: 94
+    frame_index: 328
+  empty:
+    episode_index: 48
+    frame_index: 231
+- pair_id: 390
+  full:
+    episode_index: 59
+    frame_index: 228
+  empty:
+    episode_index: 31
+    frame_index: 288
+- pair_id: 391
+  full:
+    episode_index: 93
+    frame_index: 417
+  empty:
+    episode_index: 118
+    frame_index: 516
+- pair_id: 392
+  full:
+    episode_index: 96
+    frame_index: 359
+  empty:
+    episode_index: 47
+    frame_index: 239
+- pair_id: 393
+  full:
+    episode_index: 82
+    frame_index: 530
+  empty:
+    episode_index: 136
+    frame_index: 583
+- pair_id: 394
+  full:
+    episode_index: 87
+    frame_index: 630
+  empty:
+    episode_index: 30
+    frame_index: 453
+- pair_id: 395
+  full:
+    episode_index: 125
+    frame_index: 458
+  empty:
+    episode_index: 34
+    frame_index: 215
+- pair_id: 396
+  full:
+    episode_index: 88
+    frame_index: 742
+  empty:
+    episode_index: 111
+    frame_index: 194
+- pair_id: 397
+  full:
+    episode_index: 59
+    frame_index: 167
+  empty:
+    episode_index: 143
+    frame_index: 232
+- pair_id: 398
+  full:
+    episode_index: 67
+    frame_index: 496
+  empty:
+    episode_index: 42
+    frame_index: 254
+- pair_id: 399
+  full:
+    episode_index: 51
+    frame_index: 370
+  empty:
+    episode_index: 117
+    frame_index: 522
+- pair_id: 400
+  full:
+    episode_index: 17
+    frame_index: 350
+  empty:
+    episode_index: 134
+    frame_index: 580
+- pair_id: 401
+  full:
+    episode_index: 12
+    frame_index: 706
+  empty:
+    episode_index: 148
+    frame_index: 239
+- pair_id: 402
+  full:
+    episode_index: 13
+    frame_index: 343
+  empty:
+    episode_index: 120
+    frame_index: 177
+- pair_id: 403
+  full:
+    episode_index: 50
+    frame_index: 346
+  empty:
+    episode_index: 33
+    frame_index: 307
+- pair_id: 404
+  full:
+    episode_index: 99
+    frame_index: 302
+  empty:
+    episode_index: 36
+    frame_index: 412
+- pair_id: 405
+  full:
+    episode_index: 126
+    frame_index: 519
+  empty:
+    episode_index: 124
+    frame_index: 266
+- pair_id: 406
+  full:
+    episode_index: 81
+    frame_index: 644
+  empty:
+    episode_index: 54
+    frame_index: 623
+- pair_id: 407
+  full:
+    episode_index: 134
+    frame_index: 206
+  empty:
+    episode_index: 138
+    frame_index: 612
+- pair_id: 408
+  full:
+    episode_index: 1
+    frame_index: 564
+  empty:
+    episode_index: 21
+    frame_index: 371
+- pair_id: 409
+  full:
+    episode_index: 98
+    frame_index: 606
+  empty:
+    episode_index: 52
+    frame_index: 613
+- pair_id: 410
+  full:
+    episode_index: 141
+    frame_index: 498
+  empty:
+    episode_index: 110
+    frame_index: 517
+- pair_id: 411
+  full:
+    episode_index: 8
+    frame_index: 813
+  empty:
+    episode_index: 116
+    frame_index: 312
+- pair_id: 412
+  full:
+    episode_index: 67
+    frame_index: 578
+  empty:
+    episode_index: 110
+    frame_index: 234
+- pair_id: 413
+  full:
+    episode_index: 53
+    frame_index: 282
+  empty:
+    episode_index: 30
+    frame_index: 501
+- pair_id: 414
+  full:
+    episode_index: 59
+    frame_index: 178
+  empty:
+    episode_index: 111
+    frame_index: 197
+- pair_id: 415
+  full:
+    episode_index: 85
+    frame_index: 288
+  empty:
+    episode_index: 54
+    frame_index: 587
+- pair_id: 416
+  full:
+    episode_index: 131
+    frame_index: 298
+  empty:
+    episode_index: 27
+    frame_index: 214
+- pair_id: 417
+  full:
+    episode_index: 6
+    frame_index: 1564
+  empty:
+    episode_index: 128
+    frame_index: 238
+- pair_id: 418
+  full:
+    episode_index: 13
+    frame_index: 486
+  empty:
+    episode_index: 30
+    frame_index: 231
+- pair_id: 419
+  full:
+    episode_index: 54
+    frame_index: 231
+  empty:
+    episode_index: 44
+    frame_index: 254
+- pair_id: 420
+  full:
+    episode_index: 13
+    frame_index: 325
+  empty:
+    episode_index: 67
+    frame_index: 335
+- pair_id: 421
+  full:
+    episode_index: 85
+    frame_index: 841
+  empty:
+    episode_index: 71
+    frame_index: 563
+- pair_id: 422
+  full:
+    episode_index: 121
+    frame_index: 557
+  empty:
+    episode_index: 64
+    frame_index: 193
+- pair_id: 423
+  full:
+    episode_index: 83
+    frame_index: 597
+  empty:
+    episode_index: 113
+    frame_index: 377
+- pair_id: 424
+  full:
+    episode_index: 7
+    frame_index: 383
+  empty:
+    episode_index: 56
+    frame_index: 589
+- pair_id: 425
+  full:
+    episode_index: 158
+    frame_index: 301
+  empty:
+    episode_index: 63
+    frame_index: 218
+- pair_id: 426
+  full:
+    episode_index: 97
+    frame_index: 355
+  empty:
+    episode_index: 109
+    frame_index: 462
+- pair_id: 427
+  full:
+    episode_index: 138
+    frame_index: 369
+  empty:
+    episode_index: 35
+    frame_index: 448
+- pair_id: 428
+  full:
+    episode_index: 18
+    frame_index: 357
+  empty:
+    episode_index: 65
+    frame_index: 215
+- pair_id: 429
+  full:
+    episode_index: 70
+    frame_index: 306
+  empty:
+    episode_index: 54
+    frame_index: 722
+- pair_id: 430
+  full:
+    episode_index: 18
+    frame_index: 203
+  empty:
+    episode_index: 142
+    frame_index: 220
+- pair_id: 431
+  full:
+    episode_index: 158
+    frame_index: 296
+  empty:
+    episode_index: 115
+    frame_index: 618
+- pair_id: 432
+  full:
+    episode_index: 131
+    frame_index: 279
+  empty:
+    episode_index: 77
+    frame_index: 673
+- pair_id: 433
+  full:
+    episode_index: 91
+    frame_index: 695
+  empty:
+    episode_index: 105
+    frame_index: 227
+- pair_id: 434
+  full:
+    episode_index: 97
+    frame_index: 223
+  empty:
+    episode_index: 115
+    frame_index: 356
+- pair_id: 435
+  full:
+    episode_index: 17
+    frame_index: 659
+  empty:
+    episode_index: 32
+    frame_index: 279
+- pair_id: 436
+  full:
+    episode_index: 138
+    frame_index: 245
+  empty:
+    episode_index: 103
+    frame_index: 260
+- pair_id: 437
+  full:
+    episode_index: 8
+    frame_index: 324
+  empty:
+    episode_index: 140
+    frame_index: 224
+- pair_id: 438
+  full:
+    episode_index: 128
+    frame_index: 410
+  empty:
+    episode_index: 63
+    frame_index: 233
+- pair_id: 439
+  full:
+    episode_index: 152
+    frame_index: 234
+  empty:
+    episode_index: 62
+    frame_index: 232
+- pair_id: 440
+  full:
+    episode_index: 86
+    frame_index: 938
+  empty:
+    episode_index: 116
+    frame_index: 580
+- pair_id: 441
+  full:
+    episode_index: 74
+    frame_index: 383
+  empty:
+    episode_index: 116
+    frame_index: 492
+- pair_id: 442
+  full:
+    episode_index: 84
+    frame_index: 419
+  empty:
+    episode_index: 59
+    frame_index: 515
+- pair_id: 443
+  full:
+    episode_index: 10
+    frame_index: 916
+  empty:
+    episode_index: 115
+    frame_index: 239
+- pair_id: 444
+  full:
+    episode_index: 155
+    frame_index: 356
+  empty:
+    episode_index: 150
+    frame_index: 592
+- pair_id: 445
+  full:
+    episode_index: 91
+    frame_index: 743
+  empty:
+    episode_index: 58
+    frame_index: 698
+- pair_id: 446
+  full:
+    episode_index: 6
+    frame_index: 644
+  empty:
+    episode_index: 51
+    frame_index: 702
+- pair_id: 447
+  full:
+    episode_index: 16
+    frame_index: 380
+  empty:
+    episode_index: 34
+    frame_index: 227
+- pair_id: 448
+  full:
+    episode_index: 125
+    frame_index: 560
+  empty:
+    episode_index: 110
+    frame_index: 474
+- pair_id: 449
+  full:
+    episode_index: 93
+    frame_index: 347
+  empty:
+    episode_index: 117
+    frame_index: 553
+- pair_id: 450
+  full:
+    episode_index: 77
+    frame_index: 334
+  empty:
+    episode_index: 100
+    frame_index: 485
+- pair_id: 451
+  full:
+    episode_index: 42
+    frame_index: 584
+  empty:
+    episode_index: 69
+    frame_index: 306
+- pair_id: 452
+  full:
+    episode_index: 73
+    frame_index: 190
+  empty:
+    episode_index: 158
+    frame_index: 527
+- pair_id: 453
+  full:
+    episode_index: 2
+    frame_index: 958
+  empty:
+    episode_index: 48
+    frame_index: 183
+- pair_id: 454
+  full:
+    episode_index: 7
+    frame_index: 610
+  empty:
+    episode_index: 117
+    frame_index: 525
+- pair_id: 455
+  full:
+    episode_index: 75
+    frame_index: 314
+  empty:
+    episode_index: 117
+    frame_index: 450
+- pair_id: 456
+  full:
+    episode_index: 121
+    frame_index: 590
+  empty:
+    episode_index: 140
+    frame_index: 198
+- pair_id: 457
+  full:
+    episode_index: 2
+    frame_index: 374
+  empty:
+    episode_index: 50
+    frame_index: 604
+- pair_id: 458
+  full:
+    episode_index: 93
+    frame_index: 361
+  empty:
+    episode_index: 69
+    frame_index: 233
+- pair_id: 459
+  full:
+    episode_index: 50
+    frame_index: 229
+  empty:
+    episode_index: 157
+    frame_index: 534
+- pair_id: 460
+  full:
+    episode_index: 132
+    frame_index: 242
+  empty:
+    episode_index: 22
+    frame_index: 529
+- pair_id: 461
+  full:
+    episode_index: 69
+    frame_index: 533
+  empty:
+    episode_index: 104
+    frame_index: 615
+- pair_id: 462
+  full:
+    episode_index: 155
+    frame_index: 366
+  empty:
+    episode_index: 132
+    frame_index: 584
+- pair_id: 463
+  full:
+    episode_index: 18
+    frame_index: 370
+  empty:
+    episode_index: 157
+    frame_index: 496
+- pair_id: 464
+  full:
+    episode_index: 69
+    frame_index: 525
+  empty:
+    episode_index: 112
+    frame_index: 224
+- pair_id: 465
+  full:
+    episode_index: 98
+    frame_index: 725
+  empty:
+    episode_index: 27
+    frame_index: 194
+- pair_id: 466
+  full:
+    episode_index: 18
+    frame_index: 868
+  empty:
+    episode_index: 34
+    frame_index: 467
+- pair_id: 467
+  full:
+    episode_index: 134
+    frame_index: 260
+  empty:
+    episode_index: 102
+    frame_index: 512
+- pair_id: 468
+  full:
+    episode_index: 128
+    frame_index: 419
+  empty:
+    episode_index: 56
+    frame_index: 613
+- pair_id: 469
+  full:
+    episode_index: 64
+    frame_index: 521
+  empty:
+    episode_index: 100
+    frame_index: 252
+- pair_id: 470
+  full:
+    episode_index: 92
+    frame_index: 827
+  empty:
+    episode_index: 151
+    frame_index: 561
+- pair_id: 471
+  full:
+    episode_index: 94
+    frame_index: 615
+  empty:
+    episode_index: 107
+    frame_index: 165
+- pair_id: 472
+  full:
+    episode_index: 128
+    frame_index: 359
+  empty:
+    episode_index: 72
+    frame_index: 621
+- pair_id: 473
+  full:
+    episode_index: 3
+    frame_index: 893
+  empty:
+    episode_index: 25
+    frame_index: 503
+- pair_id: 474
+  full:
+    episode_index: 2
+    frame_index: 527
+  empty:
+    episode_index: 105
+    frame_index: 594
+- pair_id: 475
+  full:
+    episode_index: 88
+    frame_index: 268
+  empty:
+    episode_index: 110
+    frame_index: 450
+- pair_id: 476
+  full:
+    episode_index: 68
+    frame_index: 583
+  empty:
+    episode_index: 110
+    frame_index: 491
+- pair_id: 477
+  full:
+    episode_index: 53
+    frame_index: 405
+  empty:
+    episode_index: 51
+    frame_index: 721
+- pair_id: 478
+  full:
+    episode_index: 13
+    frame_index: 996
+  empty:
+    episode_index: 71
+    frame_index: 512
+- pair_id: 479
+  full:
+    episode_index: 86
+    frame_index: 500
+  empty:
+    episode_index: 115
+    frame_index: 522
+- pair_id: 480
+  full:
+    episode_index: 0
+    frame_index: 433
+  empty:
+    episode_index: 116
+    frame_index: 201
+- pair_id: 481
+  full:
+    episode_index: 131
+    frame_index: 190
+  empty:
+    episode_index: 64
+    frame_index: 353
+- pair_id: 482
+  full:
+    episode_index: 153
+    frame_index: 270
+  empty:
+    episode_index: 53
+    frame_index: 722
+- pair_id: 483
+  full:
+    episode_index: 67
+    frame_index: 551
+  empty:
+    episode_index: 109
+    frame_index: 513
+- pair_id: 484
+  full:
+    episode_index: 1
+    frame_index: 557
+  empty:
+    episode_index: 145
+    frame_index: 218
+- pair_id: 485
+  full:
+    episode_index: 41
+    frame_index: 492
+  empty:
+    episode_index: 32
+    frame_index: 534
+- pair_id: 486
+  full:
+    episode_index: 3
+    frame_index: 753
+  empty:
+    episode_index: 62
+    frame_index: 220
+- pair_id: 487
+  full:
+    episode_index: 85
+    frame_index: 292
+  empty:
+    episode_index: 76
+    frame_index: 565
+- pair_id: 488
+  full:
+    episode_index: 127
+    frame_index: 439
+  empty:
+    episode_index: 108
+    frame_index: 392
+- pair_id: 489
+  full:
+    episode_index: 99
+    frame_index: 720
+  empty:
+    episode_index: 122
+    frame_index: 213
+- pair_id: 490
+  full:
+    episode_index: 82
+    frame_index: 364
+  empty:
+    episode_index: 32
+    frame_index: 515
+- pair_id: 491
+  full:
+    episode_index: 42
+    frame_index: 525
+  empty:
+    episode_index: 67
+    frame_index: 225
+- pair_id: 492
+  full:
+    episode_index: 5
+    frame_index: 965
+  empty:
+    episode_index: 30
+    frame_index: 458
+- pair_id: 493
+  full:
+    episode_index: 92
+    frame_index: 340
+  empty:
+    episode_index: 124
+    frame_index: 169
+- pair_id: 494
+  full:
+    episode_index: 150
+    frame_index: 239
+  empty:
+    episode_index: 70
+    frame_index: 606
+- pair_id: 495
+  full:
+    episode_index: 50
+    frame_index: 261
+  empty:
+    episode_index: 62
+    frame_index: 332
+- pair_id: 496
+  full:
+    episode_index: 9
+    frame_index: 857
+  empty:
+    episode_index: 24
+    frame_index: 509
+- pair_id: 497
+  full:
+    episode_index: 77
+    frame_index: 386
+  empty:
+    episode_index: 137
+    frame_index: 661
+- pair_id: 498
+  full:
+    episode_index: 122
+    frame_index: 432
+  empty:
+    episode_index: 48
+    frame_index: 270
+- pair_id: 499
+  full:
+    episode_index: 64
+    frame_index: 718
+  empty:
+    episode_index: 48
+    frame_index: 264
+data:
+  type: LeRobotBiFlexivTactileDataConfig
+  repo_id: Xense/bottle-sorting-0810
+  use_delta_cartesian_actions: true
+  default_prompt: Pick up the bottle, and place it in the far bin if it is heavy, or in the near bin if it is light.
+  base_config:
+    prompt_from_task: true
