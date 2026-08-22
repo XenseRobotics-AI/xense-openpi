@@ -1,0 +1,389 @@
+dataset:
+  repo_id: Xense/bottle-sorting-0810
+  revision: null
+  root: null
+model:
+  checkpoint_dir: /home/li/hubo/xense-openpi/checkpoints/pi05_base_bi_flexiv_bottle_sorting_0817_fastvit_h100/59999
+  inline:
+    type: Pi0TactileFastVitConfig
+    paligemma_variant: gemma_2b
+    action_expert_variant: gemma_300m
+    pi05: true
+    enable_training_time_rtc: true
+    max_delay: 10
+    tactile_encoder_name: fastvit_t12
+    tactile_pretrained_path: null
+experiment:
+  inference_mode: rtc
+  num_steps: 10
+  base_seed: 12345
+  batch_size: 1
+output:
+  dir: outputs/tactile_counterfactual
+  shard_size: 10
+  save_fastvit_features: true
+  save_tactile_tokens: true
+  save_suffix_tokens: false
+  save_adarms_cond: true
+  save_action_hidden: true
+  save_v_t: false
+  save_x_t: false
+  hidden_storage_dtype: float16
+pairs:
+- pair_id: 0
+  full:
+    episode_index: 141
+    frame_index: 417
+  empty:
+    episode_index: 136
+    frame_index: 637
+- pair_id: 1
+  full:
+    episode_index: 85
+    frame_index: 734
+  empty:
+    episode_index: 121
+    frame_index: 306
+- pair_id: 2
+  full:
+    episode_index: 42
+    frame_index: 604
+  empty:
+    episode_index: 37
+    frame_index: 173
+- pair_id: 3
+  full:
+    episode_index: 156
+    frame_index: 343
+  empty:
+    episode_index: 64
+    frame_index: 265
+- pair_id: 4
+  full:
+    episode_index: 124
+    frame_index: 424
+  empty:
+    episode_index: 105
+    frame_index: 561
+- pair_id: 5
+  full:
+    episode_index: 97
+    frame_index: 666
+  empty:
+    episode_index: 143
+    frame_index: 245
+- pair_id: 6
+  full:
+    episode_index: 2
+    frame_index: 270
+  empty:
+    episode_index: 44
+    frame_index: 292
+- pair_id: 7
+  full:
+    episode_index: 78
+    frame_index: 234
+  empty:
+    episode_index: 55
+    frame_index: 577
+- pair_id: 8
+  full:
+    episode_index: 84
+    frame_index: 767
+  empty:
+    episode_index: 57
+    frame_index: 538
+- pair_id: 9
+  full:
+    episode_index: 86
+    frame_index: 717
+  empty:
+    episode_index: 78
+    frame_index: 660
+- pair_id: 10
+  full:
+    episode_index: 69
+    frame_index: 467
+  empty:
+    episode_index: 24
+    frame_index: 196
+- pair_id: 11
+  full:
+    episode_index: 15
+    frame_index: 760
+  empty:
+    episode_index: 41
+    frame_index: 251
+- pair_id: 12
+  full:
+    episode_index: 152
+    frame_index: 322
+  empty:
+    episode_index: 57
+    frame_index: 618
+- pair_id: 13
+  full:
+    episode_index: 147
+    frame_index: 567
+  empty:
+    episode_index: 55
+    frame_index: 615
+- pair_id: 14
+  full:
+    episode_index: 132
+    frame_index: 261
+  empty:
+    episode_index: 158
+    frame_index: 598
+- pair_id: 15
+  full:
+    episode_index: 19
+    frame_index: 772
+  empty:
+    episode_index: 34
+    frame_index: 457
+- pair_id: 16
+  full:
+    episode_index: 8
+    frame_index: 989
+  empty:
+    episode_index: 132
+    frame_index: 535
+- pair_id: 17
+  full:
+    episode_index: 71
+    frame_index: 248
+  empty:
+    episode_index: 108
+    frame_index: 538
+- pair_id: 18
+  full:
+    episode_index: 0
+    frame_index: 994
+  empty:
+    episode_index: 30
+    frame_index: 527
+- pair_id: 19
+  full:
+    episode_index: 2
+    frame_index: 517
+  empty:
+    episode_index: 26
+    frame_index: 197
+- pair_id: 20
+  full:
+    episode_index: 46
+    frame_index: 538
+  empty:
+    episode_index: 34
+    frame_index: 242
+- pair_id: 21
+  full:
+    episode_index: 57
+    frame_index: 301
+  empty:
+    episode_index: 78
+    frame_index: 581
+- pair_id: 22
+  full:
+    episode_index: 130
+    frame_index: 209
+  empty:
+    episode_index: 64
+    frame_index: 366
+- pair_id: 23
+  full:
+    episode_index: 84
+    frame_index: 313
+  empty:
+    episode_index: 28
+    frame_index: 200
+- pair_id: 24
+  full:
+    episode_index: 13
+    frame_index: 534
+  empty:
+    episode_index: 37
+    frame_index: 214
+- pair_id: 25
+  full:
+    episode_index: 159
+    frame_index: 355
+  empty:
+    episode_index: 64
+    frame_index: 183
+- pair_id: 26
+  full:
+    episode_index: 81
+    frame_index: 725
+  empty:
+    episode_index: 27
+    frame_index: 478
+- pair_id: 27
+  full:
+    episode_index: 78
+    frame_index: 221
+  empty:
+    episode_index: 137
+    frame_index: 576
+- pair_id: 28
+  full:
+    episode_index: 89
+    frame_index: 455
+  empty:
+    episode_index: 37
+    frame_index: 491
+- pair_id: 29
+  full:
+    episode_index: 85
+    frame_index: 833
+  empty:
+    episode_index: 21
+    frame_index: 705
+- pair_id: 30
+  full:
+    episode_index: 147
+    frame_index: 450
+  empty:
+    episode_index: 111
+    frame_index: 218
+- pair_id: 31
+  full:
+    episode_index: 0
+    frame_index: 548
+  empty:
+    episode_index: 50
+    frame_index: 746
+- pair_id: 32
+  full:
+    episode_index: 46
+    frame_index: 498
+  empty:
+    episode_index: 36
+    frame_index: 177
+- pair_id: 33
+  full:
+    episode_index: 120
+    frame_index: 583
+  empty:
+    episode_index: 70
+    frame_index: 525
+- pair_id: 34
+  full:
+    episode_index: 144
+    frame_index: 440
+  empty:
+    episode_index: 104
+    frame_index: 284
+- pair_id: 35
+  full:
+    episode_index: 58
+    frame_index: 340
+  empty:
+    episode_index: 71
+    frame_index: 608
+- pair_id: 36
+  full:
+    episode_index: 60
+    frame_index: 502
+  empty:
+    episode_index: 37
+    frame_index: 518
+- pair_id: 37
+  full:
+    episode_index: 70
+    frame_index: 179
+  empty:
+    episode_index: 55
+    frame_index: 536
+- pair_id: 38
+  full:
+    episode_index: 48
+    frame_index: 512
+  empty:
+    episode_index: 24
+    frame_index: 421
+- pair_id: 39
+  full:
+    episode_index: 9
+    frame_index: 228
+  empty:
+    episode_index: 71
+    frame_index: 623
+- pair_id: 40
+  full:
+    episode_index: 60
+    frame_index: 516
+  empty:
+    episode_index: 144
+    frame_index: 278
+- pair_id: 41
+  full:
+    episode_index: 97
+    frame_index: 587
+  empty:
+    episode_index: 128
+    frame_index: 232
+- pair_id: 42
+  full:
+    episode_index: 59
+    frame_index: 268
+  empty:
+    episode_index: 72
+    frame_index: 494
+- pair_id: 43
+  full:
+    episode_index: 0
+    frame_index: 520
+  empty:
+    episode_index: 126
+    frame_index: 268
+- pair_id: 44
+  full:
+    episode_index: 150
+    frame_index: 248
+  empty:
+    episode_index: 71
+    frame_index: 516
+- pair_id: 45
+  full:
+    episode_index: 2
+    frame_index: 974
+  empty:
+    episode_index: 27
+    frame_index: 256
+- pair_id: 46
+  full:
+    episode_index: 85
+    frame_index: 779
+  empty:
+    episode_index: 137
+    frame_index: 545
+- pair_id: 47
+  full:
+    episode_index: 151
+    frame_index: 349
+  empty:
+    episode_index: 128
+    frame_index: 222
+- pair_id: 48
+  full:
+    episode_index: 47
+    frame_index: 537
+  empty:
+    episode_index: 33
+    frame_index: 597
+- pair_id: 49
+  full:
+    episode_index: 123
+    frame_index: 537
+  empty:
+    episode_index: 119
+    frame_index: 160
+data:
+  type: LeRobotBiFlexivTactileDataConfig
+  repo_id: Xense/bottle-sorting-0810
+  use_delta_cartesian_actions: true
+  default_prompt: Pick up the bottle, and place it in the far bin if it is heavy, or in the near bin if it is light.
+  base_config:
+    prompt_from_task: true
