@@ -146,7 +146,13 @@ def load_model(
         )
         model_config = dataclasses.replace(model_config, tactile_pretrained_path=None)
 
-    params = _model.restore_params(checkpoint_dir)
+    # A training checkpoint step dir holds params/, train_state/ and assets/; the
+    # weights themselves live in params/ (same path policy_config.create_trained_policy
+    # loads). Accept a params dir directly too, for convenience.
+    params_dir = checkpoint_dir / "params"
+    if not params_dir.is_dir():
+        params_dir = checkpoint_dir
+    params = _model.restore_params(params_dir)
     flat = _flatten_keys(params)
     missing_tactile = [k for k in ("tactile_encoder", "tactile_proj") if not any(k in key for key in flat)]
     if missing_tactile:
@@ -341,6 +347,8 @@ class ProbeRunner:
             noise=jnp.asarray(noise),
             inference_mode=self.sampler.inference_mode,
             sampler=self.sampler,
+            rtol=self.probe.experiment.eq_rtol,
+            atol=self.probe.experiment.eq_atol,
         )
         logger.info("Equivalence gate PASSED: %s", result)
         return result

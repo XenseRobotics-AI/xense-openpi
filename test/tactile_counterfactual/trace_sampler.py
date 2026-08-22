@@ -36,11 +36,18 @@ from openpi.models.pi0_tactile_fastvit import Pi0TactileFastVit
 
 logger = logging.getLogger("tactile_counterfactual")
 
-# Default tolerance for trace-vs-production equivalence. The trace runs the
-# same op sequence as the production loop, so the difference is expected to be
-# ~1e-6 (bfloat16 suffix activations) at most.
-EQ_RTOL = 1e-4
-EQ_ATOL = 1e-5
+# Default tolerance for trace-vs-production equivalence. The trace runs the same
+# op sequence as the production loop, but jits it per denoising step instead of
+# as one `lax.while_loop`, so XLA fuses the two differently. That reordering is
+# invisible in exact arithmetic - the two paths agree bit-for-bit under float32
+# with jax_default_matmul_precision="highest" - but with bf16 activations and
+# GPU TF32 matmuls it moves the final action by ~3e-3 (measured on
+# pi05_base_bi_flexiv_bottle_sorting_0817_fastvit, 10 steps, |action| ~ 1).
+# The tolerance sits above that numerical floor and far below any real logic
+# error, which would shift the action by O(0.1-1). Override per experiment via
+# `experiment.eq_rtol` / `experiment.eq_atol` in the probe YAML.
+EQ_RTOL = 1e-2
+EQ_ATOL = 5e-3
 
 
 @dataclasses.dataclass

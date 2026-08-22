@@ -3,7 +3,7 @@ dataset:
   revision: null
   root: null
 model:
-  checkpoint_dir: checkpoints/pi05_base_bi_flexiv_bottle_sorting_0817_fastvit_h100/bottle_sorting_0817_fastvit_h100/39999
+  checkpoint_dir: /home/li/hubo/xense-openpi/checkpoints/pi05_base_bi_flexiv_bottle_sorting_0817_fastvit_h100/59999
   inline:
     type: Pi0TactileFastVitConfig
     paligemma_variant: gemma_2b
@@ -21,8 +21,8 @@ experiment:
 output:
   dir: outputs/tactile_counterfactual
   shard_size: 50
-  save_fastvit_features: true
-  save_tactile_tokens: true
+  save_fastvit_features: false
+  save_tactile_tokens: false
   save_suffix_tokens: false
   save_adarms_cond: true
   save_action_hidden: true
