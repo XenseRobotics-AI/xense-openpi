@@ -234,6 +234,12 @@ checkpoint_base_dir: ./checkpoints  # ckpts go here under <name>/<exp_name>/
 seed: 42                      # set this when running ablations
 batch_size: 32                # GLOBAL batch size (not per-device)
 num_workers: 2                # DataLoader workers; bump to 32-64 on H100/A100
+strict_batch_order: false     # false ⇒ hand batches over as workers finish them, which
+                              #   removes the head-of-line stall every `num_workers` steps
+                              #   and lets the loader iterate without epoch boundaries.
+                              #   true ⇒ strict sampler order, reproducible batch sequence,
+                              #   one slow worker blocks everything behind it.
+                              #   See docs/data-pipeline-stalls.md.
 num_train_steps: 30000        # total gradient steps
 
 log_interval: 100             # how often to push metrics to wandb

@@ -1,5 +1,6 @@
 import dataclasses
 import itertools
+import re
 import unittest.mock
 
 import jax
@@ -146,7 +147,7 @@ def test_resolve_decode_video_keys_rejects_repack_that_needs_tactile():
         ),
     )
 
-    with pytest.raises(ValueError, match="observation.images.left_tactile_0"):
+    with pytest.raises(ValueError, match=re.escape("observation.images.left_tactile_0")):
         _data_loader._resolve_decode_video_keys(data_config, _XENSE_VIDEO_KEYS)
 
 
@@ -160,6 +161,20 @@ def test_selective_video_dataset_filters_query_timestamps():
         return_value={key: [0.0] for key in _XENSE_VIDEO_KEYS},
     ):
         assert dataset._get_query_timestamps(0.0) == {"observation.images.head": [0.0]}
+
+
+def test_selective_video_dataset_decodes_everything_by_default():
+    # A construction site that forgets to set `decode_video_keys` must behave like a plain
+    # LeRobotDataset, not silently decode nothing and hand the model missing images.
+    dataset = _data_loader.SelectiveVideoLeRobotDataset.__new__(_data_loader.SelectiveVideoLeRobotDataset)
+
+    all_timestamps = {key: [0.0] for key in _XENSE_VIDEO_KEYS}
+    with unittest.mock.patch.object(
+        lerobot_dataset.LeRobotDataset,
+        "_get_query_timestamps",
+        return_value=all_timestamps,
+    ):
+        assert dataset._get_query_timestamps(0.0) == all_timestamps
 
 
 def test_infinite_sampler_never_stops_and_permutes_each_pass():

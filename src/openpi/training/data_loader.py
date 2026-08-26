@@ -183,9 +183,13 @@ class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
     `decode_video_keys` is set by `create_torch_dataset` right after construction. It must
     be a plain attribute (not a constructor arg) because the dataset is pickled to spawned
     dataloader workers.
+
+    It defaults to `None`, meaning "no filtering": a construction site that forgets to set it
+    behaves exactly like a plain `LeRobotDataset`. The alternative default (an empty
+    whitelist) would silently decode nothing and train the model on missing images.
     """
 
-    decode_video_keys: frozenset[str] = frozenset()
+    decode_video_keys: frozenset[str] | None = None
 
     @override
     def _get_query_timestamps(
@@ -194,6 +198,8 @@ class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
         query_indices: dict[str, list[int]] | None = None,
     ) -> dict[str, list[float]]:
         query_timestamps = super()._get_query_timestamps(current_ts, query_indices)
+        if self.decode_video_keys is None:
+            return query_timestamps
         return {key: ts for key, ts in query_timestamps.items() if key in self.decode_video_keys}
 
 
