@@ -102,7 +102,22 @@ def _bi_flexiv_data_config(*, tactile: bool) -> _config.DataConfig:
     )
 
 
+# Current recorder naming: the tactile suffix is the jaw the pad sits on, from the sensor
+# serial's parity (lerobot-xense `1146d034`).
 _XENSE_VIDEO_KEYS = [
+    "observation.images.head",
+    "observation.images.left_wrist",
+    "observation.images.right_wrist",
+    "observation.images.left_tactile_left",
+    "observation.images.left_tactile_right",
+    "observation.images.right_tactile_left",
+    "observation.images.right_tactile_right",
+]
+
+# Datasets recorded before that commit suffix the same four streams by USB enumeration
+# order. Both spellings are on disk and TACTILE_KEY_MARKER has to catch either, so every
+# test below runs against both rather than only the naming of the day.
+_XENSE_VIDEO_KEYS_LEGACY = [
     "observation.images.head",
     "observation.images.left_wrist",
     "observation.images.right_wrist",
@@ -112,9 +127,14 @@ _XENSE_VIDEO_KEYS = [
     "observation.images.right_tactile_1",
 ]
 
+_VIDEO_KEY_SETS = pytest.mark.parametrize(
+    "video_keys", [_XENSE_VIDEO_KEYS, _XENSE_VIDEO_KEYS_LEGACY], ids=["current", "legacy"]
+)
 
-def test_resolve_decode_video_keys_skips_tactile_by_default():
-    decode_keys = _data_loader._resolve_decode_video_keys(_bi_flexiv_data_config(tactile=False), _XENSE_VIDEO_KEYS)
+
+@_VIDEO_KEY_SETS
+def test_resolve_decode_video_keys_skips_tactile_by_default(video_keys):
+    decode_keys = _data_loader._resolve_decode_video_keys(_bi_flexiv_data_config(tactile=False), video_keys)
 
     assert decode_keys == {
         "observation.images.head",
@@ -123,10 +143,11 @@ def test_resolve_decode_video_keys_skips_tactile_by_default():
     }
 
 
-def test_resolve_decode_video_keys_keeps_tactile_when_enabled():
-    decode_keys = _data_loader._resolve_decode_video_keys(_bi_flexiv_data_config(tactile=True), _XENSE_VIDEO_KEYS)
+@_VIDEO_KEY_SETS
+def test_resolve_decode_video_keys_keeps_tactile_when_enabled(video_keys):
+    decode_keys = _data_loader._resolve_decode_video_keys(_bi_flexiv_data_config(tactile=True), video_keys)
 
-    assert decode_keys == set(_XENSE_VIDEO_KEYS)
+    assert decode_keys == set(video_keys)
 
 
 def test_resolve_decode_video_keys_rejects_repack_that_needs_tactile():
@@ -138,7 +159,7 @@ def test_resolve_decode_video_keys_rejects_repack_that_needs_tactile():
                     {
                         "images": {
                             "head": "observation.images.head",
-                            "left_tactile": "observation.images.left_tactile_0",
+                            "left_tactile": "observation.images.left_tactile_left",
                         },
                         "state": "observation.state",
                     }
@@ -147,7 +168,7 @@ def test_resolve_decode_video_keys_rejects_repack_that_needs_tactile():
         ),
     )
 
-    with pytest.raises(ValueError, match=re.escape("observation.images.left_tactile_0")):
+    with pytest.raises(ValueError, match=re.escape("observation.images.left_tactile_left")):
         _data_loader._resolve_decode_video_keys(data_config, _XENSE_VIDEO_KEYS)
 
 

@@ -31,8 +31,12 @@
 
 ```
 observation.images.head / left_wrist / right_wrist    640×480   ← 用
-observation.images.{left,right}_tactile_{0,1}         400×700   ← 解完直接丢
+observation.images.{left,right}_tactile_{left,right}  400×700   ← 解完直接丢
 ```
+
+触觉那四路的后缀取决于录制时间：lerobot-xense `1146d034` 之前是 USB 枚举序
+（`_tactile_{0,1}`），之后是指位（`_tactile_{left,right}`）。两种数据集都在盘上，
+所以 `TACTILE_KEY_MARKER` 按子串匹配 `tactile`，两种都吃得下。
 
 H.264 随机寻址解码只有顺序解码的 1/200，所以这 4 路是纯浪费。
 （Xense 的 bi_flexiv 数据集全都是这个结构：optical-module-insertion、pick_up_cube、

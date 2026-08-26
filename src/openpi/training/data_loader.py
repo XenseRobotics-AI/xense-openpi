@@ -167,9 +167,13 @@ class FakeDataset(Dataset):
         return self._num_samples
 
 
-# Video keys whose name contains this marker are treated as tactile streams. Matches the
-# Xense recorder naming (`observation.images.{left,right}_tactile_{0,1}`, see
-# examples/bi_flexiv_rizon4_rt/recorder.py).
+# Video keys whose name contains this marker are treated as tactile streams. A substring
+# rather than an exact name because both spellings are on disk: lerobot-xense suffixed the
+# tactile cameras by USB enumeration order until `1146d034` and by the jaw the pad sits on
+# after it, so a dataset carries either `observation.images.{left,right}_tactile_{0,1}` or
+# `..._tactile_{left,right}` depending on when it was recorded. A recorded stream is named
+# after its lerobot camera key (see examples/bi_flexiv_rizon4_rt/recorder.py), so this has
+# to match whatever that repo emitted at record time.
 TACTILE_KEY_MARKER = "tactile"
 
 
