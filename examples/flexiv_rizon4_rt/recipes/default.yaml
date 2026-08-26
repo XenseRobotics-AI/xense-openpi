@@ -43,10 +43,13 @@ robot:
     #   height: 480
     #   warmup_s: 1
     #   use_depth: false
-    # Tactile sensors, if the policy consumes them:
-    # left_tactile_0:
+    # Tactile sensors, if the policy consumes them. The suffix is which jaw the
+    # pad sits on, from serial parity (odd -> left) — the same keys the gripper
+    # injects when it discovers them itself, so a hand-pinned bench stays schema-
+    # compatible with a discovered one:
+    # left_tactile_left:
     #   type: xense
-    #   serial_number: OG000000
+    #   serial_number: OG000001
     #   fps: 30
 
   # ── Gripper ─────────────────────────────────────────────────────────────────

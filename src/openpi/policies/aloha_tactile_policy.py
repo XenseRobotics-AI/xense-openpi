@@ -20,8 +20,8 @@ def make_aloha_tactile_example() -> dict:
             "cam_high": np.zeros((3, 224, 224), dtype=np.uint8),
             "cam_left_wrist": np.zeros((3, 224, 224), dtype=np.uint8),
             "cam_right_wrist": np.zeros((3, 224, 224), dtype=np.uint8),
-            "cam_left_tactile": np.zeros((3, 224, 224), dtype=np.uint8),
-            "cam_right_tactile": np.zeros((3, 224, 224), dtype=np.uint8),
+            "left_tactile_left": np.zeros((3, 224, 224), dtype=np.uint8),
+            "right_tactile_left": np.zeros((3, 224, 224), dtype=np.uint8),
         },
         "state": np.zeros(14, dtype=np.float32),
         "actions": np.zeros((50, 14), dtype=np.float32),
@@ -36,7 +36,7 @@ class AlohaTactileInputs(transforms.DataTransformFn):
     Expected inputs:
     - images: dict[name, img] where img is [channel, height, width]
       - Visual cameras: cam_high, cam_left_wrist, cam_right_wrist
-      - Tactile sensors: cam_left_tactile, cam_right_tactile
+      - Tactile sensors: left_tactile_left, right_tactile_left
     - state: [14]
     - actions: [action_horizon, 14]
     """
@@ -47,9 +47,12 @@ class AlohaTactileInputs(transforms.DataTransformFn):
         "cam_high",
         "cam_left_wrist",
         "cam_right_wrist",
-        # Tactile sensors (new)
-        "cam_left_tactile",
-        "cam_right_tactile",
+        # Tactile sensors. Not `cam_`-prefixed like the RGB names above: those
+        # are Aloha's, while a tactile stream is named by the arm and the jaw its
+        # pad sits on (`<arm>_tactile_<finger>`, serial parity) — the key lerobot
+        # hands over, carried through unchanged so nothing has to be renamed.
+        "left_tactile_left",
+        "right_tactile_left",
     )
 
     def __call__(self, data: dict) -> dict:
@@ -85,8 +88,8 @@ class AlohaTactileInputs(transforms.DataTransformFn):
 
         # Add tactile sensors
         tactile_image_names = {
-            "left_tactile_0_rgb": "cam_left_tactile",
-            "right_tactile_0_rgb": "cam_right_tactile",
+            "left_tactile_left_rgb": "left_tactile_left",
+            "right_tactile_left_rgb": "right_tactile_left",
         }
 
         for dest, source in tactile_image_names.items():

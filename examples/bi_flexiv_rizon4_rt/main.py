@@ -216,7 +216,9 @@ class Args:
     stiffness_ratio: float = 0.2
     inner_control_hz: int = 1000
     interpolate_cmds: bool = True
-    enable_tactile_sensors: bool = False
+    # Routed onto the recipe's `gripper:` block, where lerobot keeps it — the
+    # sensors travel with the gripper, not with the arm.
+    enable_tactile: bool = False
     log_level: str = "DEBUG"
 
     # Image rendering
@@ -325,7 +327,7 @@ def main(args: Args) -> None:
         stiffness_ratio=args.stiffness_ratio,
         inner_control_hz=args.inner_control_hz,
         interpolate_cmds=args.interpolate_cmds,
-        enable_tactile_sensors=args.enable_tactile_sensors,
+        enable_tactile=args.enable_tactile,
         log_level=args.log_level,
     )
     logger.info(

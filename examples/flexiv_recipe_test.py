@@ -59,14 +59,40 @@ def test_cli_overrides_win_over_recipe():
     """A tuning flag beats the recipe — the documented precedence."""
     name = bi_recipe.available_recipes()[0]
     base = bi_recipe.load_robot_config(name)
-    forced = bi_recipe.load_robot_config(
-        name,
-        stiffness_ratio=base.stiffness_ratio + 0.1,
-        enable_tactile_sensors=not base.enable_tactile_sensors,
-    )
+    forced = bi_recipe.load_robot_config(name, stiffness_ratio=base.stiffness_ratio + 0.1)
 
     assert forced.stiffness_ratio == pytest.approx(base.stiffness_ratio + 0.1)
-    assert forced.enable_tactile_sensors is not base.enable_tactile_sensors
+
+
+@pytest.mark.parametrize("name", bi_recipe.available_recipes())
+def test_gripper_block_override_reaches_both_sides(name):
+    """`enable_tactile` lives on the gripper block, but callers pass it flat.
+
+    It is the knob every Flexiv inference run sets (tactile frames cost USB
+    bandwidth the policy never reads), and it moved down a level upstream when
+    the flat gripper_* fields became one typed block — so the routing, and the
+    per-side clones __post_init__ rebuilds from it, are worth pinning.
+    """
+    base = bi_recipe.load_robot_config(name)
+    flipped = not base.gripper.enable_tactile
+    forced = bi_recipe.load_robot_config(name, enable_tactile=flipped)
+
+    assert forced.gripper.enable_tactile is flipped
+    assert forced.left_gripper.enable_tactile is flipped
+    assert forced.right_gripper.enable_tactile is flipped
+    # Routing one key must not disturb the rest of the block.
+    assert forced.gripper.type == base.gripper.type
+    assert forced.gripper.auto_discover_cameras == base.gripper.auto_discover_cameras
+
+
+def test_unknown_override_is_rejected():
+    """A name on neither level fails loudly, not by being ignored."""
+    name = bi_recipe.available_recipes()[0]
+    # The pre-rename spelling of `enable_tactile`: the exact silent no-op this
+    # guards against, since dataclasses.replace() would have raised only because
+    # the robot config happens to reject unknown kwargs.
+    with pytest.raises(ValueError, match="name no field on"):
+        bi_recipe.load_robot_config(name, enable_tactile_sensors=False)
 
 
 def test_none_overrides_are_dropped():

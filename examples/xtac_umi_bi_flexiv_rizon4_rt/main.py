@@ -189,7 +189,7 @@ def main(args: Args) -> None:
         stiffness_ratio=args.stiffness_ratio,
         inner_control_hz=args.inner_control_hz,
         interpolate_cmds=args.interpolate_cmds,
-        enable_tactile_sensors=False,
+        enable_tactile=False,
         log_level=args.log_level,
     )
     logger.info(

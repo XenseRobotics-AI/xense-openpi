@@ -46,7 +46,7 @@ class BiARX5RealEnv:
         right_arm_port: str = "can3",
         log_level: str = "INFO",
         use_multithreading: bool = True,
-        enable_tactile_sensors: bool = False,
+        enable_tactile: bool = False,
         reset_position: list[float] | None = None,
         setup_robot: bool = True,
         controller_dt: float = 0.002,  # low-level control frequency (seconds)
@@ -67,7 +67,7 @@ class BiARX5RealEnv:
             right_arm_port=right_arm_port,
             log_level=log_level,
             use_multithreading=use_multithreading,
-            enable_tactile_sensors=enable_tactile_sensors,
+            enable_tactile=enable_tactile,
             inference_mode=True,  # inference mode, set appropriate preview_time
             controller_dt=controller_dt,  # pass in controller_dt from parameters
             preview_time=preview_time,  # pass in preview_time from parameters
@@ -115,9 +115,13 @@ class BiARX5RealEnv:
             "left_wrist": "cam_left_wrist",  # left wrist camera -> cam_left_wrist
             "right_wrist": "cam_right_wrist",  # right wrist camera -> cam_right_wrist
         }
-        if self.config.enable_tactile_sensors:
-            camera_mapping["left_tactile_0"] = "left_tactile_0"
-            camera_mapping["right_tactile_0"] = "right_tactile_0"
+        if self.config.enable_tactile:
+            # Carried through under lerobot's own key. The model takes one pad per
+            # arm and this bench wires the left jaw of each (OG000337, OG000339 —
+            # both odd, and odd is the left jaw); the other two pads are recorded
+            # but not consumed. See openpi.models.model.IMAGE_KEYS_TACTILE.
+            camera_mapping["left_tactile_left"] = "left_tactile_left"
+            camera_mapping["right_tactile_left"] = "right_tactile_left"
 
         for lerobot_name, openpi_name in camera_mapping.items():
             if lerobot_name in obs:

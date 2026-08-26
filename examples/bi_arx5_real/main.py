@@ -137,7 +137,7 @@ class Args:
     # lower controller config
     controller_dt: float = 0.002  # lower controller frequency, unit: second (0.002s = 2ms = 500Hz)
     control_mode: str = "joint_control"
-    enable_tactile_sensors: bool = False  # enable tactile sensors, default False
+    enable_tactile: bool = False  # enable tactile sensors, default False
     preview_time: float = 0.03  # preview time = 1/runtime_hz, for smooth interpolation
     runtime_hz: int = 30  # runtime frequency, unit: Hz
     # dry run mode: only print policy output, not actually execute action
@@ -178,7 +178,7 @@ def main(args: Args) -> None:
         right_arm_port=args.right_arm_port,
         log_level=args.log_level,
         use_multithreading=args.use_multithreading,
-        enable_tactile_sensors=args.enable_tactile_sensors,
+        enable_tactile=args.enable_tactile,
         reset_position=metadata.get("reset_pose"),
         controller_dt=args.controller_dt,  # pass in lower controller frequency
         preview_time=args.preview_time,  # pass in preview time
