@@ -268,7 +268,7 @@ keep_period: 10000
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `src/openpi/training/config.py`                               | `DataConfig.tactile`、`TrainConfig.strict_batch_order`                                           |
 | `src/openpi/training/data_loader.py`                          | `SelectiveVideoLeRobotDataset`、`_resolve_decode_video_keys`、`InfiniteSampler`、`in_order` 接线 |
-| `src/openpi/training/data_loader_test.py`                     | 9 个新测试（`pytest src/openpi/training/` 共 **66 passed**）                                     |
+| `src/openpi/training/data_loader_test.py`                     | 10 个新测试（`pytest src/openpi/training/` 共 **68 passed**）                                    |
 | `configs/README.md`、`configs/_examples/_FULL_REFERENCE.yaml` | `tactile` 文档                                                                                   |
 
 ```yaml
