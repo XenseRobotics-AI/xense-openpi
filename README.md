@@ -1,14 +1,14 @@
 # openpi - Xense Robotics Fork
 
-> **Note:** This is a fork of [Physical Intelligence's openpi repository](https://github.com/Physical-Intelligence/openpi), adapted and extended for **Xense Robotics platforms** (BiARX5 and Xense Flare dual-arm robots).
+> **Note:** This is a fork of [Physical Intelligence's openpi repository](https://github.com/Physical-Intelligence/openpi), adapted and extended for **Xense Robotics platforms** (BiARX5, BiFlexiv and XTac-UMI dual-arm robots).
 
 ## 🎯 Our Contributions
 
 This fork focuses on adapting OpenPI models to Xense Robotics platforms with the following key contributions:
 
-- **Xense Platform Support**: Complete integration for BiARX5 and Xense Flare dual-arm robot platforms
+- **Xense Platform Support**: Complete integration for BiARX5, BiFlexiv and XTac-UMI dual-arm robot platforms
 - **Custom Training Configurations**: Fine-tuned configs for various manipulation tasks (tie shoes, pick-and-place, open lock, wipe vase, etc.)
-- **Platform-Specific Policies**: `xense_flare_policy.py` and optimized data processing pipelines for Xense robots
+- **Platform-Specific Policies**: `bi_flexiv_policy.py`, `xtac_umi_policy.py` and optimized data processing pipelines for Xense robots
 - **Real-World Deployment**: Production-ready inference and training commands for Xense platforms
 - **Streamlined Codebase**: Removed ALOHA and LIBERO dependencies to focus on DROID and Xense platforms
 
@@ -149,7 +149,7 @@ lambdas that can't be serialized; see `config._generated_configs`.
 
 Building blocks:
 
-- Data transforms: Define the data mapping from your environment to the model (see [`droid_policy.py`](src/openpi/policies/droid_policy.py) or [`xense_flare_policy.py`](src/openpi/policies/xense_flare_policy.py) for examples)
+- Data transforms: Define the data mapping from your environment to the model (see [`droid_policy.py`](src/openpi/policies/droid_policy.py) or [`xtac_umi_policy.py`](src/openpi/policies/xtac_umi_policy.py) for examples)
 - `DataConfig`: Defines how to process raw data from LeRobot dataset for training
 - `TrainConfig`: Defines fine-tuning hyperparameters, data config, and weight loader
 
@@ -240,13 +240,13 @@ python scripts/dump_config_to_yaml.py <name> --output-dir configs
 Before we can run training, we need to compute the normalization statistics for the training data. Run the script below with the name of your training config (e.g., for Xense):
 
 ```bash
-python scripts/compute_norm_stats.py --config-name pi05_base_arx5_lora
+python scripts/compute_norm_stats.py --config-name pi05_base_xtac_umi_pick_up_cube_0807_h200
 ```
 
 Now we can kick off training with the following command (the `--overwrite` flag is used to overwrite existing checkpoints if you rerun fine-tuning with the same config):
 
 ```bash
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py pi05_base_arx5_lora --exp-name=my_experiment --overwrite
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py pi05_base_xtac_umi_pick_up_cube_0807_h200 --exp-name=my_experiment --overwrite
 ```
 
 The command will log training progress to the console and save checkpoints to the `checkpoints` directory. You can also monitor training progress on the Weights & Biases dashboard. For maximally using the GPU memory, set `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` before running training -- this enables JAX to use up to 90% of the GPU memory (vs. the default of 75%).
@@ -258,7 +258,7 @@ The command will log training progress to the console and save checkpoints to th
 Once training is complete, we can run inference by spinning up a policy server and then querying it from your robot runtime. Launching a model server is easy (we use the checkpoint for iteration 20,000 for this example, modify as needed):
 
 ```bash
-python scripts/serve_policy.py policy:checkpoint --policy.config=pi05_base_arx5_lora --policy.dir=checkpoints/pi05_base_arx5_lora/my_experiment/19999
+python scripts/serve_policy.py policy:checkpoint --policy.config=pi05_base_xtac_umi_pick_up_cube_0807_h200 --policy.dir=checkpoints/pi05_base_xtac_umi_pick_up_cube_0807_h200/my_experiment/19999
 ```
 
 This will spin up a server that listens on port 8000 and waits for observations to be sent to it. We can then run an evaluation script (or robot runtime) that queries the server.
@@ -411,7 +411,6 @@ This section contains production-ready commands for training and deploying model
 ### Platform Overview
 
 - **BiARX5**: Bi-manual ARX-5 robot setup with parallel grippers
-- **Xense Flare**: UMI-style dual-arm robot with data collection grippers
 - **BiFlexiv**: Dual-arm Flexiv Rizon4 real-time setup
 
 ### Environment Variables (optional, for multi-GPU / offline datasets)
@@ -441,11 +440,6 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
 #### BiFlexiv — assemble box with phone stand
 
 ```bash
-python scripts/compute_norm_stats.py --config-name pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0403
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
-    pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0403 \
-    --exp-name=bi_flexiv_assemble_box_with_phone_stand_lora_20260403 --overwrite
-
 python scripts/compute_norm_stats.py --config-name pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0422_merged_fixed_h100
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
     pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0422_merged_fixed_h100 \
@@ -461,15 +455,6 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
     --exp-name=pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0430_merged_fixed_h100_0510 --overwrite
 ```
 
-#### BiFlexiv — earbuds case sequential insertion task
-
-```bash
-python scripts/compute_norm_stats.py --config-name pi05_base_bi_flexiv_earbuds_case_sequential_insertion_teleop_rtc_0513_h100
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
-    pi05_base_bi_flexiv_earbuds_case_sequential_insertion_teleop_rtc_0513_h100 \
-    --exp-name=pi05_base_bi_flexiv_earbuds_case_sequential_insertion_teleop_rtc_0513_h100_0513 --overwrite
-```
-
 #### BiFlexiv - shoe_insole_retrieval_and_packing_0
 
 ```bash
@@ -482,20 +467,15 @@ python scripts/compute_norm_stats.py --config-name pi05_base_bi_flexiv_shoe_inso
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
     pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0515_h100 \
     --exp-name=pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0515_h100_0519 --overwrite
-
-python scripts/compute_norm_stats.py --config-name pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0607_h100
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
-    pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0607_h100 \
-    --exp-name=pi05_base_bi_flexiv_shoe_insole_retrieval_and_packing_0607_h100_0607 --overwrite
 ```
 
 #### BiFlexiv - shoe_insole_retrieval_and_packing_1
 
 ```bash
-python scripts/compute_norm_stats.py --config-name pi05_base_bi_flexiv_newbalacne_shoe_insole_retrieval_and_packing_0616_h100
+python scripts/compute_norm_stats.py --config-name pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
-    pi05_base_bi_flexiv_newbalacne_shoe_insole_retrieval_and_packing_0616_h100 \
-    --exp-name=pi05_base_bi_flexiv_newbalacne_shoe_insole_retrieval_and_packing_0616_h100_0626 --overwrite
+    pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100 \
+    --exp-name=pi05_base_bi_flexiv_newbalance_shoe_insole_retrieval_and_packing_0616_h100_0626 --overwrite
 ```
 
 #### BiFlexiv - bag_inspection_0611
@@ -509,35 +489,9 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
 
 ### Deployment Commands (latest per platform)
 
-#### BiARX5 — training-time RTC inference
-
-```bash
-python scripts/serve_policy.py \
-    --default-prompt="pick rgb cubes and place them into the blue box" \
-    policy:checkpoint \
-    --policy.config=pi05_base_arx5_lora_training_time_rtc \
-    --policy.dir=checkpoints/pi05_base_arx5_lora_training_time_rtc/training_time_rtc_20251209/39999
-```
-
-#### Xense Flare — open lock inference
-
-```bash
-python scripts/serve_policy.py \
-    --default-prompt="open the lock with the key" \
-    policy:checkpoint \
-    --policy.config=pi05_base_xense_flare_open_lock_rtc_0228 \
-    --policy.dir=checkpoints/pi05_base_xense_flare_open_lock_rtc_0228/xense_flare_open_lock_rtc_0228/19999
-```
-
 #### BiFlexiv — assemble box inference
 
 ```bash
-python scripts/serve_policy.py \
-    --default-prompt="assemble the box with the phone stand" \
-    policy:checkpoint \
-    --policy.config=pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0410_merged_fixed \
-    --policy.dir=checkpoints/pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0410_merged_fixed/bi_flexiv_assemble_box_with_phone_stand_lora_0410_merged_fixed_20260413/79999
-
 python scripts/serve_policy.py \
     --default-prompt="assemble the box with the phone stand" \
     policy:checkpoint \
@@ -555,16 +509,6 @@ python scripts/serve_policy.py \
     policy:checkpoint \
     --policy.config=pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0430_merged_fixed_h100 \
     --policy.dir=checkpoints/pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0430_merged_fixed_h100/pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0430_merged_fixed_h100_0510/66000
-```
-
-#### BiFlexiv — earbuds case assembly with lid operation inference
-
-```bash
-python scripts/serve_policy.py \
-    --default-prompt="Pick up the earbuds from the acrylic plate, open the charging case, precisely align and gently insert the earbuds using contact feedback, then close the lid securely" \
-    policy:checkpoint \
-    --policy.config=pi05_base_bi_flexiv_earbuds_case_sequential_insertion_teleop_rtc_0513_h100 \
-    --policy.dir=checkpoints/pi05_base_bi_flexiv_earbuds_case_sequential_insertion_teleop_rtc_0513_h100/pi05_base_bi_flexiv_earbuds_case_sequential_insertion_teleop_rtc_0513_h100_0513/19999
 ```
 
 #### BiFlexiv - shoe_insole_retrieval_and_packing_0 inference

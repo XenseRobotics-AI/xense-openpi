@@ -121,10 +121,6 @@ data:
   # action_sequence_keys: [action]
   # repack_transforms is built from use_head_camera and cannot be overridden here.
 
-  # ---- LeRobotXenseFlareDataConfig-specific (uncomment when used) ----
-  # use_delta_cartesian_actions: true
-  # default_prompt: "..."
-
   # ---- LeRobotAlohaDataConfig-specific (uncomment when used) ----
   # use_delta_joint_actions: true       # delta-encode joints, keep grippers absolute
   # default_prompt: "..."

@@ -46,7 +46,7 @@ driver already reports UMI-convention poses, turn it off:
 
 ```bash
 python scripts/serve_policy.py policy:checkpoint \
-    --policy.config=pi05_base_xtac_umi_sort_defective_parts_0710 \
+    --policy.config=pi05_base_xtac_umi_pick_up_cube_0807_h200 \
     --policy.dir=<checkpoint_dir> \
     --port=8000
 ```

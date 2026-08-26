@@ -3,7 +3,9 @@
 # State/action are 20D in the rig's own per-side-grouped feature order:
 #   [left_tcp(0-8), left_gripper(9), right_tcp(10-18), right_gripper(19)]
 # No head camera: base_0_rgb is black with image_mask=False; the two wrist
-# cameras stay in their matching wrist slots.
+# cameras stay in their matching wrist slots. The dataset also carries four
+# tactile streams (left/right x tactile_left/tactile_right) that this config
+# does not consume - pi05 takes wrist RGB and the 20D vector only.
 #
 # Deploy target: bi_flexiv (dual Flexiv Rizon4 RT with taccap grippers), which
 # assembles the same per-side-grouped order — see
@@ -20,15 +22,21 @@ weight_loader:
 ema_decay: null
 data:
   type: LeRobotXtacUmiDataConfig
-  repo_id: TacVerse/taccap-g1-sort-defective-parts-0710
+  repo_id: TacVerse/taccap-g1-pick-up-cube-0807
   use_delta_cartesian_actions: true
   # use_head_camera: true   # only for a bench that actually recorded one
   base_config:
     prompt_from_task: true
-  default_prompt: Pick up the parts one by one and place each part into its matching bin,
-    sorting the parts by whether they have defects or oxidation until all the defective
-    parts and the intact parts are separated into their own bins
+  # Only a fallback: prompt_from_task above means the dataset's own task string
+  # is what actually reaches the model.
+  default_prompt: Use the left arm to pick the red cube and place it into the blue
+    plastic box first, then use the right arm to grasp the green cube and put it into
+    the same blue plastic box after the first action is fully finished
 batch_size: 256
 num_workers: 64
-num_train_steps: 80000
+# 150 episodes / 43447 frames, i.e. ~290 frames (~9.7 s) per episode - roughly
+# half the frames of the 0710 sort-defective-parts set. 30k steps at batch 256 is
+# ~177 passes over the data, in the same range as the other single-task configs
+# here; raise it only if the loss is still moving.
+num_train_steps: 30000
 fsdp_devices: 8
