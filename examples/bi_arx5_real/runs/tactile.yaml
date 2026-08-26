@@ -6,7 +6,7 @@
 host: 0.0.0.0
 port: 8000
 
-enable_tactile_sensors: true
+enable_tactile: true
 dry_run: true          # drop this (or pass --args.no-dry-run) once the arms are clear
 
 left_arm_port: can1

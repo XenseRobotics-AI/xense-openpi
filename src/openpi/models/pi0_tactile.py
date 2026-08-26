@@ -18,8 +18,9 @@ from openpi.shared import array_typing as at
 # Visual camera names (compatible with pretrained weights)
 VISUAL_CAMERAS = ("base_0_rgb", "left_wrist_0_rgb", "right_wrist_0_rgb")
 
-# Tactile sensor names (new inputs)
-TACTILE_CAMERAS = ("left_tactile_0_rgb", "right_tactile_0_rgb")
+# Tactile sensor names (new inputs). `<arm>_tactile_<finger>`, matching
+# lerobot-xense's camera keys — see model.IMAGE_KEYS_TACTILE.
+TACTILE_CAMERAS = ("left_tactile_left_rgb", "right_tactile_left_rgb")
 
 
 class Pi0Tactile(nnx.Module):

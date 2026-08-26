@@ -51,12 +51,16 @@ IMAGE_KEYS = (
 )
 
 
+# The tactile suffix names the jaw the pad sits on, not an enumeration index:
+# `<arm>_tactile_<finger>`, the fleet's serial-parity rule (odd -> left jaw), so
+# a key names the same physical pad on every bench. Same scheme lerobot-xense
+# emits its tactile cameras under.
 IMAGE_KEYS_TACTILE = (
     "base_0_rgb",
     "left_wrist_0_rgb",
     "right_wrist_0_rgb",
-    "left_tactile_0_rgb",
-    "right_tactile_0_rgb",
+    "left_tactile_left_rgb",
+    "right_tactile_left_rgb",
 )
 
 

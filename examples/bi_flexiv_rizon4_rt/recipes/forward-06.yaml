@@ -31,9 +31,10 @@ robot:
       warmup_s: 1
       use_depth: false
     # What this bench had pinned before discovery took over, for cross-checking
-    # the first run:
-    #   left_tactile_0: OG001323    left_tactile_1: OG001324   left_wrist: XC000035
-    #   right_tactile_0: OG001325   right_tactile_1: OG001326  right_wrist: XC000036
+    # the first run. The tactile suffix is which jaw the pad sits on, read off
+    # serial parity (odd -> left), not enumeration order:
+    #   left_tactile_left:  OG001323   left_tactile_right:  OG001324   left_wrist:  XC000035
+    #   right_tactile_left: OG001325   right_tactile_right: OG001326   right_wrist: XC000036
 
   # ── Gripper ── One block for both arms; `side` is stamped per arm at build time.
   gripper:

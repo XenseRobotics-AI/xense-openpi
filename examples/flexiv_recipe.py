@@ -16,9 +16,16 @@ being silently ignored.
 Run tuning stays on the OpenPI CLI, which owns those knobs outright: every
 tuning flag has a concrete default, so it is always applied on top of the
 decoded config. A recipe written for ``lerobot-teleoperate`` may carry tuning
-keys of its own (``use_force:``, ``enable_tactile_sensors:``, ``log_level:``);
-those lose to the flag, and ``load_robot_config`` logs each one it overrides so
-the swap is visible rather than silent.
+keys of its own (``use_force:``, ``enable_tactile:``, ``log_level:``); those
+lose to the flag, and ``load_robot_config`` logs each one it overrides so the
+swap is visible rather than silent.
+
+An override names a field, not a nesting level. ``enable_tactile`` lives on the
+``gripper:`` block upstream (what a gripper carries is a property of the
+gripper, not of the arm holding it), so ``load_robot_config`` routes each
+override to whichever of the two dataclasses declares it. Callers pass a flat
+kwarg either way, and a name neither one knows is an error rather than a
+silently ignored keyword.
 """
 
 from __future__ import annotations
@@ -67,13 +74,16 @@ def load_robot_config(recipes_dir: Path, config_cls: type, recipe: str | Path, *
         config_cls: The robot config this example drives. Its registered choice
             name is what the recipe's ``type:`` must declare.
         recipe: Recipe name or path to a YAML file.
-        **overrides: Config fields to force. ``None`` values are dropped, so a
-            CLI flag left at its "unset" default leaves the recipe's value alone.
+        **overrides: Config fields to force, named flat regardless of nesting —
+            a field of the robot config or of its ``gripper:`` block. ``None``
+            values are dropped, so a CLI flag left at its "unset" default leaves
+            the recipe's value alone.
 
     Raises:
         FileNotFoundError: The recipe does not exist.
-        ValueError: The file is not a mapping, has no ``robot:`` block, or
-            describes a different robot type.
+        ValueError: The file is not a mapping, has no ``robot:`` block,
+            describes a different robot type, or an override names no field on
+            either level.
         draccus.utils.DecodingError: The block has an unknown or mistyped field.
     """
     robot_type = RobotConfig.get_choice_name(config_cls)
@@ -94,17 +104,62 @@ def load_robot_config(recipes_dir: Path, config_cls: type, recipe: str | Path, *
     config = draccus.decode(RobotConfig, block)
 
     applied = {k: v for k, v in overrides.items() if v is not None}
-    if applied:
-        # A recipe written for lerobot-teleoperate may set tuning keys the CLI
-        # owns here. The flag wins, but say so — a silently ignored line in a
-        # recipe is exactly the failure the typed block exists to prevent.
-        shadowed = {k: block[k] for k in applied if k in block and block[k] != applied[k]}
-        if shadowed:
-            swaps = ", ".join(f"{k}: {v!r} -> {applied[k]!r}" for k, v in sorted(shadowed.items()))
-            logger.warn(f"CLI flags override {path.name}: {swaps}")
+    if not applied:
+        return config
 
-        # replace() re-runs __post_init__, so the validators fire on the merged
-        # values and any per-side gripper configs are rebuilt.
-        config = dataclasses.replace(config, **applied)
+    robot_keys, gripper_keys = _split_overrides(applied, config, path)
 
-    return config
+    # A recipe written for lerobot-teleoperate may set tuning keys the CLI owns
+    # here. The flag wins, but say so — a silently ignored line in a recipe is
+    # exactly the failure the typed block exists to prevent. Gripper-block keys
+    # are shadowed one level down, so both levels are checked.
+    gripper_block = block.get("gripper") if isinstance(block.get("gripper"), dict) else {}
+    shadowed = {k: block[k] for k in robot_keys if k in block and block[k] != applied[k]}
+    shadowed |= {
+        f"gripper.{k}": gripper_block[k] for k in gripper_keys if k in gripper_block and gripper_block[k] != applied[k]
+    }
+    if shadowed:
+        swaps = ", ".join(f"{k}: {v!r} -> {applied[k.removeprefix('gripper.')]!r}" for k, v in sorted(shadowed.items()))
+        logger.warn(f"CLI flags override {path.name}: {swaps}")
+
+    forced = {k: applied[k] for k in robot_keys}
+    if gripper_keys:
+        # Rebuild the shared block; __post_init__ clones it per side below, so
+        # left_gripper/right_gripper pick the new value up without being touched.
+        forced["gripper"] = dataclasses.replace(config.gripper, **{k: applied[k] for k in gripper_keys})
+
+    # replace() re-runs __post_init__, so the validators fire on the merged
+    # values and any per-side gripper configs are rebuilt.
+    return dataclasses.replace(config, **forced)
+
+
+def _split_overrides(applied: dict[str, Any], config, path: Path) -> tuple[list[str], list[str]]:
+    """Sort override names into the robot config's fields and the gripper block's.
+
+    The robot level wins a name both declare: it is the one the caller can always
+    reach, and no upstream config pairs a field name across the two levels today.
+
+    Raises:
+        ValueError: A name neither level declares, or a gripper knob on a recipe
+            whose bench runs no gripper. Both would otherwise be applied to
+            nothing, which is the silent-ignore failure this loader exists to
+            avoid.
+    """
+    robot_fields = {f.name for f in dataclasses.fields(config) if f.init}
+    gripper_fields = (
+        {f.name for f in dataclasses.fields(config.gripper) if f.init} if config.gripper is not None else set()
+    )
+
+    robot_keys = [k for k in applied if k in robot_fields]
+    gripper_keys = [k for k in applied if k not in robot_fields and k in gripper_fields]
+
+    unknown = sorted(set(applied) - set(robot_keys) - set(gripper_keys))
+    if unknown:
+        where = type(config).__name__ + (
+            f" or its {type(config.gripper).__name__} block"
+            if config.gripper is not None
+            else " (recipe has no gripper block)"
+        )
+        raise ValueError(f"{path.name}: override(s) {unknown} name no field on {where}.")
+
+    return robot_keys, gripper_keys

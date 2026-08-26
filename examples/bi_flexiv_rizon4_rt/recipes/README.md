@@ -36,8 +36,8 @@ bench regardless of which policy is running.
 
 **CLI = run tuning.** `--args.inner-control-hz`, `--args.interpolate-cmds`,
 `--args.stiffness-ratio`, `--args.use-force`, `--args.go-to-start`,
-`--args.enable-tactile-sensors`, `--args.log-level`. These stay flags because
-they change between runs on the same bench.
+`--args.enable-tactile`, `--args.log-level`. These stay flags because they
+change between runs on the same bench.
 
 The CLI owns them outright: each has a concrete default, so it is **always**
 applied on top of the decoded config. A tuning key written into a recipe — or
@@ -45,8 +45,16 @@ already present in an upstream lerobot teleop/record recipe you point at by
 path — loses to the flag. The loader logs every key it overrides, e.g.
 
 ```
-[warning] CLI flags override forward-04.yaml: enable_tactile_sensors: True -> False, log_level: 'INFO' -> 'DEBUG'
+[warning] CLI flags override forward-04.yaml: gripper.enable_tactile: True -> False, log_level: 'INFO' -> 'DEBUG'
 ```
+
+A flag names a field, not a nesting level. `enable_tactile` is a field of the
+`gripper:` block (upstream keeps it there: what a gripper carries is a property
+of the gripper, not of the arm holding it), and the loader routes it there —
+which is why the warning above prints it as `gripper.enable_tactile`. It was
+`enable_tactile_sensors` before the flat `gripper_*` fields became one typed
+block; that spelling is now rejected rather than ignored, on every robot in
+both repos — the ARX5 configs were the last holdout and have been renamed too.
 
 The recipes here leave tuning keys out entirely, so nothing is shadowed when
 you use one of them.
@@ -56,18 +64,20 @@ a recipe: [`../runs/README.md`](../runs/README.md). A run file names its bench
 with `robot_recipe:` and presets the flags, so the bench file stays purely about
 hardware and one bench can serve several tasks.
 
-Note `enable_tactile_sensors` defaults to **off** for inference: the policy
-consumes `head`, `left_wrist` and `right_wrist` only, so the four tactile
-cameras would cost USB bandwidth and loop time for frames nothing reads. Pass
-`--args.enable-tactile-sensors` when recording a dataset that wants them.
+Note `enable_tactile` defaults to **off** for inference: the policy consumes
+`head`, `left_wrist` and `right_wrist` only, so the four tactile cameras would
+cost USB bandwidth and loop time for frames nothing reads. Pass
+`--args.enable-tactile` when recording a dataset that wants them.
 
 ## Cameras
 
 Only `head` is pinned. Both gripper backends carry their wrist camera and two
 tactile sensors on the gripper's own USB hub, and sniff them off it at connect
 (`gripper.auto_discover_cameras`, on by default for both). The injected keys are
-`{side}_wrist` and `{side}_tactile_{0,1}` — the same names the pinned wiring
-used, so datasets stay compatible.
+`{side}_wrist` and `{side}_tactile_{left,right}` — `side` is which arm the
+gripper is on, the suffix is which jaw the pad sits on, resolved from serial
+parity (odd → left) rather than enumeration order, so a key names the same
+physical pad on every bench.
 
 ## Keeping these in sync with lerobot-xense
 

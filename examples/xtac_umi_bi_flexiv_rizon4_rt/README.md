@@ -76,7 +76,7 @@ python -m examples.xtac_umi_bi_flexiv_rizon4_rt.main \
 `--args.robot-recipe` reuses `examples/bi_flexiv_rizon4_rt/recipes/` so benches
 are defined once for the repo; `forward-04` is the taccap-gripper bench. A path
 to any recipe YAML works too. The head camera the recipe pins is dropped at
-construction, and `use_force` / `enable_tactile_sensors` are forced off — the
+construction, and `use_force` / `gripper.enable_tactile` are forced off — the
 checkpoint consumes the 20D pose/gripper space only.
 
 Dry-run suppresses policy actions, but the robot still connects and the episode
