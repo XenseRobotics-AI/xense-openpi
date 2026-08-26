@@ -80,6 +80,10 @@ data:
     asset_id: null                   # null ⇒ use repo_id
   base_config:                       # nested DataConfig for advanced overrides
     prompt_from_task: true           # true ⇒ pull prompt from LeRobot `task` column
+    tactile: false                   # false ⇒ never decode video keys named *tactile*
+                                     #   (4 of 7 streams on Xense bi_flexiv datasets, ~38%
+                                     #   of decode time, discarded by the repack anyway).
+                                     #   Set true only for models that consume tactile images.
     # Most users only need prompt_from_task here. Other DataConfig fields:
     # use_quantile_norm: false       # auto-true for non-pi0 models; rarely override
     # action_sequence_keys: [actions]
