@@ -93,6 +93,12 @@ class DataConfig:
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
 
+    # If true, tactile camera streams (video keys containing "tactile") are decoded by the
+    # data loader. Default false: on the Xense bi_flexiv datasets they are 4 of the 7 streams
+    # and account for ~38% of per-sample video decode time, while every current repack
+    # transform discards them. Turn on for models that actually consume tactile images.
+    tactile: bool = False
+
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
     # Action space for DROID dataset.
@@ -602,6 +608,13 @@ class TrainConfig:
     # Number of workers to use for the data loader. Increasing this number will speed up data loading but
     # will increase memory and CPU usage.
     num_workers: int = 2
+    # If true, batches are delivered in strict sampler order. That makes the batch sequence
+    # reproducible across runs, but it also means one slow worker blocks every batch queued
+    # behind it -- with `num_workers` workers each building a whole batch, that shows up as a
+    # multi-second stall every `num_workers` steps. Default false: batches are handed over as
+    # workers finish them. The sampler still visits every index exactly once per pass, so this
+    # only reorders batches that were already randomly shuffled.
+    strict_batch_order: bool = False
     # Number of train steps (batches) to run.
     num_train_steps: int = 30_000
 

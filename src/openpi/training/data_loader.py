@@ -4,7 +4,7 @@ import multiprocessing
 import os
 import time
 import typing
-from typing import Literal, Protocol, SupportsIndex, TypeVar
+from typing import Literal, Protocol, SupportsIndex, TypeVar, override
 
 import jax
 import jax.numpy as jnp
@@ -167,6 +167,75 @@ class FakeDataset(Dataset):
         return self._num_samples
 
 
+# Video keys whose name contains this marker are treated as tactile streams. A substring
+# rather than an exact name because both spellings are on disk: lerobot-xense suffixed the
+# tactile cameras by USB enumeration order until `1146d034` and by the jaw the pad sits on
+# after it, so a dataset carries either `observation.images.{left,right}_tactile_{0,1}` or
+# `..._tactile_{left,right}` depending on when it was recorded. A recorded stream is named
+# after its lerobot camera key (see examples/bi_flexiv_rizon4_rt/recorder.py), so this has
+# to match whatever that repo emitted at record time.
+TACTILE_KEY_MARKER = "tactile"
+
+
+class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
+    """LeRobotDataset that only decodes a whitelisted subset of the video streams.
+
+    `LeRobotDataset.__getitem__` decodes every key in `meta.video_keys`, and H.264 random
+    seek is ~200x slower than sequential decode, so streams the model never sees are pure
+    waste. Filtering the query timestamps means `_query_videos` is never asked for them.
+
+    `decode_video_keys` is set by `create_torch_dataset` right after construction. It must
+    be a plain attribute (not a constructor arg) because the dataset is pickled to spawned
+    dataloader workers.
+
+    It defaults to `None`, meaning "no filtering": a construction site that forgets to set it
+    behaves exactly like a plain `LeRobotDataset`. The alternative default (an empty
+    whitelist) would silently decode nothing and train the model on missing images.
+    """
+
+    decode_video_keys: frozenset[str] | None = None
+
+    @override
+    def _get_query_timestamps(
+        self,
+        current_ts: float,
+        query_indices: dict[str, list[int]] | None = None,
+    ) -> dict[str, list[float]]:
+        query_timestamps = super()._get_query_timestamps(current_ts, query_indices)
+        if self.decode_video_keys is None:
+            return query_timestamps
+        return {key: ts for key, ts in query_timestamps.items() if key in self.decode_video_keys}
+
+
+def _repack_source_keys(data_config: _config.DataConfig) -> set[str]:
+    """Flat dataset column names that the repack transforms read."""
+    return {
+        leaf
+        for transform in data_config.repack_transforms.inputs
+        if isinstance(transform, _transforms.RepackTransform)
+        for leaf in jax.tree.leaves(transform.structure)
+        if isinstance(leaf, str)
+    }
+
+
+def _resolve_decode_video_keys(data_config: _config.DataConfig, video_keys: Sequence[str]) -> frozenset[str]:
+    """Decide which video streams to decode, and fail loudly on a config that needs more."""
+    if data_config.tactile:
+        return frozenset(video_keys)
+
+    decode_keys = frozenset(key for key in video_keys if TACTILE_KEY_MARKER not in key)
+    if skipped := sorted(set(video_keys) - decode_keys):
+        logging.info(
+            f"tactile=False: skipping video decode for {len(skipped)} of {len(video_keys)} stream(s): {skipped}"
+        )
+    if missing := sorted((_repack_source_keys(data_config) & set(video_keys)) - decode_keys):
+        raise ValueError(
+            f"repack_transforms reads video stream(s) {missing}, but tactile=False disabled their decode. "
+            "Set `tactile: true` under the data config's `base_config` to decode them."
+        )
+    return decode_keys
+
+
 def create_torch_dataset(
     data_config: _config.DataConfig,
     action_horizon: int,
@@ -180,7 +249,7 @@ def create_torch_dataset(
         return FakeDataset(model_config, num_samples=1024)
 
     dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
-    dataset = lerobot_dataset.LeRobotDataset(
+    dataset = SelectiveVideoLeRobotDataset(
         data_config.repo_id,
         delta_timestamps={
             key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
@@ -189,6 +258,7 @@ def create_torch_dataset(
         # The default 1e-4 can fail when timestamp differences are exactly at the boundary.
         tolerance_s=1e-2,
     )
+    dataset.decode_video_keys = _resolve_decode_video_keys(data_config, dataset_meta.video_keys)
 
     if data_config.prompt_from_task:
         # Convert v3.0 tasks DataFrame to v2.1 compatible dict format
@@ -314,6 +384,7 @@ def create_data_loader(
         seed=config.seed,
         skip_norm_stats=skip_norm_stats,
         framework=framework,
+        strict_batch_order=config.strict_batch_order,
     )
 
 
@@ -330,6 +401,7 @@ def create_torch_data_loader(
     num_workers: int = 0,
     seed: int = 0,
     framework: str = "jax",
+    strict_batch_order: bool = False,
 ) -> DataLoader[tuple[_model.Observation, _model.Actions]]:
     """Create a data loader for training.
 
@@ -381,6 +453,7 @@ def create_torch_data_loader(
         num_workers=num_workers,
         seed=seed,
         framework=framework,
+        strict_batch_order=strict_batch_order,
     )
 
     return DataLoaderImpl(data_config, data_loader)
@@ -427,6 +500,41 @@ def create_rlds_data_loader(
     return DataLoaderImpl(data_config, data_loader)
 
 
+class InfiniteSampler(torch.utils.data.Sampler[int]):
+    """Yields dataset indices forever, reshuffling on every pass.
+
+    A finite sampler makes the torch iterator raise `StopIteration` at the end of each epoch,
+    which forces `TorchDataLoader.__iter__` to build a new iterator: the prefetch pipeline is
+    torn down and refilled, and the training loop waits for a single worker to assemble a
+    whole batch on its own. With `num_workers` workers each producing full batches, that is a
+    stall of `batch_size x per-sample latency` at every epoch boundary.
+
+    Iterating forever removes the boundary entirely. Nothing is lost by doing so: openpi does
+    not checkpoint data loader state (`checkpoints.restore_state` drops it), so the batch
+    sequence was never resumable in the first place.
+    """
+
+    def __init__(self, num_samples: int, *, shuffle: bool, seed: int):
+        self._num_samples = num_samples
+        self._shuffle = shuffle
+        self._seed = seed
+
+    def __iter__(self) -> Iterator[int]:
+        epoch = 0
+        while True:
+            if self._shuffle:
+                generator = torch.Generator()
+                generator.manual_seed(self._seed + epoch)
+                yield from torch.randperm(self._num_samples, generator=generator).tolist()
+            else:
+                yield from range(self._num_samples)
+            epoch += 1
+
+    def __len__(self) -> int:
+        """One pass. Only used for `len(DataLoader)`; iteration itself never stops."""
+        return self._num_samples
+
+
 class TorchDataLoader:
     """Torch data loader implementation."""
 
@@ -442,6 +550,7 @@ class TorchDataLoader:
         num_workers: int = 0,
         seed: int = 0,
         framework: str = "jax",
+        strict_batch_order: bool = False,
     ):
         """Create a PyTorch data loader.
 
@@ -457,6 +566,8 @@ class TorchDataLoader:
             num_workers: The number of worker processes to use. If zero, the data loader will
                 execute in the main process.
             seed: The seed to use for shuffling the data.
+            strict_batch_order: If true, deliver batches in strict sampler order. Reproducible,
+                but one slow worker blocks every batch behind it. See TrainConfig.
         """
         if jax.process_count() > 1:
             raise NotImplementedError("Data loading with multiple processes is not supported.")
@@ -478,12 +589,17 @@ class TorchDataLoader:
         if num_workers > 0:
             mp_context = multiprocessing.get_context("spawn")
 
+        # Without an explicit sampler (the JAX path; the PyTorch DDP path passes its own),
+        # iterate forever so the epoch boundary never tears the prefetch pipeline down.
+        if sampler is None:
+            sampler = InfiniteSampler(len(dataset), shuffle=shuffle, seed=seed)
+
         generator = torch.Generator()
         generator.manual_seed(seed)
         self._data_loader = torch.utils.data.DataLoader(
             typing.cast(torch.utils.data.Dataset, dataset),
             batch_size=local_batch_size,
-            shuffle=(sampler is None and shuffle),  # Don't shuffle if using sampler
+            shuffle=False,  # Ordering is the sampler's job; torch forbids both at once.
             sampler=sampler,
             num_workers=num_workers,
             multiprocessing_context=mp_context,
@@ -494,6 +610,12 @@ class TorchDataLoader:
             collate_fn=_collate_fn,
             worker_init_fn=_worker_init_fn,
             drop_last=True,
+            # Hand batches over as workers finish them. In strict order, the one worker that is
+            # slow this round blocks every batch queued behind it, which is a stall every
+            # `num_workers` steps even with dozens of completed batches already sitting in
+            # torch's reorder buffer. Batch order is not meaningful here -- the sampler already
+            # shuffles, and it still visits every index exactly once per pass.
+            in_order=strict_batch_order,
             generator=generator,
         )
 

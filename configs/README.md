@@ -51,6 +51,7 @@ data:
   default_prompt: "..."
   base_config:
     prompt_from_task: true
+    tactile: false        # default; skips decoding the 4 unused tactile video streams
 
 weight_loader:
   type: CheckpointWeightLoader

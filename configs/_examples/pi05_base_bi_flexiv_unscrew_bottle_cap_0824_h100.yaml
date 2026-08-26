@@ -1,0 +1,32 @@
+model:
+  type: Pi0Config
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotBiFlexivDataConfig
+  repo_id: Xense/unscrew-the-bottle-cap-0821
+  base_config:
+    prompt_from_task: true
+    # This dataset carries 7 video streams; the repack discards the 4 tactile ones.
+    # false (the default) skips decoding them, which makes a single-sample
+    # __getitem__ ~1.7x faster. Models that consume tactile images (Pi0Tactile,
+    # Pi05Tactile) must set this to true.
+    tactile: false
+  default_prompt: unscrew the bottle cap
+batch_size: 256
+num_workers: 64
+num_train_steps: 80000
+fsdp_devices: 8
+# Whether batches are delivered in strict sampler order. false (the default) hands each
+# batch over as soon as a worker finishes it, which removes the head-of-line stall every
+# num_workers steps, and enables the InfiniteSampler so the epoch boundary never tears the
+# prefetch pipeline down. See docs/data-pipeline-stalls.md.
+# Cost: batch delivery order is no longer reproducible run to run (every index is still
+# visited exactly once per pass).
+strict_batch_order: false
