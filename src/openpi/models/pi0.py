@@ -16,6 +16,17 @@ from openpi.shared import array_typing as at
 logger = logging.getLogger("openpi")
 
 
+def _encode_image_views_as_batch(image_encoder, images):
+    """Encode camera views as a sample-major interleaved batch."""
+    names = tuple(images)
+    stacked = jnp.stack([images[name] for name in names], axis=1)
+    batch_size, num_views = stacked.shape[:2]
+    flat = stacked.reshape((batch_size * num_views, *stacked.shape[2:]))
+    flat_tokens, _ = image_encoder(flat, train=False)
+    tokens = flat_tokens.reshape((batch_size, num_views, *flat_tokens.shape[1:]))
+    return {name: tokens[:, index] for index, name in enumerate(names)}
+
+
 def make_attn_mask(input_mask, mask_ar):
     """Adapted from big_vision.
 
@@ -116,6 +127,7 @@ class Pi0(_model.BaseModel):
 
         self._enable_training_time_rtc = config.enable_training_time_rtc
         self._max_delay = config.max_delay
+        self._batch_image_views = config.batch_image_views
 
     @at.typecheck
     def embed_prefix(
@@ -125,8 +137,14 @@ class Pi0(_model.BaseModel):
         ar_mask = []
         tokens = []
         # embed images
+        batched_image_tokens = (
+            _encode_image_views_as_batch(self.PaliGemma.img, obs.images) if self._batch_image_views else None
+        )
         for name in obs.images:
-            image_tokens, _ = self.PaliGemma.img(obs.images[name], train=False)
+            if batched_image_tokens is None:
+                image_tokens, _ = self.PaliGemma.img(obs.images[name], train=False)
+            else:
+                image_tokens = batched_image_tokens[name]
 
             tokens.append(image_tokens)
             input_mask.append(

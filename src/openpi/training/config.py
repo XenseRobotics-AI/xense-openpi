@@ -621,6 +621,11 @@ class TrainConfig:
     profile_data_pipeline: bool = False
     # Number of steps between fine-grained data-pipeline timing lines.
     profile_log_interval: int = 1
+    # If set, write a JAX/XProf trace to this directory. The trace begins at
+    # xprof_start_step and covers xprof_num_steps complete training iterations.
+    xprof_trace_dir: str | None = None
+    xprof_start_step: int = 0
+    xprof_num_steps: int = 20
     # Number of train steps (batches) to run.
     num_train_steps: int = 30_000
 
@@ -671,6 +676,8 @@ class TrainConfig:
     def __post_init__(self) -> None:
         if self.resume and self.overwrite:
             raise ValueError("Cannot resume and overwrite at the same time.")
+        if self.xprof_num_steps <= 0:
+            raise ValueError("xprof_num_steps must be positive.")
 
 
 # YAML lookup paths, in priority order. First match wins.

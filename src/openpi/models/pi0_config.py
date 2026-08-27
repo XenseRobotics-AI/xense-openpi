@@ -30,6 +30,9 @@ class Pi0Config(_model.BaseModelConfig):
     pi05: bool = False
     # This config option is not used directly by the model, but it is read by the ModelTransformFactory.
     discrete_state_input: bool = None  # type: ignore
+    # Encode all camera views in one larger SigLIP batch. This is equivalent to
+    # one encoder call per view but avoids repeated launches and FSDP parameter use.
+    batch_image_views: bool = False
 
     # training-time RTC config
     enable_training_time_rtc: bool = False

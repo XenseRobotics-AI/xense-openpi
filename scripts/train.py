@@ -140,6 +140,7 @@ def train_step(
     rng: at.KeyArrayLike,
     state: training_utils.TrainState,
     batch: tuple[_model.Observation, _model.Actions],
+    compute_metrics: bool = True,
 ) -> tuple[training_utils.TrainState, dict[str, at.Array]]:
     model = nnx.merge(state.model_def, state.params)
     model.train()
@@ -175,19 +176,29 @@ def train_step(
             ),
         )
 
-    # Filter out params that aren't kernels.
-    kernel_params = nnx.state(
-        model,
-        nnx.All(
-            nnx.Param,
-            nnx.Not(nnx_utils.PathRegex(".*/(bias|scale|pos_embedding|input_embedding)")),
-            lambda _, x: x.value.ndim > 1,
-        ),
-    )
+    if compute_metrics:
+        # These whole-model reductions are useful for diagnostics but need not run on
+        # every step when they are only logged every config.log_interval steps.
+        kernel_params = nnx.state(
+            model,
+            nnx.All(
+                nnx.Param,
+                nnx.Not(nnx_utils.PathRegex(".*/(bias|scale|pos_embedding|input_embedding)")),
+                lambda _, x: x.value.ndim > 1,
+            ),
+        )
+        grad_norm = optax.global_norm(grads)
+        param_norm = optax.global_norm(kernel_params)
+    else:
+        # Keep a stable output pytree for both JIT variants. The host-side logging
+        # reduction ignores these placeholders with nanmean.
+        grad_norm = jnp.asarray(jnp.nan, dtype=loss.dtype)
+        param_norm = jnp.asarray(jnp.nan, dtype=loss.dtype)
+
     info = {
         "loss": loss,
-        "grad_norm": optax.global_norm(grads),
-        "param_norm": optax.global_norm(kernel_params),
+        "grad_norm": grad_norm,
+        "param_norm": param_norm,
     }
     return new_state, info
 
@@ -258,6 +269,7 @@ def main(config: _config.TrainConfig):
         in_shardings=(replicated_sharding, train_state_sharding, data_sharding),
         out_shardings=(train_state_sharding, replicated_sharding),
         donate_argnums=(1,),
+        static_argnums=(3,),
     )
 
     start_step = int(train_state.step)
@@ -269,15 +281,36 @@ def main(config: _config.TrainConfig):
     )
 
     infos = []
+    xprof_active = False
     # --- stall diagnostics ---
     stall_threshold_s = 3.0  # log a warning when any phase exceeds this
     t_prev_loop_end = time.monotonic()
     for step in pbar:
+        if config.xprof_trace_dir is not None and step == config.xprof_start_step:
+            # Exclude work queued before the requested range and make the trace boundaries
+            # correspond to complete training iterations.
+            jax.block_until_ready((train_state, batch))
+            logging.info(
+                f"Starting JAX/XProf trace at step {step} for {config.xprof_num_steps} steps: "
+                f"{config.xprof_trace_dir}"
+            )
+            jax.profiler.start_trace(
+                config.xprof_trace_dir,
+                create_perfetto_link=False,
+                create_perfetto_trace=True,
+            )
+            xprof_active = True
+
         t_loop_start = time.monotonic()
 
         t0 = time.monotonic()
         with sharding.set_mesh(mesh):
-            train_state, info = ptrain_step(train_rng, train_state, batch)
+            train_state, info = ptrain_step(
+                train_rng,
+                train_state,
+                batch,
+                step % config.log_interval == 0,
+            )
         t_dispatch = time.monotonic() - t0
 
         # JAX dispatch is asynchronous. Fine-grained H2D profiling must first finish the
@@ -295,7 +328,7 @@ def main(config: _config.TrainConfig):
         if step % config.log_interval == 0:
             t0 = time.monotonic()
             stacked_infos = common_utils.stack_forest(infos)
-            reduced_info = jax.device_get(jax.tree.map(jnp.mean, stacked_infos))
+            reduced_info = jax.device_get(jax.tree.map(jnp.nanmean, stacked_infos))
             info_str = ", ".join(f"{k}={v:.4f}" for k, v in reduced_info.items())
             pbar.write(f"Step {step}: {info_str}")
             wandb.log(reduced_info, step=step)
@@ -350,6 +383,16 @@ def main(config: _config.TrainConfig):
                 f"h2d_wait={data_profile['h2d_wait_s']:.4f}s "
                 f"next_batch_total={t_next_batch:.4f}s"
             )
+
+        if xprof_active and step + 1 == config.xprof_start_step + config.xprof_num_steps:
+            jax.block_until_ready((train_state, info, batch))
+            jax.profiler.stop_trace()
+            xprof_active = False
+            logging.info(f"Finished JAX/XProf trace at step {step}")
+
+    if xprof_active:
+        jax.block_until_ready((train_state, batch))
+        jax.profiler.stop_trace()
 
     logging.info("Shutting down data loader")
     data_loader.close()
