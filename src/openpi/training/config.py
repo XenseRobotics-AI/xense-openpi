@@ -615,6 +615,12 @@ class TrainConfig:
     # workers finish them. The sampler still visits every index exactly once per pass, so this
     # only reorders batches that were already randomly shuffled.
     strict_batch_order: bool = False
+    # If true, collect fine-grained data-pipeline timings. This adds per-sample clocks in
+    # workers and synchronizes device transfers, so it is intended only for short profiling
+    # runs rather than production training.
+    profile_data_pipeline: bool = False
+    # Number of steps between fine-grained data-pipeline timing lines.
+    profile_log_interval: int = 1
     # Number of train steps (batches) to run.
     num_train_steps: int = 30_000
 
@@ -622,6 +628,9 @@ class TrainConfig:
     log_interval: int = 100
     # How often (in steps) to save checkpoints.
     save_interval: int = 1000
+    # Whether to save the last step even when it is not on save_interval. Useful to disable
+    # for short profiling runs restored from an existing checkpoint.
+    save_final_checkpoint: bool = True
     # If set, any existing checkpoints matching step % keep_period == 0 will not be deleted.
     keep_period: int | None = 5000
 

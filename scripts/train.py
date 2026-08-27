@@ -280,6 +280,15 @@ def main(config: _config.TrainConfig):
             train_state, info = ptrain_step(train_rng, train_state, batch)
         t_dispatch = time.monotonic() - t0
 
+        # JAX dispatch is asynchronous. Fine-grained H2D profiling must first finish the
+        # current train step; otherwise block_until_ready(batch) also measures time spent
+        # queued behind model compute on the same devices.
+        t_compute_sync = 0.0
+        if config.profile_data_pipeline:
+            t0 = time.monotonic()
+            jax.block_until_ready((train_state, info))
+            t_compute_sync = time.monotonic() - t0
+
         infos.append(info)
 
         t_log = 0.0
@@ -296,9 +305,12 @@ def main(config: _config.TrainConfig):
         t0 = time.monotonic()
         batch = next(data_iter)
         t_next_batch = time.monotonic() - t0
+        data_profile = data_loader.profile_stats()
 
         t_ckpt = 0.0
-        if (step % config.save_interval == 0 and step > start_step) or step == config.num_train_steps - 1:
+        if (step % config.save_interval == 0 and step > start_step) or (
+            config.save_final_checkpoint and step == config.num_train_steps - 1
+        ):
             t0 = time.monotonic()
             _checkpoints.save_state(checkpoint_manager, train_state, data_loader, step)
             t_ckpt = time.monotonic() - t0
@@ -323,7 +335,24 @@ def main(config: _config.TrainConfig):
                 f"dispatch={t_dispatch:.2f}s next_batch={t_next_batch:.2f}s "
                 f"log={t_log:.2f}s ckpt={t_ckpt:.2f}s"
             )
+        if (
+            config.profile_data_pipeline
+            and data_profile is not None
+            and step % config.profile_log_interval == 0
+        ):
+            pbar.write(
+                f"[DATA_PROFILE step={step}] "
+                f"dispatch={t_dispatch:.4f}s compute_sync={t_compute_sync:.4f}s "
+                f"main_queue_wait={data_profile['main_queue_wait_s']:.4f}s "
+                f"worker_getitem={data_profile['worker_getitem_s']:.4f}s "
+                f"worker_collate={data_profile['worker_collate_s']:.4f}s "
+                f"jax_array_construct={data_profile['jax_array_construct_s']:.4f}s "
+                f"h2d_wait={data_profile['h2d_wait_s']:.4f}s "
+                f"next_batch_total={t_next_batch:.4f}s"
+            )
 
+    logging.info("Shutting down data loader")
+    data_loader.close()
     logging.info("Waiting for checkpoint manager to finish")
     checkpoint_manager.wait_until_finished()
 

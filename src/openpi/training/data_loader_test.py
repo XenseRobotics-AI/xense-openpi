@@ -54,6 +54,78 @@ def test_torch_data_loader_parallel():
         assert all(x.shape[0] == 4 for x in jax.tree.leaves(batch))
 
 
+def test_torch_worker_batches_use_shared_memory_and_numpy_views_are_zero_copy():
+    config = pi0_config.Pi0Config(action_dim=24, action_horizon=50, max_token_len=48)
+    dataset = _data_loader.FakeDataset(config, 4)
+    loader = _data_loader.TorchDataLoader(
+        dataset,
+        local_batch_size=2,
+        num_batches=1,
+        num_workers=2,
+        framework="pytorch",
+    )
+
+    data_iter = iter(loader.torch_loader)
+    batch = next(data_iter)
+    del data_iter
+
+    for tensor in jax.tree.leaves(batch):
+        assert isinstance(tensor, torch.Tensor)
+        assert tensor.device.type == "cpu"
+        assert tensor.is_shared()
+
+        numpy_view = _data_loader._to_numpy_view(tensor)
+        assert numpy_view.__array_interface__["data"][0] == tensor.data_ptr()
+
+
+def test_torch_data_loader_close_shuts_down_workers():
+    config = pi0_config.Pi0Config(action_dim=24, action_horizon=50, max_token_len=48)
+    dataset = _data_loader.FakeDataset(config, 4)
+    loader = _data_loader.TorchDataLoader(
+        dataset,
+        local_batch_size=2,
+        num_workers=2,
+        framework="pytorch",
+    )
+
+    data_iter = iter(loader)
+    _ = next(data_iter)
+    workers = tuple(loader._active_iterator._workers)
+    assert all(worker.is_alive() for worker in workers)
+
+    data_iter.close()
+
+    assert loader._active_iterator is None
+    assert loader.torch_loader._iterator is None
+    assert all(not worker.is_alive() for worker in workers)
+
+
+def test_torch_data_loader_profile_stats():
+    config = pi0_config.Pi0Config(action_dim=24, action_horizon=50, max_token_len=48)
+    batch_size = jax.device_count()
+    dataset = _data_loader.FakeDataset(config, batch_size * 2)
+
+    loader = _data_loader.TorchDataLoader(
+        dataset,
+        local_batch_size=batch_size,
+        num_batches=1,
+        num_workers=2,
+        profile_data_pipeline=True,
+    )
+    _ = next(iter(loader))
+    stats = loader.profile_stats()
+
+    assert stats is not None
+    assert set(stats) == {
+        "main_queue_wait_s",
+        "worker_getitem_s",
+        "worker_collate_s",
+        "jax_array_construct_s",
+        "h2d_wait_s",
+    }
+    assert all(value >= 0 for value in stats.values())
+
+
 def test_with_fake_dataset():
     config = _config.get_config("debug_pi05")
 
