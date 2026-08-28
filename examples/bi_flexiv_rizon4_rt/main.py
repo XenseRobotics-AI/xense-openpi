@@ -49,7 +49,7 @@ Example usage:
         --task "pack 6 cosmetic bottles into the carton" \\
         --resume
 
-    # Inference with Pico4 human intervention (both grips held → teleop takes over)
+    # Inference with Pico4 human intervention (either grip held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --host 192.168.2.100 --port 8000 --pico4_intervention
 
@@ -256,7 +256,7 @@ class Args:
     keyboard_control: bool = False
     confirm_success: bool = False
 
-    # Pico4 human-in-the-loop intervention (hold both grips to take over)
+    # Pico4 human-in-the-loop intervention (hold either grip to take over)
     pico4_intervention: bool = False
     pico4_pos_sensitivity: float = 1.0
     pico4_ori_sensitivity: float = 1.0
