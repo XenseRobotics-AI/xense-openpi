@@ -23,6 +23,8 @@ batch_size: 256
 num_workers: 64
 num_train_steps: 80000
 fsdp_devices: 8
+save_interval: 10000
+keep_period: 10000
 # Whether batches are delivered in strict sampler order. false (the default) hands each
 # batch over as soon as a worker finishes it, which removes the head-of-line stall every
 # num_workers steps, and enables the InfiniteSampler so the epoch boundary never tears the

@@ -18,11 +18,13 @@ data:
   repo_id: Xense/earbud_case_insertion_teleop_0515
   base_config:
     prompt_from_task: true
+    tactile: false
   default_prompt: Pick up each earbud case from the left stands, insert the matching
     earbuds, close the lid, and place the case in the box.
 batch_size: 256
 num_workers: 64
-num_train_steps: 20000
-save_interval: 5000
-keep_period: 20000
+num_train_steps: 60000
+save_interval: 10000
+keep_period: 10000
 fsdp_devices: 8
+strict_batch_order: false
