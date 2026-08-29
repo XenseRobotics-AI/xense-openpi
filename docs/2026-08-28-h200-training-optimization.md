@@ -10,6 +10,8 @@ LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
     --overwrite
 ```
 
+> **2026-08-29 长跑验证警告**：下面的命令和开关保留为复现记录，但当前 cuDNN Attention 不应继续用于生产训练。生产长跑在 step 16100 首次记录到 NaN 梯度，step 16200 起 loss 持续为 NaN。短跑的数值对齐不足以覆盖该问题，详见“生产长跑验证”。
+
 `my_task` 的模型配置需要包含 `use_cudnn_attention: true`；如果 YAML 中没有设置，则在命令末尾增加 `--model.use-cudnn-attention`。`--overwrite` 会删除同名实验的原 Checkpoint 目录；恢复已有训练应改用 `--resume`。
 
 训练启动后会在初始化日志中直接打印：
@@ -248,6 +250,34 @@ python scripts/train.py pi05_base_bi_flexiv_earbud_case_insertion_0826_h200 \
 
 数值对齐测试中，BF16 masked attention 前向最大绝对误差为 `0.00390625`、平均绝对误差为 `0.00026494`；Q/K/V 梯度最大绝对误差分别为 `1.91e-6`、`4.77e-7` 和 `2.38e-7`，属于正常 BF16 数值差异。
 
+### 2026-08-29 生产长跑验证
+
+生产训练从原 step 16000 Checkpoint 恢复，使用 8×H200、全局 batch 512、96 个 DataLoader worker、`batch_image_views=true`、`use_cudnn_attention=true`、`XLA_PYTHON_CLIENT_MEM_FRACTION=0.9`。启动日志确认 JAX 实际加载 cuDNN runtime `91400`。截至检查时，tmux 训练进程仍在运行，进度条约为 step 55100/60000；日志中没有 OOM、`No valid engine configs` 或 XLA runtime exception。
+
+速度统计使用日志中已经完整刷新的 step 16150–51650 记录。普通非日志、非保存 step 共 356 个样本：
+
+- **当前一个普通稳态 step：均值 `1.910590 s`，中位数 `1.910000 s`；**
+- 标准差 `0.010744 s`，范围 `1.86–1.95 s`；
+- 分项均值为 `dispatch=1.867331 s`、`next_batch=0.042612 s`；
+- 按 batch 512 折算吞吐约 `267.98 samples/s`；
+- 每 100 step 的日志 step 均值 `2.360375 s`，其中日志约 `0.436000 s`；
+- 每 1000 step 的 Checkpoint step 均值 `4.656286 s`，其中保存约 `2.288286 s`；
+- 按上述频率摊销日志和保存开销后，长期约为 **`1.917238 s/step`**。
+
+因此，生产长跑的速度与 40-step A/B 中的 `1.978580 s/step` 一致并略快；从纯吞吐看，cuDNN fused Attention 的约 1.9 秒/step 收益稳定存在。
+
+但是训练数值已经失效：
+
+```text
+Step 16100: grad_norm=nan, loss=0.1185, param_norm=nan
+Step 16200: grad_norm=nan, loss=nan,    param_norm=nan
+Step 16300 及之后: grad_norm=nan, loss=nan, param_norm=nan
+```
+
+step 16100 是第一个写入指标的生产日志点，因此只能确定 NaN 在 step 16000–16100 之间产生，不能从当前日志定位到更精确的单步。已完整刷新的日志一直到 step 51600 都没有再次出现有限 loss。周期保存又已经清理原 step 16000；当前保留的最后一个切换前 Checkpoint 是 step 15000，而 step 20000–55000 均是在 NaN 出现后保存，不能作为有效训练结果使用。
+
+结论是：**1.91 秒/step 是真实、稳定的硬件吞吐，但来自数值无效的训练，不能作为启用 cuDNN Attention 的生产验收。** 在定位并修复 NaN 前，应关闭 `use_cudnn_attention`；恢复有效训练时只能从仍保留的切换前 Checkpoint 重新开始。后续诊断需要缩短日志间隔并逐 step 检查 loss、梯度和参数有限性，重点覆盖真实 block mask 下的完整优化器更新，而不只是独立 Attention 前向/反向。
+
 ## 7. 正确性和运行验证
 
 - 增加单元测试，对三路相机分别编码与合并编码的 token 做逐元素相等比较；
@@ -262,18 +292,19 @@ python scripts/train.py pi05_base_bi_flexiv_earbud_case_insertion_0826_h200 \
 - cuDNN Attention 相关模型回归：`7 passed`；
 - 原 Attention 和 cuDNN Attention 均完成一次 step 16000–16040 的 8×H200 短跑，没有 OOM、cuDNN engine fallback 或训练异常，也没有保存新 Checkpoint；
 - cuDNN 短跑退出时个别 DataLoader worker 在清理阶段打印 `killed by signal: Aborted`，发生在训练完成和计时结束之后，主训练进程与 GPU 资源均正常退出；这不是 Attention 计算错误。
+- 后续生产长跑推翻了短跑的数值有效性结论：step 16100 首次记录到 NaN 梯度，step 16200 起 loss 持续为 NaN；这说明现有 smoke test 和 40-step 吞吐短跑不足以作为生产正确性验证。
 
 ## 8. 当前结论与下一步
 
 当前稳态数据交付只占约 `0.04–0.05 s/step`，H2D 只有数毫秒；XProf 又显示已记录 kernel 时间主要集中在 GEMM/Fusion。因此，继续微调 queue、collate 或 H2D 不太可能带来显著收益。
 
-cuDNN fused Attention 是目前单项收益最大的模型侧优化：在已经开启三路相机合并的配置上，进一步减少 29.22% 的稳态 step 时间。生产训练建议同时开启 `batch_image_views` 和 `use_cudnn_attention`，并在启动后从 JAX 侧确认 cuDNN runtime 为 91400。PyTorch 的版本输出只能验证 PyTorch 当前进程，不能代替该检查。
+cuDNN fused Attention 的速度收益是目前最大的模型侧收益：生产长跑普通 step 为 `1.910590 s`，摊销日志和 Checkpoint 后约 `1.917238 s/step`。但是该长跑从 step 16100 起出现 NaN，故当前实现没有通过生产正确性验收。确认 JAX runtime 为 91400 只能证明动态库选择正确，不能证明训练数值正确；在修复 NaN 前不得将 `use_cudnn_attention` 用于有效训练。
 
 下一轮稳态优化建议按以下顺序推进：
 
-1. **做更长的 cuDNN 生产验证。** 先跑 200–500 个稳态 step，监控 loss、grad norm、显存和是否出现 engine 错误；短跑结果已足以支持开启，但长跑用于排除训练阶段相关问题。
-2. **缩短有效 token 长度。** 全数据扫描得到 Pi0.5 tokenized state 最大长度 165；可单独 A/B `max_token_len=168` 与当前 200，减少 Gemma attention/MLP 的序列计算，同时保留 3 token 余量。
-3. **继续拆最大的 GEMM/Fusion。** 优先检查启用 cuDNN 后的新 trace，确认剩余最大的 SigLIP/Gemma GEMM 和 fusion，避免继续针对已经被 fused Attention 消除的旧热点优化。
+1. **先定位 cuDNN NaN。** 从保留的 step 15000 Checkpoint 做逐 step 有限性检查，至少覆盖 200 step；每步同步并检查 loss、梯度、参数和优化器状态，比较显式 Attention 与 cuDNN 的首次分叉位置。修复前默认关闭该开关。
+2. **缩短有效 token 长度。** 全数据扫描得到 Pi0.5 tokenized state 最大长度 165；可在显式 Attention 路径单独 A/B `max_token_len=168` 与当前 200，减少 Gemma attention/MLP 的序列计算，同时保留 3 token 余量。
+3. **重新做端到端正确性验收。** 修复后必须先完成至少 500 个有限 loss/gradient 的训练 step，再讨论更长的吞吐收益和默认开启；独立 Attention smoke test 不再视为充分证据。
 4. **降低 checkpoint 干扰。** 长训练若不需要每 1000 step 恢复点，可提高 `save_interval`；此前生产日志已经确认 checkpoint 会造成下一 step 的数据等待尖峰。
 
-最终判断：共享内存 Tensor 消除了主要数据交付开销；日志 step 范数和三路相机合并是低风险增量收益；cuDNN fused Attention 是当前最大且已验证的稳态收益。后续应基于启用 cuDNN 后的新计算图继续优化，并按当前需求不把约 10 分钟冷启动作为训练吞吐优化目标。
+最终判断：共享内存 Tensor 消除了主要数据交付开销；日志 step 范数和三路相机合并是低风险增量收益；cuDNN fused Attention 具有最大的速度收益，但生产长跑数值失败，当前只能作为实验性、不安全的优化。下一步的最高优先级是恢复到切换前 Checkpoint 并定位 NaN，而不是继续运行或推广这条路径。
