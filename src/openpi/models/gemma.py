@@ -160,11 +160,10 @@ class Embedder(nn.Module):
         return jnp.dot(x, self.input_embedding_table.T)
 
 
-def _make_cudnn_attention_mask_safe(attn_mask):
-    """Give fully masked query rows one dummy key for finite cuDNN gradients."""
-    row_has_key = jnp.any(attn_mask, axis=-1, keepdims=True)
-    dummy_key = jnp.arange(attn_mask.shape[-1]) == 0
-    return jnp.logical_or(attn_mask, jnp.logical_and(~row_has_key, dummy_key))
+def _stop_gradient_for_fully_masked_queries(q, attn_mask):
+    """Preserve the raw cuDNN mask while zeroing gradients for invalid queries."""
+    query_has_key = jnp.any(attn_mask, axis=-1)[:, 0, :, None, None]
+    return jnp.where(query_has_key, q, jax.lax.stop_gradient(q))
 
 
 @at.typecheck
@@ -236,17 +235,15 @@ class Attention(nn.Module):
             # q is already scaled above, so disable dot_product_attention's
             # default head-dimension scaling. Keep cached inference on the
             # existing implementation; this switch targets training throughput.
-            # cuDNN 9.14 returns finite outputs but NaN q-gradients for query
-            # rows whose mask is entirely false. Padding tokens create exactly
-            # those rows. Give each empty row one dummy key; padded query outputs
-            # cannot affect valid tokens because padded keys remain masked for
-            # every valid query.
-            cudnn_mask = _make_cudnn_attention_mask_safe(attn_mask)
+            # cuDNN 9.14 produces NaN q-gradients for fully masked query rows at
+            # the production GQA shape. Preserve the original fast mask and cut
+            # only those invalid query rows out of the backward path.
+            q = _stop_gradient_for_fully_masked_queries(q, attn_mask)
             encoded = jax.nn.dot_product_attention(
                 q,
                 k,
                 v,
-                mask=cudnn_mask,
+                mask=attn_mask,
                 scale=1.0,
                 implementation="cudnn",
             )

@@ -13,7 +13,7 @@ LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
     --overwrite
 ```
 
-> **2026-08-29 长跑事故（已修复）**：原实现从 step 16100 起记录到 NaN；受污染 checkpoint 已删除，并从保留的 step 15000 恢复。本次修复为全空 mask 行补一个不会影响有效 token 的 dummy key。逐 step 有限性保护因约 22.7% 的吞吐开销已按生产要求移除，训练继续按原逻辑记录 loss；详见事故文档。
+> **2026-08-29 长跑事故（已修复）**：原实现从 step 16100 起记录到 NaN；受污染 checkpoint 已删除，并从保留的 step 15000 恢复。最终修复保留原始 attention mask，只对全空 query 行停止 Q 梯度。逐 step 有限性保护已按生产要求移除，训练继续按原逻辑记录 loss；详见事故文档。
 
 `my_task` 的模型配置需要包含 `use_cudnn_attention: true`；如果 YAML 中没有设置，则在命令末尾增加 `--model.use-cudnn-attention`。`--overwrite` 会删除同名实验的原 Checkpoint 目录；恢复已有训练应改用 `--resume`。
 
@@ -303,7 +303,7 @@ step 16100 是第一个写入指标的生产日志点，因此只能确定 NaN �
 
 当前稳态数据交付只占约 `0.04–0.05 s/step`，H2D 只有数毫秒；XProf 又显示已记录 kernel 时间主要集中在 GEMM/Fusion。因此，继续微调 queue、collate 或 H2D 不太可能带来显著收益。
 
-cuDNN fused Attention 的速度收益是目前最大的模型侧收益：生产长跑普通 step 为 `1.910590 s`，摊销日志和 Checkpoint 后约 `1.917238 s/step`。原实现因全空 mask 行导致 NaN，现已修复。曾加入的逐 step 有限性保护把普通 step 增至 `2.345000 s`，因此已按生产要求移除，保留原有 loss/grad norm/param norm 日志。确认 JAX runtime 为 91400 仍只能证明动态库选择正确；生产验收需要持续观察日志。
+cuDNN fused Attention 的旧长跑普通 step 为 `1.910590 s`，但该区间从最早日志点起梯度、参数已经 NaN，不能作为有效训练的吞吐基线。修复后连续有限训练的普通 step 稳定约为 `2.31 s`；移除逐 step 有限性保护和把安全 mask 计算移出扫描层都没有改变该结果。最终实现保留原 mask，仅停止全空 query 的 Q 梯度，并保留原有 loss/grad norm/param norm 日志。确认 JAX runtime 为 91400 仍只能证明动态库选择正确；生产验收需要持续观察日志。
 
 下一轮稳态优化建议按以下顺序推进：
 

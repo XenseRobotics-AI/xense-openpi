@@ -61,14 +61,9 @@ valid query rows unchanged: true
 
 ## 修复
 
-cuDNN 分支在调用 `jax.nn.dot_product_attention` 前构造 `cudnn_mask`：
+cuDNN 分支保留原始 attention mask，不再给全空行增加 dummy key。调用 `jax.nn.dot_product_attention` 前用 `any(..., axis=-1)` 找出有效 query；Q 的前向值逐元素不变，但全空 query 行通过 `stop_gradient` 从反向链路中移除。这样保持原 mask 语义和有效 query 输出，同时把无效 Q 梯度固定为 0。
 
-1. 用 `any(..., axis=-1)` 找出至少有一个可见 key 的 query 行；
-2. 只对全空行开放一个 dummy key；
-3. 所有非空行保持逐元素不变；
-4. padded key 对有效 query 仍然不可见，因此 dummy 行的输出不能影响有效 token 或训练 loss。
-
-训练循环曾增加逐 step 有限性保护，但生产统计显示普通 step 从 `1.910590 s` 增至 `2.345000 s`，约 98.7% 的新增时间位于模型更新的 `dispatch` 阶段。原因是每步扫描完整梯度和 optimizer update，并对全部参数和 optimizer state 做逐元素回退选择。根据 2026-08-29 的生产运行要求，该保护已移除，恢复原更新路径；训练仍按原逻辑在日志边界输出 `loss`、`grad_norm` 和 `param_norm`，不再自动拒绝更新或因非有限值停止。
+训练循环曾增加逐 step 有限性保护。根据 2026-08-29 的生产运行要求，该保护已移除，恢复原更新路径；训练仍按原逻辑在日志边界输出 `loss`、`grad_norm` 和 `param_norm`，不再自动拒绝更新或因非有限值停止。最初曾把 `1.91 -> 2.3 s/step` 归因于该保护，后续 A/B 推翻了这一判断：移除保护后连续有限训练仍约为 `2.31 s/step`。
 
 这是一项明确的吞吐优先取舍：日志只能事后暴露数值异常，不能保证异常更新不会进入参数或下一个 checkpoint。
 
@@ -76,7 +71,7 @@ cuDNN 分支在调用 `jax.nn.dot_product_attention` 前构造 `cudnn_mask`：
 
 修复验收按以下顺序执行：
 
-1. mask 单元测试确认只修改全空 query 行；
+1. 单元测试确认 Q 前向逐元素不变，且只停止全空 query 行的梯度；
 2. H200/cuDNN 最小反向测试确认 Q/K/V 梯度全部有限；
 3. 从 step 15000 复制到独立诊断实验目录，禁用 W&B 和 checkpoint 保存；
 4. 至少运行 200–500 step，逐日志窗口确认 loss/grad norm/param norm 有限；
@@ -90,7 +85,7 @@ cuDNN 分支在调用 `jax.nn.dot_product_attention` 前构造 `cudnn_mask`：
 - `git diff --check` 通过；
 - `src/openpi/models/pi0_test.py`：`8 passed`；
 - `scripts/train_test.py`：`2 passed`，包括两步训练和 checkpoint 恢复；
-- H200/cuDNN BF16 GQA 最小反向测试：Q/K/V 梯度全部有限，NaN 数量均为 0，有效 mask 行逐元素不变。
+- H200/cuDNN BF16 GQA 真实序列形状测试：原始反向产生 71680 个 Q 梯度 NaN；Q stop-gradient 后 Q/K/V 梯度全部有限，NaN 数量均为 0，前向值和有效 query 输出逐元素不变。
 
 真实训练使用 8×H200、全局 batch 512、cuDNN runtime 91400，从 clean step 15000 通过 `/tmp` 独立目录只读恢复。W&B、周期保存和最终保存均关闭。为缩短冷启动只启用 16 个 DataLoader worker，因此本次不统计吞吐。
 
@@ -106,6 +101,12 @@ Step 15060: grad_norm=1.4659, loss=0.1655, param_norm=1806.8483, update_is_finit
 ```
 
 原缺陷会在恢复后的第一个更新产生 NaN，因此 60 个连续有限更新已经验证修复覆盖了已知故障。短跑结束后 8 张 GPU 显存均为 0 MiB，原 checkpoint 未被修改。恢复生产前仍建议完成 200–500 step 的长验证，以覆盖更多数据样本和训练阶段。
+
+### 速度复核
+
+上次长跑报告的普通 step `1.910590 s` 来自数值已经失效的区间：第一个生产日志窗口已出现 NaN 梯度，随后参数和 loss 持续为 NaN，因此不能作为有效训练的吞吐基线。修复后连续有限训练的普通 step 稳定约为 `2.31 s`。
+
+16-worker 短跑曾出现 `dispatch=1.82–1.83 s`，但它发生在 80 秒左右的数据断供之后，是 GPU 空闲后的瞬时样本；同一运行的连续 step 仍为 `2.30 s`，并且每约 16 step 出现 30–85 秒 `next_batch` stall。生产继续使用 96 workers 以避免数据断供，约 8 分钟冷启动不计入稳态吞吐。
 
 ## 恢复注意事项
 

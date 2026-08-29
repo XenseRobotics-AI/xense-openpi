@@ -29,7 +29,7 @@ def test_encode_image_views_as_batch_matches_separate_calls():
         assert jnp.array_equal(actual[name], expected[name])
 
 
-def test_cudnn_attention_mask_fills_only_empty_query_rows():
+def test_cudnn_attention_stops_gradient_only_for_empty_query_rows():
     mask = jnp.array(
         [
             [
@@ -44,11 +44,17 @@ def test_cudnn_attention_mask_fills_only_empty_query_rows():
         dtype=jnp.bool_,
     )
 
-    safe_mask = _gemma._make_cudnn_attention_mask_safe(mask)
+    q = jnp.arange(16, dtype=jnp.float32).reshape(1, 4, 2, 2)
 
-    assert jnp.array_equal(safe_mask[..., :2, :], mask[..., :2, :])
-    assert jnp.all(jnp.any(safe_mask, axis=-1))
-    assert jnp.array_equal(safe_mask[..., 2:, :], jnp.array([[[[True, False, False, False]] * 2]]))
+    def apply_and_sum(q_value):
+        return jnp.sum(_gemma._stop_gradient_for_fully_masked_queries(q_value, mask))
+
+    stopped_q = _gemma._stop_gradient_for_fully_masked_queries(q, mask)
+    grad = jax.grad(apply_and_sum)(q)
+
+    assert jnp.array_equal(stopped_q, q)
+    assert jnp.array_equal(grad[:, :2], jnp.ones_like(grad[:, :2]))
+    assert jnp.array_equal(grad[:, 2:], jnp.zeros_like(grad[:, 2:]))
 
 
 def _get_frozen_state(config: _pi0_config.Pi0Config) -> nnx.State:
