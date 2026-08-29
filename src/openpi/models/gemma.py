@@ -165,6 +165,7 @@ class Attention(nn.Module):
     """Attention module."""
 
     configs: Sequence[Config]
+    use_cudnn_attention: bool = False
 
     @nn.compact
     def __call__(self, xs, positions, attn_mask, kv_cache):
@@ -219,22 +220,35 @@ class Attention(nn.Module):
             k = jnp.concatenate([cache_k, k], axis=1)
             v = jnp.concatenate([cache_v, v], axis=1)
 
-        q = einops.rearrange(q, "B T (K G) H -> B T K G H", K=self.configs[0].num_kv_heads)
-        logits = jnp.einsum("BTKGH,BSKH->BKGTS", q, k, preferred_element_type=jnp.float32)
-
         if attn_mask.shape != (q.shape[0], 1, q.shape[1], k.shape[1]):
             raise ValueError(
                 f"Attention mask with shape {attn_mask.shape} but shapes for q and k are: {q.shape} and {k.shape}"
             )
 
-        # big_neg = jnp.finfo(logits.dtype).min
-        big_neg = -2.3819763e38  # See gemma/modules.py
-        masked_logits = jnp.where(attn_mask[:, :, None, :, :], logits, big_neg)
+        if self.use_cudnn_attention and kv_cache is None:
+            # q is already scaled above, so disable dot_product_attention's
+            # default head-dimension scaling. Keep cached inference on the
+            # existing implementation; this switch targets training throughput.
+            encoded = jax.nn.dot_product_attention(
+                q,
+                k,
+                v,
+                mask=attn_mask,
+                scale=1.0,
+                implementation="cudnn",
+            )
+        else:
+            grouped_q = einops.rearrange(q, "B T (K G) H -> B T K G H", K=self.configs[0].num_kv_heads)
+            logits = jnp.einsum("BTKGH,BSKH->BKGTS", grouped_q, k, preferred_element_type=jnp.float32)
 
-        probs = jax.nn.softmax(masked_logits, axis=-1).astype(dtype)
+            # big_neg = jnp.finfo(logits.dtype).min
+            big_neg = -2.3819763e38  # See gemma/modules.py
+            masked_logits = jnp.where(attn_mask[:, :, None, :, :], logits, big_neg)
 
-        encoded = jnp.einsum("BKGTS,BSKH->BTKGH", probs, v)
-        encoded = einops.rearrange(encoded, "B T K G H -> B T (K G) H")
+            probs = jax.nn.softmax(masked_logits, axis=-1).astype(dtype)
+
+            encoded = jnp.einsum("BKGTS,BSKH->BTKGH", probs, v)
+            encoded = einops.rearrange(encoded, "B T K G H -> B T (K G) H")
 
         out = []
         start = 0
@@ -291,6 +305,7 @@ class Block(nn.Module):
     """Transformer block."""
 
     configs: tuple[Config, ...]
+    use_cudnn_attention: bool = False
 
     dropout: float = 0.0
     dropout_bdims: tuple[int, ...] = ()
@@ -300,7 +315,7 @@ class Block(nn.Module):
         xs = sharding.activation_sharding_constraint(xs)
         drop = nn.Dropout(self.dropout, self.dropout_bdims) if self.dropout else lambda x, _: x
 
-        attn = Attention(configs=self.configs, name="attn")
+        attn = Attention(configs=self.configs, use_cudnn_attention=self.use_cudnn_attention, name="attn")
 
         pre_attn = []
         gates = []
@@ -356,6 +371,7 @@ class Module(nn.Module):
     dropout: float = 0.0
     dropout_bdims: tuple[int, ...] = ()  # Every float is dropped independently.
     adarms: bool = False
+    use_cudnn_attention: bool = False
 
     def setup(self):
         # all experts must have the same depth
@@ -386,6 +402,7 @@ class Module(nn.Module):
             length=self.configs[0].depth,
         )(
             configs=self.configs,
+            use_cudnn_attention=self.use_cudnn_attention,
             dropout=self.dropout,
             dropout_bdims=self.dropout_bdims,
         )

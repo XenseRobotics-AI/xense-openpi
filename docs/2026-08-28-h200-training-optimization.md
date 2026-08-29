@@ -1,5 +1,25 @@
 # H200 训练性能优化记录
 
+> **跨机器生产启动命令**：先激活目标 Conda 环境，再用 `$CONDA_PREFIX/lib` 相对该环境选择其中的 cuDNN。环境变量只作用于本次训练进程及其子进程，不修改环境内已安装的包。
+
+```bash
+LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
+  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  python scripts/train.py my_task \
+    --exp-name=run_0520 \
+    --overwrite
+```
+
+`my_task` 的模型配置需要包含 `use_cudnn_attention: true`；如果 YAML 中没有设置，则在命令末尾增加 `--model.use-cudnn-attention`。`--overwrite` 会删除同名实验的原 Checkpoint 目录；恢复已有训练应改用 `--resume`。
+
+训练启动后会在初始化日志中直接打印：
+
+```text
+JAX cuDNN runtime version: 91400
+```
+
+该值来自 `cuda_versions.cudnn_get_version()`。如果不是 `91400`，应停止训练并检查目标机器的 `$CONDA_PREFIX/lib`，不能只根据 PyTorch 输出判断 JAX 运行时版本。
+
 **日期**：2026-08-27 至 2026-08-28
 
 **机器**：8×H200
@@ -8,7 +28,7 @@
 
 **模型配置**：`pi05_base_bi_flexiv_earbud_case_insertion_0826_h200`
 
-**起始 Checkpoint**：step 49000
+**起始 Checkpoint**：step 49000（前四项优化）；step 16000（cuDNN Attention A/B）
 
 本文记录一次从数据管线拆分计时到 GPU trace 的训练性能优化过程。目标不是只看某个局部计时，而是在相同 Checkpoint、相同训练配置下逐项修改，并用稳态端到端 step 时间判断收益。
 
@@ -16,7 +36,7 @@
 
 ## 1. 测量口径
 
-所有短跑都从原始 step 49000 Checkpoint 只读恢复到独立实验目录，关闭 W&B、周期保存和最终 Checkpoint 保存，避免覆盖训练结果。每个性能变体运行 40 step，丢弃前 10 step 的编译和预热数据，统计 step 49011–49040 的 30 个稳态样本。
+前四项优化都从原始 step 49000 Checkpoint 只读恢复；cuDNN Attention A/B 从当前生产 step 16000 Checkpoint 只读恢复。所有短跑都使用独立实验目录，关闭 W&B、周期保存和最终 Checkpoint 保存，避免覆盖训练结果。每个变体运行到起始 step + 40，丢弃起始 step 到起始 step + 10 的编译、日志和预热数据，统计后续 30 个稳态样本。例如 step 49011–49040 或 step 16011–16040。
 
 JAX dispatch 是异步的，所以不能把 `dispatch` 单独当成 step 时间。本文使用以下和作为主要指标：
 
@@ -136,7 +156,99 @@ trace 中 kernel 可能重叠，不能把 kernel duration 简单相加后当作 
 
 相机合并后，`dispatch` 从约 `2.657 s` 降到 `2.236 s`，但 `compute_sync` 从约 `0.115 s` 增到 `0.492 s`。这是异步工作在 dispatch 与同步边界之间重新分布，真实收益必须看两者与 `next_batch_total` 的总和，不能宣称 dispatch 单项显示的约 16% 提升。
 
-## 6. 正确性和运行验证
+## 6. 第五步：cuDNN fused Attention
+
+### 问题
+
+Gemma Attention 原先显式执行 QK einsum、mask、softmax 和 PV einsum。XProf 已显示 GEMM/Fusion 占已记录 kernel 时间的 92.6%，因此训练 Attention 是比继续压缩数据搬运更有价值的候选。当前模型使用 BF16 GQA 和 block attention mask，必须验证 cuDNN 是否支持完整的真实训练形状，不能只测试一个小型无 mask MHA。
+
+### 实现
+
+新增可选配置 `use_cudnn_attention`。开启后，训练时调用：
+
+```python
+jax.nn.dot_product_attention(
+    q,
+    k,
+    v,
+    mask=attn_mask,
+    scale=1.0,
+    implementation="cudnn",
+)
+```
+
+`q` 在调用前已经按 head dimension 缩放，因此这里显式使用 `scale=1.0`，避免重复缩放。该路径只在 `kv_cache is None` 的训练路径启用；带 KV cache 的推理继续使用原实现。开关默认关闭，可通过 `--model.use-cudnn-attention` 启用。
+
+### cuDNN 版本和动态库选择
+
+当前环境同时存在两套可被动态链接器找到的 cuDNN：
+
+- `$CONDA_PREFIX/lib` 中的 cuDNN 9.14；
+- Python `site-packages/nvidia/cudnn/lib` 路径，以及元数据版本为 `9.10.2.21` 的 `nvidia-cudnn-cu12` wheel。
+
+cuDNN 不是由 `torch.backends.cudnn.version()` 统一替整个 Python 环境选择的。PyTorch 和 JAX 都要由 Linux 动态链接器根据当前进程的 `LD_LIBRARY_PATH`、wheel 的 RPATH/RUNPATH、已经加载的同 SONAME 库和导入顺序解析 `libcudnn.so.9` 及其组件。因此必须在实际启动训练的同一个 shell 中检查 JAX，而不能用 PyTorch 的版本输出推断 JAX。
+
+当前已激活 shell 的实际状态是：
+
+```text
+LD_LIBRARY_PATH=$CONDA_PREFIX/lib
+PyTorch cuDNN runtime = 91400
+JAX cuDNN runtime     = 91400
+JAX build cuDNN       = 90101
+```
+
+如果显式移除 `LD_LIBRARY_PATH`，PyTorch 和 JAX 都会解析到 9.10.2：
+
+```bash
+env -u LD_LIBRARY_PATH python -c \
+  'import jax; from jax._src.lib import cuda_versions; print(cuda_versions.cudnn_get_version())'
+# 91002
+
+env -u LD_LIBRARY_PATH python -c \
+  'import torch; print(torch.backends.cudnn.version())'
+# 91002
+```
+
+所以“PyTorch 是 9.14、JAX 默认是 9.10”不是同一个进程环境下两个框架固定选择不同版本；准确说法是：**当前 shell 有 `$CONDA_PREFIX/lib` 时两者都是 9.14，去掉该搜索路径时两者都是 9.10.2。** 之前观察到的 JAX 9.10.2 是在 `env -u LD_LIBRARY_PATH` 的诊断进程中得到的。
+
+强制 cuDNN Attention 时，9.10.2 对本模型测试形状报错：
+
+```text
+XlaRuntimeError: INTERNAL: No valid engine configs for Matmul_MUL...
+```
+
+使用环境中已经安装的 9.14 后，小型 MHA、真实 BF16 GQA 形状、block mask 前向和反向全部通过。因此不需要下载新包，但生产启动前必须保证 JAX 实际显示 `91400`：
+
+```bash
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib"
+
+python -c \
+  'from jax._src.lib import cuda_versions; print(cuda_versions.cudnn_get_version())'
+# 必须输出 91400
+
+python scripts/train.py pi05_base_bi_flexiv_earbud_case_insertion_0826_h200 \
+  --resume \
+  --model.use-cudnn-attention
+```
+
+### A/B 结果
+
+测试条件为 8×H200、全局 batch 512、`batch_image_views=true`、相同 step 16000 Checkpoint 和相同数据配置。两组均使用 cuDNN 9.14 运行时，唯一变量是是否启用 fused Attention。统计 step 16011–16040 的 30 个稳态样本，不包含数据 worker 启动、首批解码、Checkpoint 恢复和 JIT/cuDNN 编译。
+
+- 原显式 Attention：均值 `2.795537 s/step`，中位数 `2.797350 s/step`，标准差 `0.007647 s`；
+- cuDNN Attention：均值 `1.978580 s/step`，中位数 `1.979450 s/step`，标准差 `0.011704 s`；
+- step 时间减少 `29.22%`；
+- 等价吞吐从 `183.15 samples/s` 提升到 `258.77 samples/s`，提升 `41.29%`；
+- 从生产 step 16000 跑到 step 60000，按纯稳态 step 时间估算可节省约 `9.98 小时`。
+
+分项均值也显示收益来自模型计算，而不是数据波动：
+
+- 原实现：`dispatch=2.237247 s`，`compute_sync=0.484967 s`，`next_batch_total=0.073323 s`；
+- cuDNN：`dispatch=1.516877 s`，`compute_sync=0.394600 s`，`next_batch_total=0.067103 s`。
+
+数值对齐测试中，BF16 masked attention 前向最大绝对误差为 `0.00390625`、平均绝对误差为 `0.00026494`；Q/K/V 梯度最大绝对误差分别为 `1.91e-6`、`4.77e-7` 和 `2.38e-7`，属于正常 BF16 数值差异。
+
+## 7. 正确性和运行验证
 
 - 增加单元测试，对三路相机分别编码与合并编码的 token 做逐元素相等比较；
 - 模型与 YAML 相关回归测试：`23 passed`；
@@ -146,16 +258,22 @@ trace 中 kernel 可能重叠，不能把 kernel duration 简单相加后当作 
 - `compute_metrics=True/False` 两个 JIT 分支都在真实训练中执行；
 - 两次运行结束后显式 shutdown 成功，worker 无残留，8 张 GPU 显存全部释放；
 - 本地与训练服务器上的修改文件 SHA256 一致。
+- cuDNN Attention 小型与真实形状的前向/反向 smoke test 通过；
+- cuDNN Attention 相关模型回归：`7 passed`；
+- 原 Attention 和 cuDNN Attention 均完成一次 step 16000–16040 的 8×H200 短跑，没有 OOM、cuDNN engine fallback 或训练异常，也没有保存新 Checkpoint；
+- cuDNN 短跑退出时个别 DataLoader worker 在清理阶段打印 `killed by signal: Aborted`，发生在训练完成和计时结束之后，主训练进程与 GPU 资源均正常退出；这不是 Attention 计算错误。
 
-## 7. 当前结论与下一步
+## 8. 当前结论与下一步
 
 当前稳态数据交付只占约 `0.04–0.05 s/step`，H2D 只有数毫秒；XProf 又显示已记录 kernel 时间主要集中在 GEMM/Fusion。因此，继续微调 queue、collate 或 H2D 不太可能带来显著收益。
 
-下一轮建议按以下顺序推进：
+cuDNN fused Attention 是目前单项收益最大的模型侧优化：在已经开启三路相机合并的配置上，进一步减少 29.22% 的稳态 step 时间。生产训练建议同时开启 `batch_image_views` 和 `use_cudnn_attention`，并在启动后从 JAX 侧确认 cuDNN runtime 为 91400。PyTorch 的版本输出只能验证 PyTorch 当前进程，不能代替该检查。
 
-1. **单独优化冷启动。** 64 个 worker 拉起约 320 秒，首批数据约 119 秒，总首批约 450 秒。它不影响长训练稳态吞吐，但严重影响恢复训练、调参和短 profiling。应检查 worker 是否串行重复初始化 JAX、数据集元数据或视频 backend，并评估持久 worker 池、延迟初始化和元数据预缓存。
-2. **继续拆最大的 GEMM/Fusion。** 优先检查 trace 中最大的 SigLIP/Gemma GEMM 和 `loop_transpose_fusion_4`，验证是否存在多余 transpose、重复 materialization 或可合并的前向计算。
-3. **做更长的相机合并 A/B。** 当前 30 个稳态 step 已确认约 1.5% 增量收益；在默认开启前，建议再做至少 200–500 个稳态 step，确认不同 batch 和训练阶段下收益稳定。
+下一轮稳态优化建议按以下顺序推进：
+
+1. **做更长的 cuDNN 生产验证。** 先跑 200–500 个稳态 step，监控 loss、grad norm、显存和是否出现 engine 错误；短跑结果已足以支持开启，但长跑用于排除训练阶段相关问题。
+2. **缩短有效 token 长度。** 全数据扫描得到 Pi0.5 tokenized state 最大长度 165；可单独 A/B `max_token_len=168` 与当前 200，减少 Gemma attention/MLP 的序列计算，同时保留 3 token 余量。
+3. **继续拆最大的 GEMM/Fusion。** 优先检查启用 cuDNN 后的新 trace，确认剩余最大的 SigLIP/Gemma GEMM 和 fusion，避免继续针对已经被 fused Attention 消除的旧热点优化。
 4. **降低 checkpoint 干扰。** 长训练若不需要每 1000 step 恢复点，可提高 `save_interval`；此前生产日志已经确认 checkpoint 会造成下一 step 的数据等待尖峰。
 
-最终判断：共享内存 Tensor 是本轮最大且已验证的稳态收益；日志 step 范数是低风险小收益；三路相机合并方向正确但收益约 1.5%，应在更长 A/B 后再默认开启。后续优化应从数据搬运转向模型计算图，同时把约 450 秒冷启动作为独立问题处理。
+最终判断：共享内存 Tensor 消除了主要数据交付开销；日志 step 范数和三路相机合并是低风险增量收益；cuDNN fused Attention 是当前最大且已验证的稳态收益。后续应基于启用 cuDNN 后的新计算图继续优化，并按当前需求不把约 10 分钟冷启动作为训练吞吐优化目标。

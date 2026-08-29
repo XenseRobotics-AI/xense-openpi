@@ -12,6 +12,7 @@ import flax.traverse_util as traverse_util
 import jax
 import jax.experimental
 import jax.numpy as jnp
+from jax._src.lib import cuda_versions
 import numpy as np
 import optax
 import tqdm_loggable.auto as tqdm
@@ -206,6 +207,8 @@ def train_step(
 def main(config: _config.TrainConfig):
     init_logging()
     logging.info(f"Running on: {platform.node()}")
+    cudnn_runtime_version = cuda_versions.cudnn_get_version() if cuda_versions is not None else None
+    logging.info(f"JAX cuDNN runtime version: {cudnn_runtime_version}")
 
     if config.batch_size % jax.device_count() != 0:
         raise ValueError(

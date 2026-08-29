@@ -94,6 +94,7 @@ class Pi0(_model.BaseModel):
                 configs=[paligemma_config, action_expert_config],
                 embed_dtype=config.dtype,
                 adarms=config.pi05,
+                use_cudnn_attention=config.use_cudnn_attention,
             )
         )
         llm.lazy_init(

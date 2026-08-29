@@ -33,6 +33,9 @@ class Pi0Config(_model.BaseModelConfig):
     # Encode all camera views in one larger SigLIP batch. This is equivalent to
     # one encoder call per view but avoids repeated launches and FSDP parameter use.
     batch_image_views: bool = False
+    # Use cuDNN fused attention for training-time Gemma attention. This requires
+    # a cuDNN runtime that supports the model's BF16 GQA shapes and attention mask.
+    use_cudnn_attention: bool = False
 
     # training-time RTC config
     enable_training_time_rtc: bool = False

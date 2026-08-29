@@ -184,6 +184,8 @@ model:
   paligemma_variant: gemma_2b
   action_expert_variant: gemma_300m
   enable_training_time_rtc: true
+  # Required when launching with the cuDNN 9.14 setup shown below.
+  use_cudnn_attention: true
   max_delay: 10
 
 data:
@@ -208,9 +210,27 @@ Then use it exactly like any other config:
 
 ```bash
 python scripts/compute_norm_stats.py --config-name my_task
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py my_task --exp-name=run_0520 --overwrite
-python scripts/serve_policy.py policy:checkpoint --policy.config=my_task --policy.dir=checkpoints/my_task/run_0520/<step>
+LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
+  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  python scripts/train.py my_task \
+    --exp-name=my_exp \
+    --overwrite
+python scripts/serve_policy.py policy:checkpoint --policy.config=my_task --policy.dir=checkpoints/my_task/my_exp/<step>
 ```
+
+The training command above selects cuDNN from the currently active Conda
+environment without hard-coding a machine-specific path. It must be paired
+with the following model setting (already shown in the example config):
+
+```yaml
+model:
+  use_cudnn_attention: true
+```
+
+At startup, `scripts/train.py` logs `JAX cuDNN runtime version: <version>`;
+verify that it reports `91400`. Use `--overwrite` only for a new run that may
+replace an existing experiment directory; use `--resume` to preserve and
+continue an existing run.
 
 ⚠️ Before committing a YAML into `configs/_examples/`, scrub any machine-local
 absolute paths from `weight_loader.params_path` (e.g. `/home/<you>/...`). Use
@@ -246,7 +266,11 @@ python scripts/compute_norm_stats.py --config-name pi05_base_xtac_umi_pick_up_cu
 Now we can kick off training with the following command (the `--overwrite` flag is used to overwrite existing checkpoints if you rerun fine-tuning with the same config):
 
 ```bash
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py pi05_base_xtac_umi_pick_up_cube_0807_h200 --exp-name=my_experiment --overwrite
+LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
+  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  python scripts/train.py pi05_base_xtac_umi_pick_up_cube_0807_h200 \
+    --exp-name=my_experiment \
+    --overwrite
 ```
 
 The command will log training progress to the console and save checkpoints to the `checkpoints` directory. You can also monitor training progress on the Weights & Biases dashboard. For maximally using the GPU memory, set `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` before running training -- this enables JAX to use up to 90% of the GPU memory (vs. the default of 75%).
