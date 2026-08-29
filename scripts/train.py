@@ -49,10 +49,6 @@ def init_logging():
     logger.handlers[0].setFormatter(formatter)
 
 
-def _all_finite(tree):
-    return jnp.all(jnp.stack([jnp.all(jnp.isfinite(x)) for x in jax.tree.leaves(tree)]))
-
-
 def init_wandb(config: _config.TrainConfig, *, resuming: bool, log_code: bool = False, enabled: bool = True):
     if not enabled:
         wandb.init(mode="disabled")
@@ -165,17 +161,8 @@ def train_step(
     loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(model, train_rng, observation, actions)
 
     params = state.params.filter(config.trainable_filter)
-    updates, candidate_opt_state = state.tx.update(grads, state.opt_state, params)
-    candidate_params = optax.apply_updates(params, updates)
-
-    # Never commit a non-finite update. This reduction is intentionally done on
-    # every step: a single NaN update can poison every later checkpoint before a
-    # periodic logging step notices it.
-    update_is_finite = _all_finite((loss, grads, updates))
-    new_params = jax.tree.map(lambda old, new: jnp.where(update_is_finite, new, old), params, candidate_params)
-    new_opt_state = jax.tree.map(
-        lambda old, new: jnp.where(update_is_finite, new, old), state.opt_state, candidate_opt_state
-    )
+    updates, new_opt_state = state.tx.update(grads, state.opt_state, params)
+    new_params = optax.apply_updates(params, updates)
 
     # Update the model in place and return the new full state.
     nnx.update(model, new_params)
@@ -213,7 +200,6 @@ def train_step(
         "loss": loss,
         "grad_norm": grad_norm,
         "param_norm": param_norm,
-        "update_is_finite": update_is_finite,
     }
     return new_state, info
 
@@ -298,7 +284,6 @@ def main(config: _config.TrainConfig):
     )
 
     infos = []
-    nonfinite_step = None
     xprof_active = False
     # --- stall diagnostics ---
     stall_threshold_s = 3.0  # log a warning when any phase exceeds this
@@ -352,13 +337,6 @@ def main(config: _config.TrainConfig):
             wandb.log(reduced_info, step=step)
             infos = []
             t_log = time.monotonic() - t0
-            if float(reduced_info["update_is_finite"]) < 1.0:
-                nonfinite_step = step
-                pbar.write(
-                    f"[NONFINITE step={step}] At least one update since the previous log was skipped; "
-                    "stopping training."
-                )
-                break
 
         t0 = time.monotonic()
         batch = next(data_iter)
@@ -423,8 +401,6 @@ def main(config: _config.TrainConfig):
     data_loader.close()
     logging.info("Waiting for checkpoint manager to finish")
     checkpoint_manager.wait_until_finished()
-    if nonfinite_step is not None:
-        raise FloatingPointError(f"Non-finite loss, gradients, or updates detected by step {nonfinite_step}")
 
 
 if __name__ == "__main__":

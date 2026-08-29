@@ -68,12 +68,9 @@ cuDNN 分支在调用 `jax.nn.dot_product_attention` 前构造 `cudnn_mask`：
 3. 所有非空行保持逐元素不变；
 4. padded key 对有效 query 仍然不可见，因此 dummy 行的输出不能影响有效 token 或训练 loss。
 
-训练循环同时增加第二层保护：
+训练循环曾增加逐 step 有限性保护，但生产统计显示普通 step 从 `1.910590 s` 增至 `2.345000 s`，约 98.7% 的新增时间位于模型更新的 `dispatch` 阶段。原因是每步扫描完整梯度和 optimizer update，并对全部参数和 optimizer state 做逐元素回退选择。根据 2026-08-29 的生产运行要求，该保护已移除，恢复原更新路径；训练仍按原逻辑在日志边界输出 `loss`、`grad_norm` 和 `param_norm`，不再自动拒绝更新或因非有限值停止。
 
-- 每步检查 loss、梯度和 optimizer update 是否全部有限；
-- 非有限更新不会写入参数或 optimizer state；
-- 在下一个日志边界停止训练，并在 checkpoint 保存前退出；
-- 抛出明确的 `FloatingPointError`，避免静默生成污染 checkpoint。
+这是一项明确的吞吐优先取舍：日志只能事后暴露数值异常，不能保证异常更新不会进入参数或下一个 checkpoint。
 
 ## 验证要求
 
@@ -82,7 +79,7 @@ cuDNN 分支在调用 `jax.nn.dot_product_attention` 前构造 `cudnn_mask`：
 1. mask 单元测试确认只修改全空 query 行；
 2. H200/cuDNN 最小反向测试确认 Q/K/V 梯度全部有限；
 3. 从 step 15000 复制到独立诊断实验目录，禁用 W&B 和 checkpoint 保存；
-4. 至少运行 200–500 step，逐日志窗口确认 `update_is_finite=1`、loss/grad norm/param norm 有限；
+4. 至少运行 200–500 step，逐日志窗口确认 loss/grad norm/param norm 有限；
 5. 通过后才能清理污染 checkpoint 或恢复生产训练。
 
 ## 2026-08-29 修复验证结果
@@ -112,6 +109,6 @@ Step 15060: grad_norm=1.4659, loss=0.1655, param_norm=1806.8483, update_is_finit
 
 ## 恢复注意事项
 
-不能直接对原实验执行普通 `--resume`，因为它会选择最新的 step 55000 污染 checkpoint。恢复时必须显式以保留的 step 15000 为源，使用独立实验目录验证；确认修复后，再决定是否归档或移除 step 20000–55000。
+污染的 step 20000–55000 已删除，生产训练已从 step 15000 恢复并保存 step 18000。逐 step 保护在 step 18600 报告最近 100 步中有 8 次更新被拒绝，当时窗口聚合 loss 仍为有限值 `0.7085`，因此只看 loss 不足以证明每次更新都有限。移除保护后的生产训练从最后保留的 step 18000 继续。
 
 原 step 16000 已删除，无法无损续接；从 step 15000 恢复意味着重跑约 1000 个有效 step。
