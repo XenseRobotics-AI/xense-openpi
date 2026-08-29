@@ -6,9 +6,21 @@ import pytest
 
 os.environ["JAX_PLATFORMS"] = "cpu"
 
+import jax.numpy as jnp
+
 from openpi.training import config as _config
 
 from . import train
+
+
+def test_nonfinite_update_is_rejected():
+    loss = jnp.asarray(1.0)
+    grads = {"finite": jnp.ones((2,)), "bad": jnp.array([0.0, jnp.nan])}
+    updates = {"finite": jnp.ones((2,)), "bad": jnp.zeros((2,))}
+
+    update_is_finite = train._all_finite((loss, grads, updates))
+
+    assert not bool(update_is_finite)
 
 
 @pytest.mark.parametrize("config_name", ["debug_pi05"])

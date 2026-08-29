@@ -1,0 +1,31 @@
+model:
+  type: Pi0Config
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+  batch_image_views: true
+  use_cudnn_attention: true
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotBiFlexivDataConfig
+  repo_id: Xense/earbud_case_insertion_teleop_0515_left_right
+  base_config:
+    prompt_from_task: true
+    # 这个数据集有 7 路视频流，其中 4 路触觉流被 repack 直接丢弃。
+    # false（默认）= 不解码它们，单样本 __getitem__ 快约 1.7 倍。
+    # 用触觉的模型（Pi0Tactile 等）必须设 true。
+    tactile: false
+  default_prompt: Pick up each earbud case from the left stands, insert the matching earbuds, close the lid, and place the case in the box.
+batch_size: 512
+num_workers: 96
+num_train_steps: 60000
+fsdp_devices: 8
+# 是否严格按 sampler 顺序交付 batch。false（默认）= 谁先算完谁先交付，
+# 消除每 num_workers 步一次的队头阻塞停顿；同时启用 InfiniteSampler，
+# 去掉 epoch 边界重建迭代器的停顿。详见 docs/data-pipeline-stalls.md。
+# 代价：batch 的交付顺序不再逐次可复现（每个 index 每轮仍恰好出现一次）。
+strict_batch_order: false

@@ -29,6 +29,28 @@ def test_encode_image_views_as_batch_matches_separate_calls():
         assert jnp.array_equal(actual[name], expected[name])
 
 
+def test_cudnn_attention_mask_fills_only_empty_query_rows():
+    mask = jnp.array(
+        [
+            [
+                [
+                    [True, False, False, False],
+                    [True, True, False, False],
+                    [False, False, False, False],
+                    [False, False, False, False],
+                ]
+            ]
+        ],
+        dtype=jnp.bool_,
+    )
+
+    safe_mask = _gemma._make_cudnn_attention_mask_safe(mask)
+
+    assert jnp.array_equal(safe_mask[..., :2, :], mask[..., :2, :])
+    assert jnp.all(jnp.any(safe_mask, axis=-1))
+    assert jnp.array_equal(safe_mask[..., 2:, :], jnp.array([[[[True, False, False, False]] * 2]]))
+
+
 def _get_frozen_state(config: _pi0_config.Pi0Config) -> nnx.State:
     abstract_model = nnx.eval_shape(config.create, jax.random.key(0))
 

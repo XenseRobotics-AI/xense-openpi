@@ -1,5 +1,8 @@
 # H200 训练性能优化记录
 
+> [!WARNING]
+> 2026-08-29 生产长跑发现：cuDNN Attention 遇到 padding 产生的全空 mask 行时，前向有限但 Q 梯度为 NaN。修复、影响范围和 checkpoint 恢复要求见 [2026-08-29-cudnn-attention-nan-incident.md](2026-08-29-cudnn-attention-nan-incident.md)。未包含该修复的实现不得用于有效训练。
+
 > **跨机器生产启动命令**：先激活目标 Conda 环境，再用 `$CONDA_PREFIX/lib` 相对该环境选择其中的 cuDNN。环境变量只作用于本次训练进程及其子进程，不修改环境内已安装的包。
 
 ```bash
@@ -10,7 +13,7 @@ LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
     --overwrite
 ```
 
-> **2026-08-29 长跑验证警告**：下面的命令和开关保留为复现记录，但当前 cuDNN Attention 不应继续用于生产训练。生产长跑在 step 16100 首次记录到 NaN 梯度，step 16200 起 loss 持续为 NaN。短跑的数值对齐不足以覆盖该问题，详见“生产长跑验证”。
+> **2026-08-29 长跑事故（已修复）**：原实现从 step 16100 起记录到 NaN；受污染 checkpoint 已删除，只能从保留的 step 15000 恢复。本次修复为全空 mask 行补一个不会影响有效 token 的 dummy key，并在训练更新中增加有限性保护；详见事故文档。
 
 `my_task` 的模型配置需要包含 `use_cudnn_attention: true`；如果 YAML 中没有设置，则在命令末尾增加 `--model.use-cudnn-attention`。`--overwrite` 会删除同名实验的原 Checkpoint 目录；恢复已有训练应改用 `--resume`。
 
@@ -293,18 +296,20 @@ step 16100 是第一个写入指标的生产日志点，因此只能确定 NaN �
 - 原 Attention 和 cuDNN Attention 均完成一次 step 16000–16040 的 8×H200 短跑，没有 OOM、cuDNN engine fallback 或训练异常，也没有保存新 Checkpoint；
 - cuDNN 短跑退出时个别 DataLoader worker 在清理阶段打印 `killed by signal: Aborted`，发生在训练完成和计时结束之后，主训练进程与 GPU 资源均正常退出；这不是 Attention 计算错误。
 - 后续生产长跑推翻了短跑的数值有效性结论：step 16100 首次记录到 NaN 梯度，step 16200 起 loss 持续为 NaN；这说明现有 smoke test 和 40-step 吞吐短跑不足以作为生产正确性验证。
+- 最小 H200 复现确认全空 mask 行会让原 cuDNN 路径产生 16384 个 Q 梯度 NaN；修复后 Q/K/V 梯度全部有限，且有效 query 输出不变；
+- 从干净 step 15000 checkpoint 做 8×H200、batch 512 的 60-step 实际短跑，loss、梯度、参数和更新均保持有限，`update_is_finite=1`。
 
 ## 8. 当前结论与下一步
 
 当前稳态数据交付只占约 `0.04–0.05 s/step`，H2D 只有数毫秒；XProf 又显示已记录 kernel 时间主要集中在 GEMM/Fusion。因此，继续微调 queue、collate 或 H2D 不太可能带来显著收益。
 
-cuDNN fused Attention 的速度收益是目前最大的模型侧收益：生产长跑普通 step 为 `1.910590 s`，摊销日志和 Checkpoint 后约 `1.917238 s/step`。但是该长跑从 step 16100 起出现 NaN，故当前实现没有通过生产正确性验收。确认 JAX runtime 为 91400 只能证明动态库选择正确，不能证明训练数值正确；在修复 NaN 前不得将 `use_cudnn_attention` 用于有效训练。
+cuDNN fused Attention 的速度收益是目前最大的模型侧收益：生产长跑普通 step 为 `1.910590 s`，摊销日志和 Checkpoint 后约 `1.917238 s/step`。原实现因全空 mask 行导致 NaN，现已修复并增加训练更新有限性保护。确认 JAX runtime 为 91400 仍只能证明动态库选择正确；生产验收还需要持续观察恢复训练的 loss、梯度和参数有限性。
 
 下一轮稳态优化建议按以下顺序推进：
 
-1. **先定位 cuDNN NaN。** 从保留的 step 15000 Checkpoint 做逐 step 有限性检查，至少覆盖 200 step；每步同步并检查 loss、梯度、参数和优化器状态，比较显式 Attention 与 cuDNN 的首次分叉位置。修复前默认关闭该开关。
-2. **缩短有效 token 长度。** 全数据扫描得到 Pi0.5 tokenized state 最大长度 165；可在显式 Attention 路径单独 A/B `max_token_len=168` 与当前 200，减少 Gemma attention/MLP 的序列计算，同时保留 3 token 余量。
-3. **重新做端到端正确性验收。** 修复后必须先完成至少 500 个有限 loss/gradient 的训练 step，再讨论更长的吞吐收益和默认开启；独立 Attention smoke test 不再视为充分证据。
+1. **完成修复后的生产长跑验收。** 从干净 step 15000 Checkpoint 恢复，至少完成 500 个有限 loss/gradient 的训练 step；有限性保护一旦拒绝更新必须立即停止，不能保存候选状态。
+2. **缩短有效 token 长度。** 全数据扫描得到 Pi0.5 tokenized state 最大长度 165；可单独 A/B `max_token_len=168` 与当前 200，减少 Gemma attention/MLP 的序列计算，同时保留 3 token 余量。
+3. **继续拆最大的 GEMM/Fusion。** 在生产正确性验收后重新采集 trace，再确认剩余最大的 SigLIP/Gemma GEMM 和 fusion。
 4. **降低 checkpoint 干扰。** 长训练若不需要每 1000 step 恢复点，可提高 `save_interval`；此前生产日志已经确认 checkpoint 会造成下一 step 的数据等待尖峰。
 
-最终判断：共享内存 Tensor 消除了主要数据交付开销；日志 step 范数和三路相机合并是低风险增量收益；cuDNN fused Attention 具有最大的速度收益，但生产长跑数值失败，当前只能作为实验性、不安全的优化。下一步的最高优先级是恢复到切换前 Checkpoint 并定位 NaN，而不是继续运行或推广这条路径。
+最终判断：共享内存 Tensor 消除了主要数据交付开销；日志 step 范数和三路相机合并是低风险增量收益；cuDNN fused Attention 的全空 mask 梯度 NaN 已定位并修复，最小复现和 60-step 真实训练通过。当前最高优先级是让从 step 15000 恢复的训练完成更长的有限性验收。
