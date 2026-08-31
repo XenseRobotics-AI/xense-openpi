@@ -1,6 +1,8 @@
 """Real environment for BiFlexiv Rizon4 RT dual-arm robot.
 
-Wraps lerobot BiFlexivRizon4RT for use with OpenPI inference.
+Wraps lerobot BiFlexivRizon4RT for use with OpenPI inference. The bench it
+drives comes from a recipe YAML (see ``recipe.py`` and ``recipes/README.md``);
+run tuning comes from the CLI.
 
 State/action format (20D):
     [left_tcp.x/y/z/r1-r6 (0-8), right_tcp.x/y/z/r1-r6 (9-17),
@@ -15,69 +17,6 @@ from lerobot.robots.bi_flexiv_rizon4_rt.config_bi_flexiv_rizon4_rt import BiFlex
 from lerobot.robots.utils import make_robot_from_config
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
-
-try:
-    from lerobot.utils.robot_utils import emergency_stop_flexiv_rt_robot
-except ImportError:
-    # lerobot-xense removed this helper in its "strip vendor + policy"
-    # refactor (commit cf82e7c8), but the example was written against the
-    # fork that still had it. Vendor the same best-effort implementation so
-    # the disconnect fallback works regardless of which lerobot is installed.
-    def emergency_stop_flexiv_rt_robot(robot, logger=None) -> bool:
-        """Best-effort emergency stop for Flexiv RT robots and wrappers.
-
-        Supports:
-        - raw ``flexiv_rt.Robot`` objects
-        - single-arm wrappers exposing ``_robot``
-        - bimanual wrappers exposing ``_left_robot`` / ``_right_robot``
-
-        Returns:
-            True if any emergency-stop path was triggered successfully.
-        """
-        if robot is None:
-            return False
-
-        stopped_any = False
-        seen_ids: set[int] = set()
-
-        def _log(level: str, message: str) -> None:
-            if logger is None:
-                return
-            getattr(logger, level)(message)
-
-        if hasattr(robot, "trigger_estop"):
-            try:
-                robot.trigger_estop()
-                stopped_any = True
-                _log("warning", "Triggered Flexiv RT e-stop.")
-            except Exception as e:
-                _log("error", f"Failed to trigger Flexiv RT e-stop: {e}")
-
-        candidates = [
-            ("robot", robot if hasattr(robot, "Stop") else None),
-            ("robot", getattr(robot, "_robot", None)),
-            ("left arm", getattr(robot, "_left_robot", None)),
-            ("right arm", getattr(robot, "_right_robot", None)),
-        ]
-
-        for label, raw_robot in candidates:
-            if raw_robot is None:
-                continue
-            raw_id = id(raw_robot)
-            if raw_id in seen_ids:
-                continue
-            seen_ids.add(raw_id)
-            if not hasattr(raw_robot, "Stop"):
-                continue
-            try:
-                raw_robot.Stop()
-                stopped_any = True
-                _log("warning", f"Called Stop() on Flexiv RT {label}.")
-            except Exception as e:
-                _log("error", f"Failed to call Stop() on Flexiv RT {label}: {e}")
-
-        return stopped_any
-
 
 logger = get_logger("BiFlexivRizon4RTRealEnv")
 
@@ -98,26 +37,35 @@ class BiFlexivRizon4RTRealEnv:
 
     def __init__(
         self,
-        bi_mount_type: str = "forward",
-        use_force: bool = False,
-        go_to_start: bool = True,
-        stiffness_ratio: float = 0.2,
-        inner_control_hz: int = 1000,
-        interpolate_cmds: bool = True,
-        enable_tactile_sensors: bool = True,
-        log_level: str = "INFO",
+        robot_config: BiFlexivRizon4RTConfig,
         setup_robot: bool = True,
     ):
-        self.config = BiFlexivRizon4RTConfig(
-            bi_mount_type=bi_mount_type,
-            use_force=use_force,
-            go_to_start=go_to_start,
-            stiffness_ratio=stiffness_ratio,
-            inner_control_hz=inner_control_hz,
-            interpolate_cmds=interpolate_cmds,
-            enable_tactile_sensors=enable_tactile_sensors,
-            log_level=log_level,
-        )
+        """Wrap an already-decoded robot config.
+
+        Args:
+            robot_config: Built by ``recipe.load_robot_config`` — the recipe
+                supplies the bench hardware (arm SNs, start/home poses, head
+                camera, gripper block) that the lerobot config dataclass no
+                longer carries, with the CLI's run tuning merged on top.
+            setup_robot: Connect immediately.
+        """
+        self.config = robot_config
+
+        # The 20D state/action vectors end in left/right_gripper.pos, and
+        # lerobot only emits those keys for a side that actually has a gripper —
+        # so dropping one would KeyError on the first observation rather than
+        # shrinking the vector. Say so up front.
+        missing = [
+            side
+            for side, cfg in (("left", self.config.left_gripper), ("right", self.config.right_gripper))
+            if cfg is None
+        ]
+        if missing:
+            raise ValueError(
+                f"Recipe configures no gripper on: {', '.join(missing)}. This example's state and "
+                "action vectors are 20D ending in left/right_gripper.pos, so both sides need one."
+            )
+
         self.robot = make_robot_from_config(self.config)
 
         if setup_robot:
@@ -125,7 +73,11 @@ class BiFlexivRizon4RTRealEnv:
 
     def setup_robot(self) -> None:
         """Connect and initialize both arms."""
-        logger.info("Connecting to BiFlexiv Rizon4 RT robot...")
+        logger.info(
+            f"Connecting to BiFlexiv Rizon4 RT robot "
+            f"(left={self.config.left_robot_sn}, right={self.config.right_robot_sn}, "
+            f"gripper={self.config.gripper.type if self.config.gripper else None})..."
+        )
         try:
             self.robot.connect(calibrate=False, go_to_start=self.config.go_to_start)
             logger.info("BiFlexiv Rizon4 RT connected and ready")
@@ -274,5 +226,3 @@ class BiFlexivRizon4RTRealEnv:
                 logger.info("BiFlexiv Rizon4 RT disconnected")
             except Exception as e:
                 logger.warn(f"Error during disconnect: {e}")
-                if emergency_stop_flexiv_rt_robot(self.robot, logger):
-                    logger.warn("Emergency stop fallback completed for BiFlexiv Rizon4 RT")

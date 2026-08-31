@@ -1,7 +1,7 @@
 """Pico4 human intervention for BiFlexivRizon4RT inference.
 
-Dual-grip (either side button held) swaps the arm target from
-policy output to the Pico4 controller pose; releasing both grips hands control
+Dual-grip (both side buttons held simultaneously) swaps the arm target from
+policy output to the Pico4 controller pose; releasing either grip hands control
 back to the policy and clears the ActionChunkBroker so the next step re-infers
 from the current observation.
 
@@ -23,11 +23,10 @@ The module exposes three collaborating pieces:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
-from typing_extensions import override
 from xense_client import action_chunk_broker as _action_chunk_broker
 from xense_client.runtime import agent as _agent
 from xense_client.runtime import environment as _environment
@@ -118,16 +117,15 @@ class Pico4InterventionController:
         left_grip = float(xrt.get_left_grip())
         right_grip = float(xrt.get_right_grip())
         cfg = self._teleop.config
-        # Apply BiPico4's hysteresis thresholds per side, but combine with OR
-        # (either grip alone is enough to take over / keep control).
+        # Apply BiPico4's hysteresis thresholds per side, but combine with AND.
         # Using raw grips (rather than each Pico4._enabled) keeps the decision
         # independent of whether get_action has already been called this frame.
         enter_hi = cfg.grip_enable_threshold
         exit_lo = cfg.grip_disable_threshold
         if self._active:
-            new_active = left_grip > exit_lo or right_grip > exit_lo
+            new_active = left_grip > exit_lo and right_grip > exit_lo
         else:
-            new_active = left_grip > enter_hi or right_grip > enter_hi
+            new_active = left_grip > enter_hi and right_grip > enter_hi
 
         was_active = self._active
         rising_edge = not was_active and new_active

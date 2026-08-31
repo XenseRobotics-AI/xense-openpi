@@ -1,15 +1,14 @@
 """OpenPI Environment wrapper for BiFlexiv Rizon4 RT dual-arm robot."""
 
-import time
+from typing import override
 
 import einops
+from lerobot.robots.bi_flexiv_rizon4_rt.config_bi_flexiv_rizon4_rt import BiFlexivRizon4RTConfig
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
-from typing_extensions import override
 from xense_client import image_tools
 from xense_client.runtime import environment as _environment
 
-import examples.bi_flexiv_rizon4_rt.keyboard_control as _keyboard_control
 import examples.bi_flexiv_rizon4_rt.real_env as _real_env
 
 logger = get_logger("BiFlexivRizon4RTEnv")
@@ -61,27 +60,13 @@ class BiFlexivRizon4RTEnvironment(_environment.Environment):
 
     def __init__(
         self,
-        bi_mount_type: str = "forward",
-        use_force: bool = False,
-        go_to_start: bool = True,
-        stiffness_ratio: float = 0.2,
-        inner_control_hz: int = 1000,
-        interpolate_cmds: bool = True,
-        enable_tactile_sensors: bool = True,
-        log_level: str = "INFO",
+        robot_config: BiFlexivRizon4RTConfig,
         render_height: int = 224,
         render_width: int = 224,
         setup_robot: bool = True,
     ) -> None:
         self._env = _real_env.BiFlexivRizon4RTRealEnv(
-            bi_mount_type=bi_mount_type,
-            use_force=use_force,
-            go_to_start=go_to_start,
-            stiffness_ratio=stiffness_ratio,
-            inner_control_hz=inner_control_hz,
-            interpolate_cmds=interpolate_cmds,
-            enable_tactile_sensors=enable_tactile_sensors,
-            log_level=log_level,
+            robot_config=robot_config,
             setup_robot=setup_robot,
         )
         self._render_height = render_height
@@ -139,76 +124,3 @@ class BiFlexivRizon4RTEnvironment(_environment.Environment):
 
     def disconnect(self) -> None:
         self._env.disconnect()
-
-
-class KeyboardControlledEnvironmentWrapper(_environment.Environment):
-    """Delimits recording episodes with the keyboard, lerobot-style.
-
-    Wraps the real environment so that:
-
-    * IDLE (initial state and between episodes): ``get_observation`` blocks
-      until the operator presses right arrow (start a new episode) or ESC
-      (exit). The robot sits at its home pose because the runtime resets the
-      environment at the start of every episode.
-    * RUNNING: any of right/left/enter/backspace/esc ends the episode; the
-      reason is peeked by ``is_episode_complete`` (without consuming) and
-      consumed exactly once by the recorder in ``on_episode_end``. The
-      controller keeps ``is_running`` True while a reason is pending so the
-      runtime's next step (which reads an observation before checking
-      ``is_episode_complete``) never blocks and never drops the reason.
-
-    This keeps all keyboard decisions inside the Environment interface, so the
-    shared ``Runtime`` class needs no changes. Only works with the synchronous
-    runtime: blocking ``get_observation`` is incompatible with the decoupled
-    two-thread runtime (``--action_hz > 0``).
-    """
-
-    def __init__(
-        self,
-        wrapped_env: _environment.Environment,
-        controller: _keyboard_control.KeyboardEpisodeController,
-    ) -> None:
-        self._wrapped_env = wrapped_env
-        self._controller = controller
-
-    @override
-    def reset(self) -> None:
-        # Drain any end reason the recorder did not consume (e.g. keyboard
-        # control without --record), so the next episode starts cleanly IDLE.
-        self._controller.consume_end_reason()
-        # Move the robot back to its initial pose; the next get_observation
-        # will block in IDLE until the operator starts a new episode.
-        self._wrapped_env.reset()
-
-    @override
-    def is_episode_complete(self) -> bool:
-        return self._controller.peek_end_reason() is not None
-
-    @override
-    def get_observation(self) -> dict:
-        if not self._controller.is_running:
-            self._wait_for_start()
-        return self._wrapped_env.get_observation()
-
-    def _wait_for_start(self) -> None:
-        """Block until right arrow (start) or ESC (exit)."""
-        # Drain any end reason the recorder did not consume (e.g. keyboard
-        # control without --record), so a stale reason cannot immediately
-        # terminate the next episode.
-        self._controller.consume_end_reason()
-        while True:
-            if self._controller.consume_exit():
-                raise _keyboard_control.KeyboardExit()
-            if self._controller.consume_start():
-                return
-            time.sleep(0.05)
-
-    @override
-    def apply_action(self, action: dict) -> None:
-        self._wrapped_env.apply_action(action)
-
-    def disconnect(self) -> None:
-        self._controller.stop()
-        inner_disconnect = getattr(self._wrapped_env, "disconnect", None)
-        if callable(inner_disconnect):
-            inner_disconnect()

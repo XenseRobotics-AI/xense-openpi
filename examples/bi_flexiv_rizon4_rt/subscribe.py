@@ -31,8 +31,8 @@ import contextlib
 import queue
 import threading
 import time
+from typing import override
 
-from typing_extensions import override
 import websockets.sync.client
 from xense_client import msgpack_numpy
 from xense_client.logger import get_logger
@@ -118,9 +118,7 @@ class ObsSubscriber(_subscriber.Subscriber):
         self._worker = threading.Thread(target=self._run, name="obs-sender", daemon=True)
         self._worker.start()
         rate = f"{subscribe_hz:g} Hz" if self._min_period > 0.0 else f"every {self._send_stride} step(s)"
-        logger.info(
-            f"ObsSubscriber → {uri} (cameras={cameras}, state={send_state}, action={send_action}, rate={rate})"
-        )
+        logger.info(f"ObsSubscriber → {uri} (cameras={cameras}, state={send_state}, action={send_action}, rate={rate})")
 
     # ----- Subscriber API (runs in the control loop; keep it cheap) -----
 
