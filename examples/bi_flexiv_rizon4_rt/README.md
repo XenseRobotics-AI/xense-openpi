@@ -150,7 +150,7 @@ mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
 
 Recommended first-run flow:
 
-1. `--args.dry-run --args.pico4-intervention` — hold both grips and confirm the printed 20D
+1. `--args.dry-run --args.pico4-intervention` — hold either grip and confirm the printed 20D
    action tracks the controller pose; release and confirm the next log shows the
    `Clearing ActionChunkBroker cache (intervention released).` line.
 2. Real run with `--args.stiffness-ratio 0.1` — verify the handoff does not snap the
@@ -161,8 +161,8 @@ Control scheme (inherited from `BiPico4`):
 
 | Input | Effect |
 |---|---|
-| Left + right grip held together | Both arms follow controller pose (intervention ON) |
-| Either grip released | Intervention OFF; policy resumes from the next observation |
+| Either grip held | Both arms follow controller pose (intervention ON) |
+| Both grips released | Intervention OFF; policy resumes from the next observation |
 | Left / right trigger | Respective gripper position while intervention is on |
 
 While intervention is active, every step's action dict carries `is_intervention: True`

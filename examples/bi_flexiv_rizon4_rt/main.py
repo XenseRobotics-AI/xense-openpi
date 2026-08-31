@@ -52,7 +52,7 @@ Example usage:
         --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 \\
         --args.subscribe --args.subscribe-url ws://192.168.2.50:9100 --args.subscribe-hz 10
 
-    # Inference with Pico4 human intervention (both grips held → teleop takes over)
+    # Inference with Pico4 human intervention (either grip held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 --args.pico4-intervention
 """
@@ -281,7 +281,7 @@ class Args:
     record_root: str | None = None  # local save path, defaults to ~/.cache/huggingface/lerobot
     task: str = "pack 6 cosmetic bottles into the carton"
 
-    # Pico4 human-in-the-loop intervention (hold both grips to take over)
+    # Pico4 human-in-the-loop intervention (hold either grip to take over)
     pico4_intervention: bool = False
     pico4_pos_sensitivity: float = 1.0
     pico4_ori_sensitivity: float = 1.0
