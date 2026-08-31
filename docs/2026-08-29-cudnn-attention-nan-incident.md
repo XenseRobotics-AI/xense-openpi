@@ -8,6 +8,9 @@
 
 **影响范围**：从 clean step 16000 切换到 `use_cudnn_attention=true` 后的生产训练
 
+> [!CAUTION]
+> 2026-08-30 更新：本文的修复**有效但不完整**。它消除了这里描述的瞬时失效（第一步反向即产生 NaN），但带该修复的训练在另一台机器上仍会缓慢发散：前 1000 步与基线逐点吻合，随后在 step 1000–1200 之间分叉，约 4700 步后变为 NaN。本文「验证要求」一节的 200–500 步标准不足以发现它。见 [2026-08-30-cudnn-attention-divergence.md](2026-08-30-cudnn-attention-divergence.md)。
+
 ## 摘要
 
 生产训练恢复后，第一个记录窗口已经出现 NaN 梯度，随后 loss 和参数持续为 NaN。根因不是 cuDNN 动态库版本、数据加载、显存或普通的梯度爆炸，而是 cuDNN fused Attention 在 attention mask 存在整行全 `False` 时的反向数值行为：前向输出有限，但 Q 梯度为 NaN。

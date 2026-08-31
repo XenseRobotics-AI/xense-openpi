@@ -63,6 +63,10 @@ GIT_LFS_SKIP_SMUDGE=1 pip install -e .
 # 2. Install the main openpi package
 cd ../..
 GIT_LFS_SKIP_SMUDGE=1 pip install -e .
+
+# 3. Verify that JAX and PyTorch load one coherent pip cu128 stack
+#    (requires an accessible NVIDIA GPU)
+python scripts/check_cuda_stack.py
 ```
 
 ## Model Checkpoints
@@ -184,8 +188,9 @@ model:
   paligemma_variant: gemma_2b
   action_expert_variant: gemma_300m
   enable_training_time_rtc: true
-  # Required when launching with the cuDNN 9.14 setup shown below.
-  use_cudnn_attention: true
+  # Experimental and currently unsafe for production; keep disabled until the
+  # step-0 2000-step convergence gate documented below has passed.
+  use_cudnn_attention: false
   max_delay: 10
 
 data:
@@ -210,27 +215,35 @@ Then use it exactly like any other config:
 
 ```bash
 python scripts/compute_norm_stats.py --config-name my_task
-LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
-  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
   python scripts/train.py my_task \
     --exp-name=my_exp \
     --overwrite
 python scripts/serve_policy.py policy:checkpoint --policy.config=my_task --policy.dir=checkpoints/my_task/my_exp/<step>
 ```
 
-The training command above selects cuDNN from the currently active Conda
-environment without hard-coding a machine-specific path. It must be paired
-with the following model setting (already shown in the example config):
+Do **not** prepend `$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH`. The supported
+environment uses the pip CUDA 12.8 stack installed by `lerobot-xense`:
+PyTorch 2.11 pins cuDNN 9.19 and JAX shares that same runtime. Before training,
+run `python scripts/check_cuda_stack.py`; it rejects mixed library sources and
+checks the real BF16 GQA forward/backward shape.
+
+`use_cudnn_attention` remains experimental because it has diverged from the
+explicit-attention baseline in a step-0 long run. Production configs must use:
 
 ```yaml
 model:
-  use_cudnn_attention: true
+  use_cudnn_attention: false
 ```
 
 At startup, `scripts/train.py` logs `JAX cuDNN runtime version: <version>`;
-verify that it reports `91400`. Use `--overwrite` only for a new run that may
-replace an existing experiment directory; use `--resume` to preserve and
-continue an existing run.
+the unified PyTorch 2.11 cu128 environment reports `91900`. This number alone
+does not detect mixed dispatcher/engine libraries, so the stack-check script is
+the required gate. Use `--overwrite` only for a new run that may replace an
+existing experiment directory; use `--resume` to preserve and continue an
+existing run. See
+[`docs/2026-08-30-cudnn-attention-divergence.md`](docs/2026-08-30-cudnn-attention-divergence.md)
+before attempting to re-enable fused attention.
 
 ⚠️ Before committing a YAML into `configs/_examples/`, scrub any machine-local
 absolute paths from `weight_loader.params_path` (e.g. `/home/<you>/...`). Use
@@ -266,8 +279,7 @@ python scripts/compute_norm_stats.py --config-name pi05_base_xtac_umi_pick_up_cu
 Now we can kick off training with the following command (the `--overwrite` flag is used to overwrite existing checkpoints if you rerun fine-tuning with the same config):
 
 ```bash
-LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
-  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
   python scripts/train.py pi05_base_xtac_umi_pick_up_cube_0807_h200 \
     --exp-name=my_experiment \
     --overwrite

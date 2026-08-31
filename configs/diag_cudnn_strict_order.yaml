@@ -1,0 +1,37 @@
+model:
+  type: Pi0Config
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+  batch_image_views: true
+  use_cudnn_attention: true
+
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+
+ema_decay: null
+
+data:
+  type: LeRobotBiFlexivDataConfig
+  repo_id: Xense/cube-color-sorting-0821
+  assets:
+    assets_dir: /root/localstorage/xense-openpi/assets/pi05_base_bi_flexiv_cube_color_sorting_rtc_0829_h100
+    asset_id: Xense/cube-color-sorting-0821
+  base_config:
+    prompt_from_task: true
+    tactile: false
+  default_prompt: Put the green cubes in the right bin and the yellow cubes in the left bin.
+
+batch_size: 256
+num_workers: 64
+num_train_steps: 3000
+log_interval: 100
+save_interval: 1000
+save_final_checkpoint: false
+keep_period: 1000
+fsdp_devices: 8
+strict_batch_order: true
+wandb_enabled: false
+overwrite: true

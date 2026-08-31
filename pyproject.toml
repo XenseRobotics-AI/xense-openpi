@@ -31,9 +31,14 @@ dependencies = [
     "safetensors>=0.4.3",
     # >=2.6 for `DataLoader(in_order=...)`, which the data loader uses to hand batches
     # over as workers finish them (see TrainConfig.strict_batch_order).
-    "torch>=2.6,<2.11.0",
-    "torchcodec>=0.2.1,<0.11.0; sys_platform != 'win32' and (sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64' and platform_machine != 'armv7l')) and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
-    "torchvision>=0.21.0,<0.26.0",
+    # >=2.11 is what pins cuDNN: torch 2.11.0+cu128 requires
+    # nvidia-cudnn-cu12==9.19.0.56, while 2.10 pinned ==9.10.2.21. JAX only asks for
+    # >=9.1,<10, so torch is what decides which cuDNN the training process loads even
+    # though torch itself only runs the DataLoader here. Keep torch and the cuDNN you
+    # want to train against in sync; see docs/2026-08-30-cudnn-attention-divergence.md.
+    "torch>=2.11,<2.12",
+    "torchcodec>=0.11,<0.12; sys_platform != 'win32' and (sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64' and platform_machine != 'armv7l')) and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
+    "torchvision>=0.26,<0.27",
     "tqdm-loggable>=0.2",
     "typing-extensions>=4.12.2",
     "tyro>=0.9.5",
@@ -84,6 +89,7 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+torchcodec = { index = "pytorch-cu128" }
 xense-client = { workspace = true }
 dlimp = { git = "https://github.com/kvablack/dlimp", rev = "ad72ce3a9b414db2185bc0b38461d4101a65477a" }
 

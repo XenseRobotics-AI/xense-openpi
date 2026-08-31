@@ -30,6 +30,7 @@ def test_encode_image_views_as_batch_matches_separate_calls():
 
 
 def test_cudnn_attention_stops_gradient_only_for_empty_query_rows():
+    # Rows 0 and 1 have keys; rows 2 and 3 are the fully masked rows padding produces.
     mask = jnp.array(
         [
             [
@@ -52,6 +53,7 @@ def test_cudnn_attention_stops_gradient_only_for_empty_query_rows():
     stopped_q = _gemma._stop_gradient_for_fully_masked_queries(q, mask)
     grad = jax.grad(apply_and_sum)(q)
 
+    # Forward is untouched, so valid attention outputs cannot change.
     assert jnp.array_equal(stopped_q, q)
     assert jnp.array_equal(grad[:, :2], jnp.ones_like(grad[:, :2]))
     assert jnp.array_equal(grad[:, 2:], jnp.zeros_like(grad[:, 2:]))

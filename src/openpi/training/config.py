@@ -590,6 +590,10 @@ class TrainConfig:
     optimizer: _optimizer.OptimizerConfig = dataclasses.field(default_factory=_optimizer.AdamW)
     ema_decay: float | None = 0.99
 
+    # Diagnostic-only relative L2 perturbation applied to gradients before the
+    # optimizer update. Zero preserves the normal training path exactly.
+    gradient_noise_scale: float = 0.0
+
     # Specifies which weights should be frozen.
     freeze_filter: tyro.conf.Suppress[Filter] = dataclasses.field(default_factory=nnx.Nothing)
 

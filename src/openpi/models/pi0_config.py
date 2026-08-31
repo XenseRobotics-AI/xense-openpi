@@ -36,6 +36,10 @@ class Pi0Config(_model.BaseModelConfig):
     # Use cuDNN fused attention for training-time Gemma attention. This requires
     # a cuDNN runtime that supports the model's BF16 GQA shapes and attention mask.
     use_cudnn_attention: bool = False
+    # Diagnostic hybrid mode. None keeps the historical all-layer behavior;
+    # otherwise only this contiguous layer range uses cuDNN.
+    cudnn_attention_layer_start: int = 0
+    cudnn_attention_num_layers: int | None = None
 
     # training-time RTC config
     enable_training_time_rtc: bool = False
@@ -46,6 +50,10 @@ class Pi0Config(_model.BaseModelConfig):
             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)
         if self.discrete_state_input is None:
             object.__setattr__(self, "discrete_state_input", self.pi05)
+        if self.cudnn_attention_layer_start < 0:
+            raise ValueError("cudnn_attention_layer_start must be non-negative")
+        if self.cudnn_attention_num_layers is not None and self.cudnn_attention_num_layers < 0:
+            raise ValueError("cudnn_attention_num_layers must be non-negative or None")
 
     @property
     @override

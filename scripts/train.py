@@ -135,6 +135,30 @@ def init_train_state(
     return train_state, state_sharding
 
 
+def _add_relative_gradient_noise(grads, rng: at.KeyArrayLike, relative_scale: float):
+    """Adds reproducible random noise with an exact tree-wide relative L2 norm.
+
+    The raw noise is weighted by each gradient element before global
+    normalization. This keeps the perturbation energy distributed like the
+    gradient energy instead of concentrating it in the largest parameter leaf.
+    """
+    leaves, tree_def = jax.tree.flatten(grads)
+    keys = jax.random.split(rng, len(leaves))
+    raw_noise = jax.tree.unflatten(
+        tree_def,
+        [grad * jax.random.normal(key, grad.shape, dtype=grad.dtype) for grad, key in zip(leaves, keys)],
+    )
+
+    grad_norm = optax.global_norm(grads)
+    raw_noise_norm = optax.global_norm(raw_noise)
+    tiny = jnp.finfo(grad_norm.dtype).tiny
+    multiplier = jnp.asarray(relative_scale, grad_norm.dtype) * grad_norm / jnp.maximum(raw_noise_norm, tiny)
+    noise = jax.tree.map(lambda value: value * multiplier, raw_noise)
+    noisy_grads = jax.tree.map(lambda grad, delta: grad + delta, grads, noise)
+    actual_relative_norm = multiplier * raw_noise_norm / jnp.maximum(grad_norm, tiny)
+    return noisy_grads, actual_relative_norm
+
+
 @at.typecheck
 def train_step(
     config: _config.TrainConfig,
@@ -159,6 +183,18 @@ def train_step(
     # Filter out frozen params.
     diff_state = nnx.DiffState(0, config.trainable_filter)
     loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(model, train_rng, observation, actions)
+
+    clean_grads = grads
+    gradient_noise_rel_norm = None
+    if config.gradient_noise_scale > 0:
+        # Keep the model RNG identical to the clean explicit-attention path.
+        # fold_in gives the diagnostic noise an independent, step-reproducible stream.
+        noise_rng = jax.random.fold_in(train_rng, 0x6E6F6973)
+        grads, gradient_noise_rel_norm = _add_relative_gradient_noise(
+            grads,
+            noise_rng,
+            config.gradient_noise_scale,
+        )
 
     params = state.params.filter(config.trainable_filter)
     updates, new_opt_state = state.tx.update(grads, state.opt_state, params)
@@ -189,11 +225,13 @@ def train_step(
             ),
         )
         grad_norm = optax.global_norm(grads)
+        clean_grad_norm = optax.global_norm(clean_grads) if gradient_noise_rel_norm is not None else None
         param_norm = optax.global_norm(kernel_params)
     else:
         # Keep a stable output pytree for both JIT variants. The host-side logging
         # reduction ignores these placeholders with nanmean.
         grad_norm = jnp.asarray(jnp.nan, dtype=loss.dtype)
+        clean_grad_norm = jnp.asarray(jnp.nan, dtype=loss.dtype) if gradient_noise_rel_norm is not None else None
         param_norm = jnp.asarray(jnp.nan, dtype=loss.dtype)
 
     info = {
@@ -201,6 +239,9 @@ def train_step(
         "grad_norm": grad_norm,
         "param_norm": param_norm,
     }
+    if gradient_noise_rel_norm is not None:
+        info["clean_grad_norm"] = clean_grad_norm
+        info["gradient_noise_rel_norm"] = gradient_noise_rel_norm
     return new_state, info
 
 
@@ -209,6 +250,13 @@ def main(config: _config.TrainConfig):
     logging.info(f"Running on: {platform.node()}")
     cudnn_runtime_version = cuda_versions.cudnn_get_version() if cuda_versions is not None else None
     logging.info(f"JAX cuDNN runtime version: {cudnn_runtime_version}")
+
+    if not 0.0 <= config.gradient_noise_scale < 1.0:
+        raise ValueError(f"gradient_noise_scale must be in [0, 1), got {config.gradient_noise_scale}")
+    attention_backend = "cuDNN" if getattr(config.model, "use_cudnn_attention", False) else "explicit"
+    logging.info(
+        f"Attention backend: {attention_backend}; gradient_noise_scale={config.gradient_noise_scale:.6f}"
+    )
 
     if config.batch_size % jax.device_count() != 0:
         raise ValueError(
@@ -334,6 +382,10 @@ def main(config: _config.TrainConfig):
             reduced_info = jax.device_get(jax.tree.map(jnp.nanmean, stacked_infos))
             info_str = ", ".join(f"{k}={v:.4f}" for k, v in reduced_info.items())
             pbar.write(f"Step {step}: {info_str}")
+            # tqdm_loggable can drop pbar.write() lines when stdout is redirected.
+            # Emit the same diagnostics through the normal logger so unattended
+            # training runs always retain loss and gradient trends.
+            logging.info("Step %d: %s", step, info_str)
             wandb.log(reduced_info, step=step)
             infos = []
             t_log = time.monotonic() - t0

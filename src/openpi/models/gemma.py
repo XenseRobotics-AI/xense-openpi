@@ -161,7 +161,23 @@ class Embedder(nn.Module):
 
 
 def _stop_gradient_for_fully_masked_queries(q, attn_mask):
-    """Preserve the raw cuDNN mask while zeroing gradients for invalid queries."""
+    """Cut fully masked query rows out of the backward pass, keeping the mask intact.
+
+    Padding tokens are neither valid queries nor valid keys, so make_attn_mask
+    produces query rows that are entirely false, and cuDNN 9.14 returned NaN
+    q-gradients for them at the production shape. Zeroing the gradient of those rows
+    fixes that without touching attn_mask.
+
+    The alternative -- opening a dummy key for each empty row -- is equivalent
+    numerically (measured bit-identical q/k/v-gradients on valid rows at the real
+    training shape) but rebuilds the whole (B, 1, T, S) mask inside every layer,
+    which costs about 0.3 s/step at batch 256. Prefer this one.
+
+    Neither variant is the cure for the 2026-08-30 divergence, which is still open:
+    the kernel itself is correct, but cuDNN's answer differs from the explicit path
+    by about 2% per step and this recipe has no margin for that. Do not spend time on
+    the mask again. See docs/2026-08-30-cudnn-attention-divergence.md.
+    """
     query_has_key = jnp.any(attn_mask, axis=-1)[:, 0, :, None, None]
     return jnp.where(query_has_key, q, jax.lax.stop_gradient(q))
 
@@ -174,7 +190,7 @@ class Attention(nn.Module):
     use_cudnn_attention: bool = False
 
     @nn.compact
-    def __call__(self, xs, positions, attn_mask, kv_cache):
+    def __call__(self, xs, positions, attn_mask, kv_cache, use_cudnn_attention=None):
         # all experts must share the same head dim, num heads, and num kv heads for self-attention to work
         assert all(config.head_dim == self.configs[0].head_dim for config in self.configs)
         assert all(config.num_heads == self.configs[0].num_heads for config in self.configs)
@@ -231,34 +247,46 @@ class Attention(nn.Module):
                 f"Attention mask with shape {attn_mask.shape} but shapes for q and k are: {q.shape} and {k.shape}"
             )
 
-        if self.use_cudnn_attention and kv_cache is None:
+        def cudnn_attention(operands):
+            q, k, v, mask = operands
             # q is already scaled above, so disable dot_product_attention's
             # default head-dimension scaling. Keep cached inference on the
             # existing implementation; this switch targets training throughput.
-            # cuDNN 9.14 produces NaN q-gradients for fully masked query rows at
-            # the production GQA shape. Preserve the original fast mask and cut
-            # only those invalid query rows out of the backward path.
-            q = _stop_gradient_for_fully_masked_queries(q, attn_mask)
-            encoded = jax.nn.dot_product_attention(
+            # Fully masked query rows make cuDNN produce NaN q-gradients; drop
+            # those rows from the backward pass instead of rebuilding the mask.
+            q = _stop_gradient_for_fully_masked_queries(q, mask)
+            return jax.nn.dot_product_attention(
                 q,
                 k,
                 v,
-                mask=attn_mask,
+                mask=mask,
                 scale=1.0,
                 implementation="cudnn",
             )
-        else:
+
+        def explicit_attention(operands):
+            q, k, v, mask = operands
             grouped_q = einops.rearrange(q, "B T (K G) H -> B T K G H", K=self.configs[0].num_kv_heads)
             logits = jnp.einsum("BTKGH,BSKH->BKGTS", grouped_q, k, preferred_element_type=jnp.float32)
 
             # big_neg = jnp.finfo(logits.dtype).min
             big_neg = -2.3819763e38  # See gemma/modules.py
-            masked_logits = jnp.where(attn_mask[:, :, None, :, :], logits, big_neg)
+            masked_logits = jnp.where(mask[:, :, None, :, :], logits, big_neg)
 
             probs = jax.nn.softmax(masked_logits, axis=-1).astype(dtype)
 
             encoded = jnp.einsum("BKGTS,BSKH->BTKGH", probs, v)
-            encoded = einops.rearrange(encoded, "B T K G H -> B T (K G) H")
+            return einops.rearrange(encoded, "B T K G H -> B T (K G) H")
+
+        if use_cudnn_attention is None:
+            use_cudnn_attention = self.use_cudnn_attention
+        operands = (q, k, v, attn_mask)
+        if kv_cache is not None:
+            encoded = explicit_attention(operands)
+        elif isinstance(use_cudnn_attention, bool):
+            encoded = cudnn_attention(operands) if use_cudnn_attention else explicit_attention(operands)
+        else:
+            encoded = jax.lax.cond(use_cudnn_attention, cudnn_attention, explicit_attention, operands)
 
         out = []
         start = 0
@@ -316,16 +344,24 @@ class Block(nn.Module):
 
     configs: tuple[Config, ...]
     use_cudnn_attention: bool = False
+    cudnn_attention_layer_start: int = 0
+    cudnn_attention_num_layers: int | None = None
 
     dropout: float = 0.0
     dropout_bdims: tuple[int, ...] = ()
 
     @nn.compact
-    def __call__(self, xs, kv_cache, positions, attn_mask, adarms_cond, deterministic=True):
+    def __call__(self, xs, kv_cache, positions, attn_mask, adarms_cond, layer_index=None, deterministic=True):
         xs = sharding.activation_sharding_constraint(xs)
         drop = nn.Dropout(self.dropout, self.dropout_bdims) if self.dropout else lambda x, _: x
 
         attn = Attention(configs=self.configs, use_cudnn_attention=self.use_cudnn_attention, name="attn")
+        layer_uses_cudnn = self.use_cudnn_attention
+        if layer_uses_cudnn and self.cudnn_attention_num_layers is not None:
+            layer_uses_cudnn = jnp.logical_and(
+                layer_index >= self.cudnn_attention_layer_start,
+                layer_index < self.cudnn_attention_layer_start + self.cudnn_attention_num_layers,
+            )
 
         pre_attn = []
         gates = []
@@ -338,7 +374,9 @@ class Block(nn.Module):
             pre_attn.append(x)
 
         pre_attn = sharding.activation_sharding_constraint(pre_attn)
-        post_attn, kv_cache = attn(pre_attn, positions, attn_mask, kv_cache)
+        post_attn, kv_cache = attn(
+            pre_attn, positions, attn_mask, kv_cache, use_cudnn_attention=layer_uses_cudnn
+        )
         post_attn = jax.tree.map(lambda x: drop(x, deterministic), post_attn)
         post_attn = sharding.activation_sharding_constraint(post_attn)
         xs = [_gated_residual(x, y, gate) for x, y, gate in zip(xs, post_attn, gates, strict=True)]
@@ -382,6 +420,8 @@ class Module(nn.Module):
     dropout_bdims: tuple[int, ...] = ()  # Every float is dropped independently.
     adarms: bool = False
     use_cudnn_attention: bool = False
+    cudnn_attention_layer_start: int = 0
+    cudnn_attention_num_layers: int | None = None
 
     def setup(self):
         # all experts must have the same depth
@@ -395,7 +435,7 @@ class Module(nn.Module):
         block_cls = nn.remat(
             Block,
             prevent_cse=False,
-            static_argnums=(5,),  # 0=self, 6=deterministic
+            static_argnums=(6,),  # 0=self, 7=deterministic
             policy=jax.checkpoint_policies.nothing_saveable,
         )
         self.layers = nn.scan(
@@ -407,12 +447,15 @@ class Module(nn.Module):
                 nn.broadcast,
                 nn.broadcast,
                 nn.broadcast,
+                0,
                 nn.broadcast,
-            ),  # 0=kv_cache, 1=positions, 2=mask, 3=adarms_cond, 4=deterministic
+            ),  # 0=kv_cache, 1=positions, 2=mask, 3=adarms_cond, 4=layer_index, 5=deterministic
             length=self.configs[0].depth,
         )(
             configs=self.configs,
             use_cudnn_attention=self.use_cudnn_attention,
+            cudnn_attention_layer_start=self.cudnn_attention_layer_start,
+            cudnn_attention_num_layers=self.cudnn_attention_num_layers,
             dropout=self.dropout,
             dropout_bdims=self.dropout_bdims,
         )
@@ -439,7 +482,10 @@ class Module(nn.Module):
         if adarms_cond is None:
             adarms_cond = [None] * len(self.configs)
 
-        embedded, kv_cache = self.layers(embedded, kv_cache, positions, mask, adarms_cond, deterministic)
+        layer_indices = jnp.arange(self.configs[0].depth, dtype=jnp.int32)
+        embedded, kv_cache = self.layers(
+            embedded, kv_cache, positions, mask, adarms_cond, layer_indices, deterministic
+        )
 
         assert all(e.dtype == jnp.dtype(self.embed_dtype) for e in embedded if e is not None)
 

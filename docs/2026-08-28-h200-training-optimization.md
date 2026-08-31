@@ -1,17 +1,31 @@
 # H200 训练性能优化记录
 
+> [!CAUTION]
+> 2026-08-30 更新：**`use_cudnn_attention` 目前不得用于生产训练。** 全空 mask 修复只消除了瞬时 NaN；带该修复的训练仍会在 step 1000–1200 之间偏离已验证基线并缓慢发散至 NaN。单变量 A/B、已排除的候选和新的验收要求见 [2026-08-30-cudnn-attention-divergence.md](2026-08-30-cudnn-attention-divergence.md)。
+>
+> 本文以下关于启动命令、cuDNN 版本确认和 A/B 吞吐的内容写于该问题定位之前，其中 `LD_LIBRARY_PATH` 与「确认输出 91400」两条**已经过时**，见下方修订。
+
 > [!WARNING]
 > 2026-08-29 生产长跑发现：cuDNN Attention 遇到 padding 产生的全空 mask 行时，前向有限但 Q 梯度为 NaN。修复、影响范围和 checkpoint 恢复要求见 [2026-08-29-cudnn-attention-nan-incident.md](2026-08-29-cudnn-attention-nan-incident.md)。未包含该修复的实现不得用于有效训练。
 
-> **跨机器生产启动命令**：先激活目标 Conda 环境，再用 `$CONDA_PREFIX/lib` 相对该环境选择其中的 cuDNN。环境变量只作用于本次训练进程及其子进程，不修改环境内已安装的包。
+> **跨机器生产启动命令**（2026-08-30 修订）：**不要再导出 `LD_LIBRARY_PATH="$CONDA_PREFIX/lib"`。** conda cuDNN 已移除，环境统一到 pip cu128 栈；继续导出该目录会让其中残留的 conda-forge `libcublas`/`libcudart`/`libnccl` 遮蔽 pip 的同名库，重演同一类版本错配。
 
 ```bash
-LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
-  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
   python scripts/train.py my_task \
     --exp-name=run_0520 \
     --overwrite
 ```
+
+<details><summary>原命令（已过时，仅供追溯）</summary>
+
+```bash
+LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
+  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  python scripts/train.py my_task --exp-name=run_0520 --overwrite
+```
+
+</details>
 
 > **2026-08-29 长跑事故（已修复）**：原实现从 step 16100 起记录到 NaN；受污染 checkpoint 已删除，并从保留的 step 15000 恢复。最终修复保留原始 attention mask，只对全空 query 行停止 Q 梯度。逐 step 有限性保护已按生产要求移除，训练继续按原逻辑记录 loss；详见事故文档。
 
@@ -23,7 +37,16 @@ LD_LIBRARY_PATH="$CONDA_PREFIX/lib" \
 JAX cuDNN runtime version: 91400
 ```
 
-该值来自 `cuda_versions.cudnn_get_version()`。如果不是 `91400`，应停止训练并检查目标机器的 `$CONDA_PREFIX/lib`，不能只根据 PyTorch 输出判断 JAX 运行时版本。
+该值来自 `cuda_versions.cudnn_get_version()`。
+
+> [!IMPORTANT]
+> 2026-08-30 修订：**这个数字不足以证明 cuDNN 栈是干净的。** 它由 cuDNN 的引擎子库返回，因此一个 9.10.2 的 dispatcher stub 驱动 9.14 引擎库时，它照样打印 `91400`——事故期间的实际情况正是如此。请改用：
+>
+> ```bash
+> python scripts/check_cuda_stack.py
+> ```
+>
+> 该脚本遍历 `/proc/self/maps`，在 `libcudnn*` 来自多个目录或文件名版本与运行时报告不一致时判 FAIL，并在真实训练形状上跑一次前向+反向与 fp32 参考解对比。详见 [2026-08-30-cudnn-attention-divergence.md](2026-08-30-cudnn-attention-divergence.md)。
 
 **日期**：2026-08-27 至 2026-08-28
 

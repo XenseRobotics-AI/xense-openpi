@@ -1,0 +1,31 @@
+model:
+  type: Pi0Config
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+  batch_image_views: true
+  use_cudnn_attention: true
+weight_loader:
+  # Was /home/li/hubo/xense-openpi/checkpoints/20000/params — a continuation of a
+  # 20k-step run that only existed on one laptop, so nobody else could start this
+  # config. Points at the upstream base now; to continue from your own checkpoint:
+  #   uv run scripts/train.py <this-config> --exp-name=... \
+  #     --weight_loader.params_path=/path/to/checkpoint/params
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotBiFlexivDataConfig
+  repo_id: Xense/cube-color-sorting-0821
+  base_config:
+    prompt_from_task: true
+    tactile: false
+  default_prompt: Put the green cubes in the right bin and the yellow cubes in the left bin.
+batch_size: 256
+num_workers: 64
+num_train_steps: 60000
+save_interval: 10000
+keep_period: 10000
+fsdp_devices: 8
+strict_batch_order: false
