@@ -66,6 +66,7 @@ def make_bi_flexiv_dataset_features(
     image_height: int = 480,
     image_width: int = 640,
     use_videos: bool = True,
+    include_intervention: bool = False,
 ) -> dict:
     """Build the LeRobot features dict for a bi_flexiv_rizon4_rt dataset."""
     dtype = "video" if use_videos else "image"
@@ -87,6 +88,12 @@ def make_bi_flexiv_dataset_features(
             "shape": (image_height, image_width, 3),
             "names": ["height", "width", "channels"],
         }
+    if include_intervention:
+        features["observation.is_intervention"] = {
+            "dtype": "float32",
+            "shape": (1,),
+            "names": ["is_intervention"],
+        }
     return features
 
 
@@ -106,9 +113,10 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         "actions": np.ndarray (20,) — absolute action after output transforms
     """
 
-    def __init__(self, dataset: LeRobotDataset, task: str):
+    def __init__(self, dataset: LeRobotDataset, task: str, record_intervention: bool = False):
         self._dataset = dataset
         self._task = task
+        self._record_intervention = record_intervention
         self._step_count = 0
         self._finalized = False
 
@@ -133,6 +141,11 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
             "action": np.asarray(action["actions"], dtype=np.float32),
             "task": self._task,
         }
+        if self._record_intervention:
+            frame["observation.is_intervention"] = np.asarray(
+                [float(action.get("is_intervention", False))],
+                dtype=np.float32,
+            )
         for cam in _POLICY_CAMERAS:
             if cam in images_raw:
                 frame[f"observation.images.{cam}"] = np.asarray(images_raw[cam], dtype=np.uint8)
@@ -202,6 +215,7 @@ def make_recorder_subscriber(
     image_width: int = 640,
     use_videos: bool = True,
     image_writer_threads: int = 4,
+    record_intervention: bool = False,
     resume: bool = False,
     vcodec: str = "auto",
     streaming_encoding: bool = True,
@@ -217,6 +231,9 @@ def make_recorder_subscriber(
         image_width: Raw image width in pixels (default 640).
         use_videos: Encode images as video (True) or individual frames (False).
         image_writer_threads: Async image writer thread count.
+        record_intervention: Add a frame-level ``observation.is_intervention``
+            flag (1 = human takeover frame, 0 = policy), so the recorded
+            dataset can identify which frames were teleoperated.
         resume: If True, open the existing dataset at repo_id/root and append
             new episodes to it instead of creating a fresh dataset. Episode
             numbering continues from the existing dataset, and fps/features/
@@ -233,7 +250,7 @@ def make_recorder_subscriber(
     local_dir = pathlib.Path(root) if root else None
 
     if resume:
-        dataset = _open_dataset_for_resume(
+        dataset, record_intervention = _open_dataset_for_resume(
             repo_id=repo_id,
             root=local_dir,
             fps=fps,
@@ -241,6 +258,7 @@ def make_recorder_subscriber(
             use_videos=use_videos,
             image_height=image_height,
             image_width=image_width,
+            record_intervention=record_intervention,
             vcodec=vcodec,
             streaming_encoding=streaming_encoding,
         )
@@ -249,7 +267,12 @@ def make_recorder_subscriber(
         dataset = LeRobotDataset.create(
             repo_id=repo_id,
             fps=fps,
-            features=make_bi_flexiv_dataset_features(image_height, image_width, use_videos),
+            features=make_bi_flexiv_dataset_features(
+                image_height,
+                image_width,
+                use_videos,
+                include_intervention=record_intervention,
+            ),
             root=local_dir,
             robot_type="bi_flexiv_rizon4_rt",
             use_videos=use_videos,
@@ -257,7 +280,11 @@ def make_recorder_subscriber(
             vcodec=vcodec,
             streaming_encoding=streaming_encoding,
         )
-    return LeRobotRecorderSubscriber(dataset=dataset, task=task)
+    return LeRobotRecorderSubscriber(
+        dataset=dataset,
+        task=task,
+        record_intervention=record_intervention,
+    )
 
 
 def _open_dataset_for_resume(
@@ -268,15 +295,20 @@ def _open_dataset_for_resume(
     use_videos: bool,
     image_height: int,
     image_width: int,
+    record_intervention: bool,
     vcodec: str = "auto",
     streaming_encoding: bool = True,
-) -> LeRobotDataset:
+) -> tuple[LeRobotDataset, bool]:
     """Open an existing dataset for appending new episodes.
 
     The lerobot-xense fork supports incremental recording by constructing
     ``LeRobotDataset`` directly (there is no ``resume=`` kwarg on ``create()``);
     its ``save_episode`` appends to the latest parquet/video chunk files and
     episode numbering continues from ``meta.total_episodes``.
+
+    Returns the opened dataset plus the adjusted intervention-flag setting
+    (derived from the dataset's existing schema so recorded frames never
+    violate it).
     """
     if root is None:
         root = pathlib.Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
@@ -307,6 +339,14 @@ def _open_dataset_for_resume(
         f"episodes={dataset.meta.total_episodes}, frames={dataset.meta.total_frames}"
     )
 
+    # Adjust the optional per-frame feature to the dataset's existing schema.
+    if record_intervention and "observation.is_intervention" not in dataset.features:
+        logger.warn(
+            "Existing dataset has no 'observation.is_intervention' feature; "
+            "recording without the intervention flag."
+        )
+        record_intervention = False
+
     # Hard compatibility checks: robot type / fps / schema must match.
     if dataset.meta.robot_type != "bi_flexiv_rizon4_rt":
         raise ValueError(
@@ -320,7 +360,12 @@ def _open_dataset_for_resume(
         )
 
     expected_features = {
-        **make_bi_flexiv_dataset_features(image_height, image_width, use_videos),
+        **make_bi_flexiv_dataset_features(
+            image_height,
+            image_width,
+            use_videos,
+            include_intervention=record_intervention,
+        ),
         **DEFAULT_FEATURES,
     }
     _check_features_match(dataset.features, expected_features)
@@ -328,7 +373,7 @@ def _open_dataset_for_resume(
     if image_writer_threads:
         dataset.start_image_writer(num_processes=0, num_threads=image_writer_threads)
 
-    return dataset
+    return dataset, record_intervention
 
 
 def _validate_local_resume_dataset(root: pathlib.Path) -> None:

@@ -66,6 +66,15 @@ Example usage:
     # Inference with Pico4 human intervention (either grip held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 --args.pico4-intervention
+
+    # Intervention + recording automatically adds a frame-level
+    # observation.is_intervention flag (1 = human takeover, 0 = policy).
+    python -m examples.bi_flexiv_rizon4_rt.main \\
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 \\
+        --args.pico4-intervention \\
+        --args.record \\
+        --args.record-repo-id Xense/my_new_dataset \\
+        --args.task "pack 6 cosmetic bottles into the carton"
 """
 
 from dataclasses import dataclass
@@ -301,6 +310,9 @@ class Args:
     # Encode video frames in background threads during recording (near-instant
     # episode save) instead of buffering PNGs and encoding after each episode.
     record_streaming_encoding: bool = True
+    # Add a frame-level observation.is_intervention column (1 = human takeover,
+    # 0 = policy). None = auto: enabled when pico4_intervention is on.
+    record_intervention_flag: bool | None = None
 
     # Pico4 human-in-the-loop intervention (hold either grip to take over)
     pico4_intervention: bool = False
@@ -386,17 +398,23 @@ def main(args: Args) -> None:
             logger.warn(
                 "Recording is enabled in dry-run mode — state/action data will be from policy output only (no real robot motion)"
             )
+        record_intervention = args.record_intervention_flag
+        if record_intervention is None:
+            record_intervention = args.pico4_intervention
         recorder = _recorder.make_recorder_subscriber(
             repo_id=args.record_repo_id,
             task=args.task,
             fps=int(args.runtime_hz),
             root=args.record_root,
+            record_intervention=record_intervention,
             resume=args.resume,
             vcodec=args.record_vcodec,
             streaming_encoding=args.record_streaming_encoding,
         )
         subscribers.append(recorder)
         logger.info(f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}'")
+        if record_intervention:
+            logger.info("Recording frame-level observation.is_intervention flag (1 = human takeover, 0 = policy)")
 
     if args.subscribe:
         # require_handshake blocks here until the video-playback laptop is up and

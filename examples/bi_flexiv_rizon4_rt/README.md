@@ -166,9 +166,11 @@ Control scheme (inherited from `BiPico4`):
 | Left / right trigger | Respective gripper position while intervention is on |
 
 While intervention is active, every step's action dict carries `is_intervention: True`
-(and `False` otherwise). Recording subscribers ignore unknown keys, so enabling
-`--args.record` alongside `--args.pico4-intervention` is safe; dataset-level annotation of
-intervention segments is not yet wired into the recorder.
+(and `False` otherwise). Enabling `--args.record` alongside `--args.pico4-intervention`
+automatically adds a frame-level `observation.is_intervention` column to the dataset
+(1 = human takeover frame, 0 = policy), so recorded episodes identify which frames
+were teleoperated. Override the auto behavior with `--args.record-intervention-flag
+true|false` (e.g. force it off, or on without Pico4).
 
 ---
 
