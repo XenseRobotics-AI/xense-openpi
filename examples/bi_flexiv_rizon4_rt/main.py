@@ -46,6 +46,17 @@ Example usage:
         --args.record-repo-id Xense/my_new_dataset \\
         --args.task "pack 6 cosmetic bottles into the carton"
 
+    # Resume recording into an existing dataset: keeps episode numbering and
+    # appends to the same parquet/video files. fps/features/robot_type must
+    # match the existing dataset (same record-repo-id/record-root and
+    # runtime-hz as the original run).
+    python -m examples.bi_flexiv_rizon4_rt.main \\
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 \\
+        --args.record \\
+        --args.record-repo-id Xense/my_new_dataset \\
+        --args.task "pack 6 cosmetic bottles into the carton" \\
+        --args.resume
+
     # Inference + stream head camera & state to the video-playback laptop at 10 Hz
     # (off-laptop detection + seamless video switching; never blocks control)
     python -m examples.bi_flexiv_rizon4_rt.main \\
@@ -280,6 +291,16 @@ class Args:
     record_repo_id: str = "Xense/recorded_dataset"
     record_root: str | None = None  # local save path, defaults to ~/.cache/huggingface/lerobot
     task: str = "pack 6 cosmetic bottles into the carton"
+    # Append new episodes to the existing dataset at record_root/record_repo_id
+    # instead of creating a fresh one. fps/features/robot_type must match — use
+    # the same runtime_hz as the original run.
+    resume: bool = False
+    # Video codec for recorded episodes; "auto" resolves to a hardware encoder
+    # (e.g. h264_nvenc) when available, else libsvtav1.
+    record_vcodec: str = "auto"
+    # Encode video frames in background threads during recording (near-instant
+    # episode save) instead of buffering PNGs and encoding after each episode.
+    record_streaming_encoding: bool = True
 
     # Pico4 human-in-the-loop intervention (hold either grip to take over)
     pico4_intervention: bool = False
@@ -294,6 +315,9 @@ def main(args: Args) -> None:
             "No bench selected. Pass --args.robot-recipe <name>, or --args.run <name> "
             f"for a run file that sets it. Recipes: {', '.join(_recipe.available_recipes())}."
         )
+
+    if args.resume and not args.record:
+        raise SystemExit("--args.resume requires --args.record (it appends episodes to an existing dataset).")
 
     if args.pico4_intervention and args.rtc_enabled:
         # RTCActionChunkBroker owns an execution queue + blending; its reset
@@ -356,6 +380,7 @@ def main(args: Args) -> None:
         environment = base_environment
 
     subscribers = []
+    recorder = None
     if args.record:
         if args.dry_run:
             logger.warn(
@@ -366,6 +391,9 @@ def main(args: Args) -> None:
             task=args.task,
             fps=int(args.runtime_hz),
             root=args.record_root,
+            resume=args.resume,
+            vcodec=args.record_vcodec,
+            streaming_encoding=args.record_streaming_encoding,
         )
         subscribers.append(recorder)
         logger.info(f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}'")
@@ -519,6 +547,13 @@ def main(args: Args) -> None:
         traceback.print_exc()
         raise
     finally:
+        # Flush/finalize the dataset *before* the robot is disconnected, so a
+        # partial in-memory episode survives an unexpected runtime error.
+        if recorder is not None:
+            try:
+                recorder.finalize()
+            except Exception as e:
+                logger.warn(f"Error finalizing recorder: {e}")
         safe_disconnect()
 
 

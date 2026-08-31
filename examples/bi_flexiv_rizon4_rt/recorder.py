@@ -14,9 +14,17 @@ Usage:
     runtime = Runtime(..., subscribers=[subscriber])
 """
 
+from contextlib import contextmanager
+import os
 import pathlib
 from typing import override
 
+from lerobot.datasets.utils import (
+    DEFAULT_FEATURES,
+    DEFAULT_TASKS_PATH,
+    EPISODES_DIR,
+    INFO_PATH,
+)
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
@@ -102,10 +110,18 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         self._dataset = dataset
         self._task = task
         self._step_count = 0
+        self._finalized = False
 
     @override
     def on_episode_start(self) -> None:
         self._step_count = 0
+        # Warm up streaming encoders before the first frame so encoder
+        # initialization doesn't overrun it. Only available in newer
+        # lerobot-xense; older versions auto-start the encoder on the
+        # first add_frame instead.
+        prepare = getattr(self._dataset, "prepare_episode_recording", None)
+        if prepare is not None:
+            prepare()
         logger.info("Episode recording started")
 
     @override
@@ -138,6 +154,44 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
             f"total frames: {self._dataset.meta.total_frames}"
         )
 
+    def finalize(self) -> None:
+        """Flush any unfinished episode and close LeRobot writers.
+
+        This is intended to run in ``main``'s ``finally`` block *before* the
+        robot is disconnected.  It must be safe to call after a normal
+        shutdown (where ``on_episode_end`` already saved and cleared the
+        buffer) as well as after an unexpected exception in ``runtime.run()``.
+        In the latter case the current in-memory episode buffer may still
+        contain unsaved frames; save it first so the partial episode is not
+        lost, then finalize the parquet writers so the dataset can be resumed
+        or loaded from disk later.
+        """
+        if self._finalized:
+            return
+
+        buffer = self._dataset.episode_buffer
+        if self._step_count > 0 and buffer is not None and int(buffer.get("size", 0)) > 0:
+            logger.warn(
+                f"Finalizing recorder with {int(buffer.get('size', 0))} unsaved frames "
+                "— saving partial episode."
+            )
+            try:
+                self._dataset.save_episode()
+            except Exception as e:
+                logger.error(f"Failed to save partial episode during finalize: {e}")
+
+        try:
+            self._dataset.finalize()
+        except Exception as e:
+            logger.error(f"Failed to finalize LeRobotDataset: {e}")
+
+        try:
+            self._dataset.stop_image_writer()
+        except Exception as e:
+            logger.error(f"Failed to stop image writer during finalize: {e}")
+
+        self._finalized = True
+
 
 def make_recorder_subscriber(
     repo_id: str,
@@ -148,6 +202,9 @@ def make_recorder_subscriber(
     image_width: int = 640,
     use_videos: bool = True,
     image_writer_threads: int = 4,
+    resume: bool = False,
+    vcodec: str = "auto",
+    streaming_encoding: bool = True,
 ) -> LeRobotRecorderSubscriber:
     """Create a LeRobotRecorderSubscriber for a new dataset.
 
@@ -160,20 +217,189 @@ def make_recorder_subscriber(
         image_width: Raw image width in pixels (default 640).
         use_videos: Encode images as video (True) or individual frames (False).
         image_writer_threads: Async image writer thread count.
+        resume: If True, open the existing dataset at repo_id/root and append
+            new episodes to it instead of creating a fresh dataset. Episode
+            numbering continues from the existing dataset, and fps/features/
+            robot_type must match.
+        vcodec: Video codec passed to LeRobotDataset. "auto" resolves to a
+            hardware encoder (e.g. h264_nvenc) when available, else libsvtav1.
+        streaming_encoding: Encode video frames in background threads during
+            recording (near-instant save, smaller files) instead of buffering
+            PNGs and encoding after each episode.
 
     Returns:
         A configured LeRobotRecorderSubscriber ready to attach to Runtime.
     """
     local_dir = pathlib.Path(root) if root else None
 
-    logger.info(f"Creating dataset repo_id={repo_id}" + (f" root={local_dir}" if local_dir else ""))
-    dataset = LeRobotDataset.create(
-        repo_id=repo_id,
-        fps=fps,
-        features=make_bi_flexiv_dataset_features(image_height, image_width, use_videos),
-        root=local_dir,
-        robot_type="bi_flexiv_rizon4_rt",
-        use_videos=use_videos,
-        image_writer_threads=image_writer_threads,
-    )
+    if resume:
+        dataset = _open_dataset_for_resume(
+            repo_id=repo_id,
+            root=local_dir,
+            fps=fps,
+            image_writer_threads=image_writer_threads,
+            use_videos=use_videos,
+            image_height=image_height,
+            image_width=image_width,
+            vcodec=vcodec,
+            streaming_encoding=streaming_encoding,
+        )
+    else:
+        logger.info(f"Creating dataset repo_id={repo_id}" + (f" root={local_dir}" if local_dir else ""))
+        dataset = LeRobotDataset.create(
+            repo_id=repo_id,
+            fps=fps,
+            features=make_bi_flexiv_dataset_features(image_height, image_width, use_videos),
+            root=local_dir,
+            robot_type="bi_flexiv_rizon4_rt",
+            use_videos=use_videos,
+            image_writer_threads=image_writer_threads,
+            vcodec=vcodec,
+            streaming_encoding=streaming_encoding,
+        )
     return LeRobotRecorderSubscriber(dataset=dataset, task=task)
+
+
+def _open_dataset_for_resume(
+    repo_id: str,
+    root: pathlib.Path | None,
+    fps: int,
+    image_writer_threads: int,
+    use_videos: bool,
+    image_height: int,
+    image_width: int,
+    vcodec: str = "auto",
+    streaming_encoding: bool = True,
+) -> LeRobotDataset:
+    """Open an existing dataset for appending new episodes.
+
+    The lerobot-xense fork supports incremental recording by constructing
+    ``LeRobotDataset`` directly (there is no ``resume=`` kwarg on ``create()``);
+    its ``save_episode`` appends to the latest parquet/video chunk files and
+    episode numbering continues from ``meta.total_episodes``.
+    """
+    if root is None:
+        root = pathlib.Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
+    info_path = root / "meta" / "info.json"
+    if not info_path.is_file():
+        raise FileNotFoundError(
+            f"Cannot resume: no dataset found at {root} (missing {info_path}). "
+            "Use --resume only when a dataset already exists at --record_root/--record_repo_id."
+        )
+
+    _validate_local_resume_dataset(root)
+
+    # LeRobotDataset.__init__ falls back to downloading from the Hub whenever
+    # its local parquet loader raises FileNotFoundError/NotADirectoryError.
+    # For resume we already know the dataset should be local; prevent a
+    # missing/incomplete local dataset from turning into a remote fetch (or a
+    # confusing "repository not found / connection failed" error).
+    with _offline_huggingface():
+        dataset = LeRobotDataset(
+            repo_id=repo_id,
+            root=root,
+            batch_encoding_size=1,
+            vcodec=vcodec,
+            streaming_encoding=streaming_encoding,
+        )
+    logger.info(
+        f"Resuming dataset repo_id={repo_id} root={root}: "
+        f"episodes={dataset.meta.total_episodes}, frames={dataset.meta.total_frames}"
+    )
+
+    # Hard compatibility checks: robot type / fps / schema must match.
+    if dataset.meta.robot_type != "bi_flexiv_rizon4_rt":
+        raise ValueError(
+            f"Cannot resume: dataset robot_type is {dataset.meta.robot_type!r}, "
+            "expected 'bi_flexiv_rizon4_rt'."
+        )
+    if dataset.fps != fps:
+        raise ValueError(
+            f"Cannot resume: dataset fps is {dataset.fps}, requested {fps}. "
+            "Use --runtime_hz to match the existing dataset."
+        )
+
+    expected_features = {
+        **make_bi_flexiv_dataset_features(image_height, image_width, use_videos),
+        **DEFAULT_FEATURES,
+    }
+    _check_features_match(dataset.features, expected_features)
+
+    if image_writer_threads:
+        dataset.start_image_writer(num_processes=0, num_threads=image_writer_threads)
+
+    return dataset
+
+
+def _validate_local_resume_dataset(root: pathlib.Path) -> None:
+    """Verify all required local LeRobot files are present before resuming.
+
+    This is intentionally stricter than just checking ``meta/info.json``:
+    ``LeRobotDatasetMetadata`` also loads tasks/episodes, and
+    ``LeRobotDataset`` loads frame parquet files. If any of those are missing
+    the normal constructor interprets it as "dataset not cached yet" and
+    downloads from Hugging Face, which is exactly what we want to avoid for a
+    resume-only workflow.
+    """
+    required_files = [
+        root / INFO_PATH,
+        root / DEFAULT_TASKS_PATH,
+    ]
+    required_parquet_dirs = [
+        root / EPISODES_DIR,
+        root / "data",
+    ]
+
+    missing_files = [str(path.relative_to(root)) for path in required_files if not path.is_file()]
+    missing_dirs = []
+    for directory in required_parquet_dirs:
+        if not any(directory.glob("*/*.parquet")):
+            missing_dirs.append(str(directory.relative_to(root)))
+
+    if missing_files or missing_dirs:
+        details = []
+        if missing_files:
+            details.append("missing files: " + ", ".join(missing_files))
+        if missing_dirs:
+            details.append("missing parquet files under: " + ", ".join(missing_dirs))
+        raise FileNotFoundError(
+            f"Cannot resume: local dataset at {root} is incomplete ({'; '.join(details)}). "
+            "Run the original recording again without --resume, or record into a new dataset."
+        )
+
+
+@contextmanager
+def _offline_huggingface():
+    """Temporarily force huggingface_hub to stay offline."""
+    key = "HF_HUB_OFFLINE"
+    previous = os.environ.get(key)
+    os.environ[key] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = previous
+
+
+def _check_features_match(existing: dict, expected: dict) -> None:
+    """Compare feature schemas, ignoring per-video codec info."""
+
+    def normalize(features: dict) -> dict:
+        return {
+            name: {k: v for k, v in ft.items() if k != "info"}
+            for name, ft in features.items()
+        }
+
+    existing_n = normalize(existing)
+    expected_n = normalize(expected)
+    if existing_n != expected_n:
+        raise ValueError(
+            "Cannot resume: dataset features do not match this recording setup.\n"
+            f"Only in dataset: {sorted(set(existing_n) - set(expected_n))}\n"
+            f"Only in this run: {sorted(set(expected_n) - set(existing_n))}\n"
+            "Record into a new dataset (drop --resume or use a new --record_repo_id), "
+            "or match the original recording options (cameras, image size, "
+            "is_success/is_intervention flags)."
+        )

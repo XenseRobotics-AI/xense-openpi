@@ -189,6 +189,34 @@ mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
 The dataset is saved locally to `~/.cache/huggingface/lerobot/<repo_id>` by default.
 Use `--args.record-root /path/to/dir` to override the save location.
 
+### Resuming an existing dataset
+
+Append new episodes to an already-recorded dataset with `--args.resume` (episode
+numbering continues, frames append to the same parquet/video files):
+
+```bash
+mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
+    --args.robot-recipe forward-05 \
+    --args.host 10.142.1.1 --args.port 8000 \
+    --args.record \
+    --args.record-repo-id Xense/my_new_dataset \
+    --args.task "pack 6 cosmetic bottles into the carton" \
+    --args.resume
+```
+
+`fps`/`features`/`robot_type` must match the existing dataset — use the same
+`--args.record-repo-id`/`--args.record-root` and `--args.runtime-hz` as the
+original run. The dataset is opened in offline mode, so a missing or incomplete
+local dataset fails loudly instead of silently pulling from the Hub.
+
+Video encoding knobs: `--args.record-vcodec auto` (default) picks a hardware
+encoder (e.g. `h264_nvenc`) when available, else `libsvtav1`;
+`--args.record-streaming-encoding` (default on) encodes frames in background
+threads during recording so episode saves are near-instant.
+
+On shutdown (Ctrl+C, keyboard exit, or a runtime error) the recorder's
+`finalize()` saves any partial in-memory episode before the robot disconnects.
+
 ---
 
 ## Converting Recorded Dataset to MCAP
