@@ -37,15 +37,19 @@ bench regardless of which policy is running.
 **CLI = run tuning.** `--args.inner-control-hz`, `--args.interpolate-cmds`,
 `--args.stiffness-ratio`, `--args.use-force`, `--args.go-to-start`,
 `--args.enable-tactile`, `--args.log-level`. These stay flags because they
-change between runs on the same bench.
+change between runs on the same bench. `enable_tactile` is the one optional
+override: when neither tactile flag is passed, the recipe's gripper setting is
+preserved; `--args.enable-tactile` and `--args.no-enable-tactile` force it on or
+off for one run.
 
-The CLI owns them outright: each has a concrete default, so it is **always**
-applied on top of the decoded config. A tuning key written into a recipe — or
-already present in an upstream lerobot teleop/record recipe you point at by
-path — loses to the flag. The loader logs every key it overrides, e.g.
+Except for `enable_tactile`, the CLI owns them outright: each has a concrete
+default, so it is **always** applied on top of the decoded config. A tuning key
+written into a recipe — or already present in an upstream lerobot teleop/record
+recipe you point at by path — loses to the flag. The loader logs every key it
+overrides, e.g.
 
 ```
-[warning] CLI flags override forward-04.yaml: gripper.enable_tactile: True -> False, log_level: 'INFO' -> 'DEBUG'
+[warning] CLI flags override forward-04.yaml: gripper.enable_tactile: True -> False
 ```
 
 A flag names a field, not a nesting level. `enable_tactile` is a field of the
@@ -56,18 +60,20 @@ which is why the warning above prints it as `gripper.enable_tactile`. It was
 block; that spelling is now rejected rather than ignored, on every robot in
 both repos — the ARX5 configs were the last holdout and have been renamed too.
 
-The recipes here leave tuning keys out entirely, so nothing is shadowed when
-you use one of them.
+Most recipes here leave tuning keys out entirely. A bench that should acquire
+touch by default may put `enable_tactile: true` in its gripper block; unlike the
+other tuning keys, that value survives when neither tactile CLI flag is passed.
 
 Tuning that you want to *keep* across runs belongs in a run YAML rather than in
 a recipe: [`../runs/README.md`](../runs/README.md). A run file names its bench
 with `robot_recipe:` and presets the flags, so the bench file stays purely about
 hardware and one bench can serve several tasks.
 
-Note `enable_tactile` defaults to **off** for inference: the policy consumes
-`head`, `left_wrist` and `right_wrist` only, so the four tactile cameras would
-cost USB bandwidth and loop time for frames nothing reads. Pass
-`--args.enable-tactile` when recording a dataset that wants them.
+Recipes that omit `enable_tactile` inherit the gripper backend's default
+(currently **off**), because a plain policy consumes only `head`, `left_wrist`
+and `right_wrist`; the four extra cameras would otherwise cost USB bandwidth
+and loop time for frames nothing reads. A tactile bench may set it in the
+recipe, and either CLI flag can override that setting for one run.
 
 ## Cameras
 
