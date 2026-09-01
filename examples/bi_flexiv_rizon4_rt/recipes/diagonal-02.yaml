@@ -1,7 +1,8 @@
 # Inference recipe — bimanual Flexiv Rizon4 RT, diagonal mount, bench 02.
 #   python -m examples.bi_flexiv_rizon4_rt.main --args.robot-recipe diagonal-02 ...
 #
-# Bench hardware only; run tuning stays on the CLI (see recipes/README.md).
+# Bench hardware plus tactile acquisition default; run tuning otherwise stays
+# on the CLI (see recipes/README.md).
 # Hardware transcribed from lerobot-xense
 # recipes/teleop/bi_flexiv_rizon4_rt/diagonal-02.yaml — keep the two in sync.
 
@@ -31,7 +32,7 @@ robot:
       use_depth: false
 
   # ── Gripper ── One block for both arms; `side` is stamped per arm at build time.
-  # Both grippers use the serial gripper interface (matched pair, single switch).
+  # Both grippers -> serial parallel-jaw grippers (matched pair, auto-sorted by SN).
   gripper:
     type: serial
     gripper_v_max: 100.0    # mm/s
@@ -41,6 +42,10 @@ robot:
     serial_timeout: 1.0
     init_open: true
     auto_discover_cameras: true   # sniff wrist + tactile off this gripper's USB hub
-    enable_tactile: false
+    enable_tactile: true
+    # Everything else worth tuning, at its default — uncomment to change.
+    # port: ""                            # explicit /dev path; overrides sn + side
+    # sn: null                            # board SN; scanned across ports when port unset
+    # side: null                          # stamped automatically per arm — do not set here
   left_use_gripper: true
   right_use_gripper: true

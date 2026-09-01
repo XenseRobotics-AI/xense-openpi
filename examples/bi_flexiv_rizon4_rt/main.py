@@ -62,11 +62,12 @@ import os
 import pathlib
 import signal
 import threading
-from typing import override
+from typing import Annotated, override
 
 from lerobot.teleoperators.bi_pico4 import BiPico4
 from lerobot.teleoperators.bi_pico4.config_bi_pico4 import BiPico4Config
 from lerobot.utils.robot_utils import get_logger
+import tyro
 from xense_client import action_chunk_broker
 from xense_client import paced_broker as _paced_broker
 from xense_client import rtc_action_chunk_broker
@@ -181,11 +182,10 @@ class Args:
     """Arguments for BiFlexiv Rizon4 RT inference.
 
     The bench comes from --args.robot-recipe. Everything else here is run
-    tuning, which the CLI owns outright: every tuning flag has a concrete
-    default, so it is always applied on top of the decoded recipe. A tuning key
-    written into a recipe — or already present in an upstream lerobot
-    teleop/record recipe — loses to the flag; the loader logs each one it
-    overrides so the swap is visible rather than silent.
+    tuning, which the CLI normally owns outright. ``enable_tactile`` is the one
+    optional override: when neither tactile flag is passed, the recipe setting
+    survives. Other tuning flags have concrete defaults and are always applied
+    on top of the decoded recipe; the loader logs each value it overrides.
 
     Any of these can be preset in a run YAML under runs/ and selected with
     --args.run, which is how a full launch fits on one line. Flags still win over
@@ -218,16 +218,25 @@ class Args:
     interpolate_cmds: bool = True
     # Routed onto the recipe's `gripper:` block, where lerobot keeps it — the
     # sensors travel with the gripper, not with the arm.
-    enable_tactile: bool = False
+    # None preserves the recipe setting. DisallowNone keeps the convenient
+    # --args.enable-tactile / --args.no-enable-tactile flag pair while still
+    # letting us distinguish "not specified" from an explicit override.
+    enable_tactile: Annotated[bool | None, tyro.conf.DisallowNone] = None
     log_level: str = "DEBUG"
 
-    # Tactile camera mapping (lerobot camera name -> policy-side name).
-    # The four values below correspond to BiFlexivTactileInputs.EXPECTED_CAMERAS;
-    # only edit them if your robot exposes the tactile cameras under different keys.
-    left_tactile_top_cam: str = "left_tactile_top"
-    left_tactile_bottom_cam: str = "left_tactile_bottom"
-    right_tactile_top_cam: str = "right_tactile_top"
-    right_tactile_bottom_cam: str = "right_tactile_bottom"
+    # Tactile camera mapping. Each field names the *lerobot* camera key that feeds
+    # the policy slot in its own name, so the defaults are the robot-side keys, not
+    # the policy-side ones: lerobot exposes the four GSPS pads as
+    # "<arm>_tactile_<finger>" with the finger read off the sensor serial's parity
+    # (odd -> left, even -> right), while the policy slots are
+    # BiFlexivTactileInputs.EXPECTED_CAMERAS ("<arm>_tactile_{top,bottom}").
+    # The finger keys replaced the older "<side>_tactile_{0,1}" one-for-one
+    # (_0 -> _left, _1 -> _right), which is why top takes the left-finger pad.
+    # Only edit these if your bench exposes the tactile cameras under other keys.
+    left_tactile_top_cam: str = "left_tactile_left"
+    left_tactile_bottom_cam: str = "left_tactile_right"
+    right_tactile_top_cam: str = "right_tactile_left"
+    right_tactile_bottom_cam: str = "right_tactile_right"
 
     # Set both of these when serving a *_diff policy (LeRobotBiFlexivTactileDiffDataConfig).
     # capture_tactile_reference snapshots the undeformed gel right after reset and
@@ -350,7 +359,8 @@ def main(args: Args) -> None:
     logger.info(
         f"Robot recipe: {recipe_path} "
         f"(left={robot_config.left_robot_sn}, right={robot_config.right_robot_sn}, "
-        f"gripper={robot_config.gripper.type if robot_config.gripper else None})"
+        f"gripper={robot_config.gripper.type if robot_config.gripper else None}, "
+        f"tactile={robot_config.gripper.enable_tactile if robot_config.gripper else False})"
     )
 
     ws_client_policy = _websocket_client_policy.WebsocketClientPolicy(
@@ -364,7 +374,9 @@ def main(args: Args) -> None:
         render_height=args.render_height,
         render_width=args.render_width,
         setup_robot=True,
-        enable_tactile_sensors=args.enable_tactile_sensors,
+        # Use the resolved recipe+CLI value. args.enable_tactile can be None
+        # when the CLI did not override the recipe.
+        enable_tactile_sensors=robot_config.gripper.enable_tactile,
         capture_tactile_reference=args.capture_tactile_reference,
         tactile_resize_mode=args.tactile_resize_mode,
         tactile_camera_mapping={
