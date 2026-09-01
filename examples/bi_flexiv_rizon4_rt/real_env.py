@@ -23,8 +23,8 @@ logger = get_logger("BiFlexivRizon4RTRealEnv")
 # Default policy-facing camera names (must match BiFlexivInputs / BiFlexivTactileInputs
 # EXPECTED_CAMERAS). Tactile cameras are included so that the policy can use the 4-
 # tactile FastViT branch when available; if the robot does not expose them they are
-# silently dropped here (the policy-side BiFlexivTactileInputs zero-fills missing
-# images with image_mask=False).
+# dropped here with a warning (the policy-side BiFlexivTactileInputs zero-fills
+# missing images with image_mask=False, so nothing downstream raises).
 _DEFAULT_VISUAL_CAMERAS = ("head", "left_wrist", "right_wrist")
 _DEFAULT_TACTILE_CAMERAS = (
     "left_tactile_top",
@@ -32,14 +32,19 @@ _DEFAULT_TACTILE_CAMERAS = (
     "right_tactile_top",
     "right_tactile_bottom",
 )
-# policy-facing name -> lerobot/station camera key. The stations expose the four
-# GSPS sensors as "<side>_tactile_{0,1}"; training repacks 0 -> top, 1 -> bottom
-# (see LeRobotBiFlexivTactileDataConfig), so inference must use the same order.
+# policy-facing name -> lerobot camera key. lerobot keys the four GSPS sensors
+# "<arm>_tactile_<finger>", where the finger comes from the sensor serial's
+# parity (odd -> left, even -> right) rather than enumeration order
+# (lerobot.grippers.camera_injection). That rename replaced the older
+# "<side>_tactile_{0,1}" keys one-for-one -- _0 -> _left, _1 -> _right, verified
+# against the serials on every bench -- so the training order still holds:
+# top <- the _0/left-finger pad, bottom <- the _1/right-finger pad
+# (see LeRobotBiFlexivTactileDataConfig).
 _DEFAULT_TACTILE_CAMERA_MAPPING = {
-    "left_tactile_top": "left_tactile_0",
-    "left_tactile_bottom": "left_tactile_1",
-    "right_tactile_top": "right_tactile_0",
-    "right_tactile_bottom": "right_tactile_1",
+    "left_tactile_top": "left_tactile_left",
+    "left_tactile_bottom": "left_tactile_right",
+    "right_tactile_top": "right_tactile_left",
+    "right_tactile_bottom": "right_tactile_right",
 }
 
 
@@ -146,7 +151,15 @@ class BiFlexivRizon4RTRealEnv:
                 if robot_name in obs:
                     images[policy_name] = obs[robot_name]
                 else:
-                    logger.debug(f"Tactile camera {robot_name} (policy={policy_name}) not found")
+                    # Tactile was asked for and the key is not there: the mapping
+                    # disagrees with what lerobot exposes. Warn rather than debug --
+                    # the policy zero-fills the missing view, so a silent miss here
+                    # runs a tactile model blind instead of failing.
+                    logger.warn(
+                        f"Tactile camera {robot_name!r} (policy={policy_name!r}) not in the robot "
+                        f"observation; available cameras: "
+                        f"{sorted(k for k in obs if isinstance(k, str) and 'tactile' in k)}"
+                    )
         return images
 
     def get_observation(self) -> dict:

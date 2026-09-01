@@ -56,13 +56,13 @@ class BiFlexivRizon4RTEnvironment(_environment.Environment):
         head                 -> head
         left_wrist           -> left_wrist
         right_wrist          -> right_wrist
-        left_tactile_top     -> left_tactile_top
-        left_tactile_bottom  -> left_tactile_bottom
-        right_tactile_top    -> right_tactile_top
-        right_tactile_bottom -> right_tactile_bottom
+        left_tactile_left    -> left_tactile_top
+        left_tactile_right   -> left_tactile_bottom
+        right_tactile_left   -> right_tactile_top
+        right_tactile_right  -> right_tactile_bottom
 
     Tactile streams are passed through untouched; real_env already renamed them
-    from the station's "<side>_tactile_{0,1}" keys. Whether the policy consumes
+    from lerobot's "<arm>_tactile_<finger>" keys. Whether the policy consumes
     them is decided server-side by the train config: a tactile model routes them
     to the FastViT branch, a plain pi05 policy drops the extra keys. Depth
     cameras are the only streams filtered out here.
