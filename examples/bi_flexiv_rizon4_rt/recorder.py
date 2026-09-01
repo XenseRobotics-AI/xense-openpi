@@ -17,18 +17,20 @@ Usage:
 from contextlib import contextmanager
 import os
 import pathlib
+import shutil
 from typing import override
 
-from lerobot.datasets.utils import (
-    DEFAULT_FEATURES,
-    DEFAULT_TASKS_PATH,
-    EPISODES_DIR,
-    INFO_PATH,
-)
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.utils import DEFAULT_FEATURES
+from lerobot.datasets.utils import DEFAULT_IMAGE_PATH
+from lerobot.datasets.utils import DEFAULT_TASKS_PATH
+from lerobot.datasets.utils import EPISODES_DIR
+from lerobot.datasets.utils import INFO_PATH
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
 from xense_client.runtime import subscriber as _subscriber
+
+import examples.bi_flexiv_rizon4_rt.keyboard_control as _keyboard_control
 
 logger = get_logger("BiFlexivRecorder")
 
@@ -67,6 +69,7 @@ def make_bi_flexiv_dataset_features(
     image_width: int = 640,
     use_videos: bool = True,
     include_intervention: bool = False,
+    include_success: bool = False,
 ) -> dict:
     """Build the LeRobot features dict for a bi_flexiv_rizon4_rt dataset."""
     dtype = "video" if use_videos else "image"
@@ -94,6 +97,12 @@ def make_bi_flexiv_dataset_features(
             "shape": (1,),
             "names": ["is_intervention"],
         }
+    if include_success:
+        features["observation.is_success"] = {
+            "dtype": "float32",
+            "shape": (1,),
+            "names": ["is_success"],
+        }
     return features
 
 
@@ -113,10 +122,19 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         "actions": np.ndarray (20,) — absolute action after output transforms
     """
 
-    def __init__(self, dataset: LeRobotDataset, task: str, record_intervention: bool = False):
+    def __init__(
+        self,
+        dataset: LeRobotDataset,
+        task: str,
+        controller: _keyboard_control.KeyboardEpisodeController | None = None,
+        record_intervention: bool = False,
+        confirm_success: bool = False,
+    ):
         self._dataset = dataset
         self._task = task
+        self._controller = controller
         self._record_intervention = record_intervention
+        self._confirm_success = confirm_success
         self._step_count = 0
         self._finalized = False
 
@@ -146,6 +164,10 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
                 [float(action.get("is_intervention", False))],
                 dtype=np.float32,
             )
+        if self._confirm_success:
+            # Placeholder; backfilled with the keyboard-confirmed value in
+            # on_episode_end (NaN means "unconfirmed").
+            frame["observation.is_success"] = np.asarray([np.nan], dtype=np.float32)
         for cam in _POLICY_CAMERAS:
             if cam in images_raw:
                 frame[f"observation.images.{cam}"] = np.asarray(images_raw[cam], dtype=np.uint8)
@@ -160,12 +182,70 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         if self._step_count == 0:
             logger.warn("Episode ended with 0 steps — not saving")
             return
+
+        end_reason = None
+        if self._controller is not None:
+            end_reason = self._controller.consume_end_reason()
+
+        if end_reason == _keyboard_control.EpisodeEndReason.DISCARD:
+            logger.info(f"Discarding episode ({self._step_count} steps)...")
+            self._discard_episode_images()
+            self._dataset.clear_episode_buffer()
+            return
+
+        if self._confirm_success and "observation.is_success" in self._dataset.features:
+            success = None
+            if end_reason == _keyboard_control.EpisodeEndReason.SUCCESS:
+                success = 1.0
+            elif end_reason == _keyboard_control.EpisodeEndReason.FAILURE:
+                success = 0.0
+            self._backfill_success(success)
+
         logger.info(f"Saving episode ({self._step_count} steps)...")
         self._dataset.save_episode()
         logger.info(
             f"Episode saved. Total episodes: {self._dataset.meta.total_episodes}, "
             f"total frames: {self._dataset.meta.total_frames}"
         )
+
+    def _discard_episode_images(self) -> None:
+        """Remove the discarded episode's temp PNG frames.
+
+        lerobot-xense's ``clear_episode_buffer(delete_images=...)`` only cleans
+        features with dtype "image"; for video-typed datasets (``use_videos``)
+        ``meta.image_keys`` is empty, so discarded frames would otherwise linger
+        as orphaned PNGs (images on disk but no mp4). Remove them explicitly so
+        the dataset directory stays consistent.
+        """
+        buffer = self._dataset.episode_buffer
+        if buffer is None:
+            return
+        episode_index = buffer.get("episode_index")
+        if isinstance(episode_index, np.ndarray):
+            episode_index = episode_index.item() if episode_index.size == 1 else episode_index[0]
+        if not isinstance(episode_index, int):
+            return
+        for cam_key in self._dataset.meta.camera_keys:
+            fpath = DEFAULT_IMAGE_PATH.format(image_key=cam_key, episode_index=episode_index, frame_index=0)
+            img_dir = (self._dataset.root / fpath).parent
+            if img_dir.is_dir():
+                shutil.rmtree(img_dir)
+
+    def _backfill_success(self, value: float | None) -> None:
+        """Replace the per-frame is_success placeholders with the confirmed value.
+
+        ``value=None`` keeps the NaN placeholders (episode ended via right
+        arrow without a success confirmation). Works on the dataset's in-memory
+        episode buffer before ``save_episode`` stacks it into parquet; no
+        changes to lerobot itself are required.
+        """
+        buffer = self._dataset.episode_buffer
+        if buffer is None or "observation.is_success" not in buffer:
+            return
+        if value is None:
+            return
+        fill = np.asarray([float(value)], dtype=np.float32)
+        buffer["observation.is_success"] = [fill.copy() for _ in range(buffer["size"])]
 
     def finalize(self) -> None:
         """Flush any unfinished episode and close LeRobot writers.
@@ -185,8 +265,7 @@ class LeRobotRecorderSubscriber(_subscriber.Subscriber):
         buffer = self._dataset.episode_buffer
         if self._step_count > 0 and buffer is not None and int(buffer.get("size", 0)) > 0:
             logger.warn(
-                f"Finalizing recorder with {int(buffer.get('size', 0))} unsaved frames "
-                "— saving partial episode."
+                f"Finalizing recorder with {int(buffer.get('size', 0))} unsaved frames — saving partial episode."
             )
             try:
                 self._dataset.save_episode()
@@ -215,7 +294,9 @@ def make_recorder_subscriber(
     image_width: int = 640,
     use_videos: bool = True,
     image_writer_threads: int = 4,
+    controller: _keyboard_control.KeyboardEpisodeController | None = None,
     record_intervention: bool = False,
+    confirm_success: bool = False,
     resume: bool = False,
     vcodec: str = "auto",
     streaming_encoding: bool = True,
@@ -231,13 +312,20 @@ def make_recorder_subscriber(
         image_width: Raw image width in pixels (default 640).
         use_videos: Encode images as video (True) or individual frames (False).
         image_writer_threads: Async image writer thread count.
+        controller: Keyboard episode controller whose end reason decides
+            save/discard/success for each episode (None = always save).
         record_intervention: Add a frame-level ``observation.is_intervention``
             flag (1 = human takeover frame, 0 = policy), so the recorded
             dataset can identify which frames were teleoperated.
+        confirm_success: Add a frame-level ``observation.is_success`` column,
+            backfilled from the keyboard end key (Enter = 1, Backspace = 0,
+            right arrow = NaN/unconfirmed).
         resume: If True, open the existing dataset at repo_id/root and append
             new episodes to it instead of creating a fresh dataset. Episode
             numbering continues from the existing dataset, and fps/features/
-            robot_type must match.
+            robot_type must match. Optional per-frame features
+            (is_intervention / is_success) are auto-disabled when the existing
+            dataset's schema does not contain them.
         vcodec: Video codec passed to LeRobotDataset. "auto" resolves to a
             hardware encoder (e.g. h264_nvenc) when available, else libsvtav1.
         streaming_encoding: Encode video frames in background threads during
@@ -250,7 +338,7 @@ def make_recorder_subscriber(
     local_dir = pathlib.Path(root) if root else None
 
     if resume:
-        dataset, record_intervention = _open_dataset_for_resume(
+        dataset, record_intervention, confirm_success = _open_dataset_for_resume(
             repo_id=repo_id,
             root=local_dir,
             fps=fps,
@@ -259,6 +347,7 @@ def make_recorder_subscriber(
             image_height=image_height,
             image_width=image_width,
             record_intervention=record_intervention,
+            confirm_success=confirm_success,
             vcodec=vcodec,
             streaming_encoding=streaming_encoding,
         )
@@ -272,6 +361,7 @@ def make_recorder_subscriber(
                 image_width,
                 use_videos,
                 include_intervention=record_intervention,
+                include_success=confirm_success,
             ),
             root=local_dir,
             robot_type="bi_flexiv_rizon4_rt",
@@ -283,7 +373,9 @@ def make_recorder_subscriber(
     return LeRobotRecorderSubscriber(
         dataset=dataset,
         task=task,
+        controller=controller,
         record_intervention=record_intervention,
+        confirm_success=confirm_success,
     )
 
 
@@ -296,9 +388,10 @@ def _open_dataset_for_resume(
     image_height: int,
     image_width: int,
     record_intervention: bool,
+    confirm_success: bool,
     vcodec: str = "auto",
     streaming_encoding: bool = True,
-) -> tuple[LeRobotDataset, bool]:
+) -> tuple[LeRobotDataset, bool, bool]:
     """Open an existing dataset for appending new episodes.
 
     The lerobot-xense fork supports incremental recording by constructing
@@ -306,9 +399,8 @@ def _open_dataset_for_resume(
     its ``save_episode`` appends to the latest parquet/video chunk files and
     episode numbering continues from ``meta.total_episodes``.
 
-    Returns the opened dataset plus the adjusted intervention-flag setting
-    (derived from the dataset's existing schema so recorded frames never
-    violate it).
+    Returns the opened dataset plus the adjusted feature flags (derived from
+    the dataset's existing schema so recorded frames never violate it).
     """
     if root is None:
         root = pathlib.Path.home() / ".cache" / "huggingface" / "lerobot" / repo_id
@@ -339,19 +431,23 @@ def _open_dataset_for_resume(
         f"episodes={dataset.meta.total_episodes}, frames={dataset.meta.total_frames}"
     )
 
-    # Adjust the optional per-frame feature to the dataset's existing schema.
+    # Adjust the optional per-frame features to the dataset's existing schema.
     if record_intervention and "observation.is_intervention" not in dataset.features:
         logger.warn(
-            "Existing dataset has no 'observation.is_intervention' feature; "
-            "recording without the intervention flag."
+            "Existing dataset has no 'observation.is_intervention' feature; recording without the intervention flag."
         )
         record_intervention = False
+    if confirm_success and "observation.is_success" not in dataset.features:
+        logger.warn(
+            "Existing dataset has no 'observation.is_success' feature; "
+            "--confirm_success will only end episodes (no success column)."
+        )
+        confirm_success = False
 
     # Hard compatibility checks: robot type / fps / schema must match.
     if dataset.meta.robot_type != "bi_flexiv_rizon4_rt":
         raise ValueError(
-            f"Cannot resume: dataset robot_type is {dataset.meta.robot_type!r}, "
-            "expected 'bi_flexiv_rizon4_rt'."
+            f"Cannot resume: dataset robot_type is {dataset.meta.robot_type!r}, expected 'bi_flexiv_rizon4_rt'."
         )
     if dataset.fps != fps:
         raise ValueError(
@@ -365,6 +461,7 @@ def _open_dataset_for_resume(
             image_width,
             use_videos,
             include_intervention=record_intervention,
+            include_success=confirm_success,
         ),
         **DEFAULT_FEATURES,
     }
@@ -373,7 +470,7 @@ def _open_dataset_for_resume(
     if image_writer_threads:
         dataset.start_image_writer(num_processes=0, num_threads=image_writer_threads)
 
-    return dataset, record_intervention
+    return dataset, record_intervention, confirm_success
 
 
 def _validate_local_resume_dataset(root: pathlib.Path) -> None:
@@ -396,10 +493,11 @@ def _validate_local_resume_dataset(root: pathlib.Path) -> None:
     ]
 
     missing_files = [str(path.relative_to(root)) for path in required_files if not path.is_file()]
-    missing_dirs = []
-    for directory in required_parquet_dirs:
-        if not any(directory.glob("*/*.parquet")):
-            missing_dirs.append(str(directory.relative_to(root)))
+    missing_dirs = [
+        str(directory.relative_to(root))
+        for directory in required_parquet_dirs
+        if not any(directory.glob("*/*.parquet"))
+    ]
 
     if missing_files or missing_dirs:
         details = []
@@ -432,10 +530,7 @@ def _check_features_match(existing: dict, expected: dict) -> None:
     """Compare feature schemas, ignoring per-video codec info."""
 
     def normalize(features: dict) -> dict:
-        return {
-            name: {k: v for k, v in ft.items() if k != "info"}
-            for name, ft in features.items()
-        }
+        return {name: {k: v for k, v in ft.items() if k != "info"} for name, ft in features.items()}
 
     existing_n = normalize(existing)
     expected_n = normalize(expected)

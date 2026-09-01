@@ -57,6 +57,18 @@ Example usage:
         --args.task "pack 6 cosmetic bottles into the carton" \\
         --args.resume
 
+    # Keyboard-delimited episodes (lerobot style): right arrow starts / ends
+    # and saves an episode; left arrow discards and re-records; Enter also
+    # ends + saves; ESC saves the current episode and exits. Add
+    # --args.confirm-success to annotate each episode with Enter (success) or
+    # Backspace (failure) at frame level (observation.is_success).
+    python -m examples.bi_flexiv_rizon4_rt.main \\
+        --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 \\
+        --args.record \\
+        --args.record-repo-id Xense/my_new_dataset \\
+        --args.task "pack 6 cosmetic bottles into the carton" \\
+        --args.keyboard-control --args.confirm-success
+
     # Inference + stream head camera & state to the video-playback laptop at 10 Hz
     # (off-laptop detection + seamless video switching; never blocks control)
     python -m examples.bi_flexiv_rizon4_rt.main \\
@@ -98,6 +110,7 @@ from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.bi_flexiv_rizon4_rt.env as _env
 import examples.bi_flexiv_rizon4_rt.intervention as _intervention
+import examples.bi_flexiv_rizon4_rt.keyboard_control as _keyboard_control
 import examples.bi_flexiv_rizon4_rt.recipe as _recipe
 import examples.bi_flexiv_rizon4_rt.recorder as _recorder
 import examples.bi_flexiv_rizon4_rt.subscribe as _subscribe
@@ -314,6 +327,15 @@ class Args:
     # 0 = policy). None = auto: enabled when pico4_intervention is on.
     record_intervention_flag: bool | None = None
 
+    # Keyboard-controlled episode delimiting (lerobot style):
+    #   Right arrow: start episode / end + save
+    #   Left arrow : discard current episode and re-record
+    #   Enter      : end + save (is_success=True with --confirm_success)
+    #   Backspace  : end + save (is_success=False with --confirm_success)
+    #   ESC        : end + save current episode and exit
+    keyboard_control: bool = False
+    confirm_success: bool = False
+
     # Pico4 human-in-the-loop intervention (hold either grip to take over)
     pico4_intervention: bool = False
     pico4_pos_sensitivity: float = 1.0
@@ -330,6 +352,15 @@ def main(args: Args) -> None:
 
     if args.resume and not args.record:
         raise SystemExit("--args.resume requires --args.record (it appends episodes to an existing dataset).")
+
+    if args.keyboard_control and args.action_hz > 0:
+        # KeyboardControlledEnvironmentWrapper blocks in get_observation,
+        # which deadlocks the decoupled runtime's action thread. Refuse the
+        # combo rather than hanging the robot.
+        raise SystemExit(
+            "--args.keyboard-control is not supported with --args.action-hz > 0 in this release. "
+            "Run with --args.action-hz 0 (synchronous runtime), or disable keyboard control."
+        )
 
     if args.pico4_intervention and args.rtc_enabled:
         # RTCActionChunkBroker owns an execution queue + blending; its reset
@@ -391,6 +422,21 @@ def main(args: Args) -> None:
     else:
         environment = base_environment
 
+    keyboard_controller: _keyboard_control.KeyboardEpisodeController | None = None
+    if args.keyboard_control:
+        keyboard_controller = _keyboard_control.KeyboardEpisodeController(confirm_success=args.confirm_success)
+        keyboard_controller.start()
+        logger.info(
+            "Keyboard episode control enabled. "
+            "Right arrow toggles recording; left arrow re-records; "
+            "Enter saves; ESC saves and exits."
+        )
+        # Episodes are delimited by keyboard input, not by a fixed count or
+        # step budget: run a practically unbounded number of episodes and let
+        # the operator end each one.
+        args.num_episodes = 10_000
+        args.max_episode_steps = 0
+
     subscribers = []
     recorder = None
     if args.record:
@@ -406,7 +452,9 @@ def main(args: Args) -> None:
             task=args.task,
             fps=int(args.runtime_hz),
             root=args.record_root,
+            controller=keyboard_controller,
             record_intervention=record_intervention,
+            confirm_success=args.confirm_success,
             resume=args.resume,
             vcodec=args.record_vcodec,
             streaming_encoding=args.record_streaming_encoding,
@@ -499,6 +547,9 @@ def main(args: Args) -> None:
     else:
         agent = _policy_agent.PolicyAgent(policy=policy)
 
+    if keyboard_controller is not None:
+        environment = _env.KeyboardControlledEnvironmentWrapper(environment, keyboard_controller)
+
     if decoupled_mode:
         logger.info(f"Decoupled runtime: obs at ~{args.runtime_hz} Hz (camera-bound), action at {args.action_hz} Hz")
         runtime = _decoupled_runtime.DecoupledRuntime(
@@ -556,6 +607,8 @@ def main(args: Args) -> None:
 
     try:
         runtime.run()
+    except _keyboard_control.KeyboardExit:
+        logger.info("Keyboard exit requested — shutting down cleanly")
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt")
     except Exception as e:

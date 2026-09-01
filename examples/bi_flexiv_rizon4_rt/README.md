@@ -219,6 +219,33 @@ threads during recording so episode saves are near-instant.
 On shutdown (Ctrl+C, keyboard exit, or a runtime error) the recorder's
 `finalize()` saves any partial in-memory episode before the robot disconnects.
 
+### Keyboard-delimited episodes (lerobot style)
+
+Add `--args.keyboard-control` to delimit episodes with the keyboard instead of
+a fixed count (requires the synchronous runtime — incompatible with
+`--args.action-hz > 0`):
+
+| Key | Effect |
+|---|---|
+| Right arrow | Start a new episode (idle) / end + save it (running) |
+| Left arrow | Discard the current episode and re-record it |
+| Enter | End + save (`is_success=True` with `--args.confirm-success`) |
+| Backspace | End + save (`is_success=False` with `--args.confirm-success`) |
+| ESC | End + save the current episode, then exit cleanly |
+
+With `--args.confirm-success`, each frame gets an `observation.is_success`
+column backfilled from the end key (right arrow leaves it NaN = unconfirmed).
+
+```bash
+mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
+    --args.robot-recipe forward-05 \
+    --args.host 10.142.1.1 --args.port 8000 \
+    --args.record \
+    --args.record-repo-id Xense/my_new_dataset \
+    --args.task "pack 6 cosmetic bottles into the carton" \
+    --args.keyboard-control --args.confirm-success
+```
+
 ---
 
 ## Converting Recorded Dataset to MCAP
@@ -281,8 +308,13 @@ TCP positions are **delta** actions; gripper positions are **absolute**.
 ```
 examples/bi_flexiv_rizon4_rt/
 ├── main.py         # Entry point and CLI args
-├── env.py          # OpenPI Environment adapter (image resize, obs format)
+├── recipe.py       # Recipe YAML loader (bench hardware) binding
+├── env.py          # OpenPI Environment adapter (image resize, obs format, keyboard wrapper)
 ├── real_env.py     # BiFlexivRizon4RT robot control wrapper
 ├── recorder.py     # LeRobot-format episode recorder subscriber
-└── intervention.py # Pico4 VR human-in-the-loop intervention wrappers
+├── keyboard_control.py # Lerobot-style keyboard episode delimiting
+├── intervention.py # Pico4 VR human-in-the-loop intervention wrappers
+├── subscribe.py    # Obs streamer to the video-playback laptop
+├── recipes/        # Bench recipes (arm SNs, poses, cameras, grippers)
+└── runs/           # Run YAMLs (preset CLI flags per launch)
 ```
