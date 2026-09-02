@@ -1,0 +1,27 @@
+# JAX-only pi0.5 training config for the single-arm Dobot Nova5 dataset.
+model:
+  type: Pi0Config
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+  use_cudnn_attention: false
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotDobotNova5DataConfig
+  repo_id: Xense/loreal_returns_sorting_0831
+  use_delta_cartesian_actions: true
+  base_config:
+    prompt_from_task: true
+    tactile: false
+  default_prompt: Pick up returned cosmetic from conveyor, place neatly on left platform.
+batch_size: 256
+num_workers: 64
+num_train_steps: 60000
+save_interval: 10000
+keep_period: 10000
+fsdp_devices: 8
+strict_batch_order: false

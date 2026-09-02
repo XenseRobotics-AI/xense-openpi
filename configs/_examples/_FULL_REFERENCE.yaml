@@ -121,6 +121,14 @@ data:
   # action_sequence_keys: [action]
   # repack_transforms is built from use_head_camera and cannot be overridden here.
 
+  # ---- LeRobotDobotNova5DataConfig-specific (uncomment when used) ----
+  # Single right-arm Dobot Nova5 DH. 10D state/action order:
+  # [tcp.x, tcp.y, tcp.z, tcp.r1-r6, gripper.pos]. The dataset camera columns
+  # are observation.images.head and observation.images.wrist.
+  # use_delta_cartesian_actions: true  # delta-encode TCP dims 0-8; keep gripper dim 9 absolute
+  # default_prompt: "..."
+  # action_sequence_keys: [action]
+
   # ---- LeRobotAlohaDataConfig-specific (uncomment when used) ----
   # use_delta_joint_actions: true       # delta-encode joints, keep grippers absolute
   # default_prompt: "..."
