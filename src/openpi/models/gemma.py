@@ -32,6 +32,12 @@ from typing import Literal, TypeAlias
 import einops
 import flax.linen as nn
 import jax
+
+# Private JAX API (pinned jax 0.5.3): the cuDNN fused-attention fwd/bwd rules that
+# jax.nn.dot_product_attention(implementation="cudnn") wires into its custom_vjp.
+# Used by _cudnn_attention_in_dtype to run the float16 kernel with loss scaling
+# without recomputing the forward inside the backward.
+from jax._src.cudnn import fused_attention_stablehlo as _cudnn_fa
 import jax.numpy as jnp
 
 import openpi.models.lora as lora
@@ -205,19 +211,28 @@ def _cudnn_attention_in_dtype(q, k, v, attn_mask, compute_dtype):
     """
     out_dtype = q.dtype
 
+    # The forward and backward call JAX's cuDNN fwd/bwd rules directly (the same
+    # functions jax.nn.dot_product_attention's own custom_vjp uses) instead of
+    # re-running the forward through jax.vjp inside the backward: the softmax
+    # stats and the output are kept as residuals, so with flax remat the backward
+    # costs one recomputed forward plus one fused backward, like the bf16 path.
     # attn_mask is an explicit argument (not a closure) so that the backward,
     # which flax remat traces separately, does not capture a leaked tracer.
     @jax.custom_vjp
     def attention(q, k, v, attn_mask):
-        qc, kc, vc = (x.astype(compute_dtype) for x in (q, k, v))
-        return _cudnn_attention_call(qc, kc, vc, attn_mask).astype(out_dtype)
+        return attention_fwd(q, k, v, attn_mask)[0]
 
     def attention_fwd(q, k, v, attn_mask):
-        return attention(q, k, v, attn_mask), (q, k, v, attn_mask)
+        qc, kc, vc = (x.astype(compute_dtype) for x in (q, k, v))
+        bias = jnp.where(attn_mask, jnp.asarray(0, compute_dtype), _cudnn_fa.get_large_negative_number(compute_dtype))
+        zeros = jnp.zeros(0, dtype=compute_dtype)
+        out, res = _cudnn_fa._dot_product_attention_fwd_rule(
+            qc, kc, vc, bias, zeros, zeros, zeros, zeros, *_cudnn_static_args(bias.shape, qc.shape)
+        )
+        return out.astype(out_dtype), (res, attn_mask)
 
     def attention_bwd(residuals, d_out):
-        q, k, v, attn_mask = residuals
-        qc, kc, vc = (x.astype(compute_dtype) for x in (q, k, v))
+        res, attn_mask = residuals
         d_out32 = d_out.astype(jnp.float32)
         max_abs = jnp.max(jnp.abs(d_out32))
         tiny = jnp.finfo(jnp.float32).tiny
@@ -226,8 +241,14 @@ def _cudnn_attention_in_dtype(q, k, v, attn_mask, compute_dtype):
         # and the dQ/dK/dV outputs inside the float16 kernel.
         exponent = jnp.floor(jnp.log2(jnp.maximum(max_abs, tiny)))
         scale = jnp.where(max_abs > 0, jnp.exp2(-(exponent + 2.0)), 1.0)
-        _, vjp_fn = jax.vjp(lambda a, b, c: _cudnn_attention_call(a, b, c, attn_mask), qc, kc, vc)
-        dq, dk, dv = vjp_fn((d_out32 * scale).astype(compute_dtype))
+        grads = _cudnn_fa._dot_product_attention_bwd_rule(
+            *_cudnn_static_args(res[3].shape, res[0].shape), res, (d_out32 * scale).astype(compute_dtype)
+        )
+        dq, dk, dv = grads[:3]
+        # Same semantics as _stop_gradient_for_fully_masked_queries: fully masked
+        # query rows get a zero (never NaN) q-gradient.
+        query_has_key = jnp.any(attn_mask, axis=-1)[:, 0, :, None, None]
+        dq = jnp.where(query_has_key, dq, jnp.zeros_like(dq))
         inv_scale = 1.0 / scale
 
         def unscale(g):
@@ -237,6 +258,23 @@ def _cudnn_attention_in_dtype(q, k, v, attn_mask, compute_dtype):
 
     attention.defvjp(attention_fwd, attention_bwd)
     return attention(q, k, v, attn_mask)
+
+
+def _cudnn_static_args(bias_shape, query_shape):
+    """Static parameters jax.nn.dot_product_attention(..., scale=1.0, implementation="cudnn") uses."""
+    layout = _cudnn_fa._normalize_layout("BTNH")
+    has_dbias = _cudnn_fa.should_export_dbias(bias_shape, query_shape, layout.value)
+    # (scale, seed, dropout_rate, variadic_args, mask_type, layout, sliding_window_length, cudnn_version)
+    return (
+        1.0,
+        42,
+        0.0,
+        (True, has_dbias),
+        _cudnn_fa.MaskType.NO_MASK,
+        layout.value,
+        None,
+        _cudnn_fa.check_cudnn_version(),
+    )
 
 
 @at.typecheck
@@ -441,9 +479,7 @@ class Block(nn.Module):
             pre_attn.append(x)
 
         pre_attn = sharding.activation_sharding_constraint(pre_attn)
-        post_attn, kv_cache = attn(
-            pre_attn, positions, attn_mask, kv_cache, use_cudnn_attention=layer_uses_cudnn
-        )
+        post_attn, kv_cache = attn(pre_attn, positions, attn_mask, kv_cache, use_cudnn_attention=layer_uses_cudnn)
         post_attn = jax.tree.map(lambda x: drop(x, deterministic), post_attn)
         post_attn = sharding.activation_sharding_constraint(post_attn)
         xs = [_gated_residual(x, y, gate) for x, y, gate in zip(xs, post_attn, gates, strict=True)]
@@ -554,9 +590,7 @@ class Module(nn.Module):
             adarms_cond = [None] * len(self.configs)
 
         layer_indices = jnp.arange(self.configs[0].depth, dtype=jnp.int32)
-        embedded, kv_cache = self.layers(
-            embedded, kv_cache, positions, mask, adarms_cond, layer_indices, deterministic
-        )
+        embedded, kv_cache = self.layers(embedded, kv_cache, positions, mask, adarms_cond, layer_indices, deterministic)
 
         assert all(e.dtype == jnp.dtype(self.embed_dtype) for e in embedded if e is not None)
 

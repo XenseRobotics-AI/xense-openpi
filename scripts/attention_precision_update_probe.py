@@ -35,9 +35,12 @@ import openpi.training.sharding as sharding
 sys.path.insert(0, "scripts")
 import train as train_mod
 
-CONFIG = "diag_cudnn_strict_order"
-EXP_NAME = "diag_cudnn_strict_order"
-CHECKPOINT_STEP = 1000
+# Usage: python scripts/attention_precision_update_probe.py [config] [exp_name] [checkpoint_step]
+# The checkpoint only supplies the parameters and Adam moments; every variant is
+# evaluated from that same state, so any clean step-1000 run works as the anchor.
+CONFIG = sys.argv[1] if len(sys.argv) > 1 else "diag_cudnn_strict_order"
+EXP_NAME = sys.argv[2] if len(sys.argv) > 2 else CONFIG
+CHECKPOINT_STEP = int(sys.argv[3]) if len(sys.argv) > 3 else 1000
 BATCH = 32
 WORKERS = 16
 NUM_BATCHES = 2
