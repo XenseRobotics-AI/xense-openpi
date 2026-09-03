@@ -97,6 +97,8 @@ class Pi0(_model.BaseModel):
                 use_cudnn_attention=config.use_cudnn_attention,
                 cudnn_attention_layer_start=config.cudnn_attention_layer_start,
                 cudnn_attention_num_layers=config.cudnn_attention_num_layers,
+                cudnn_attention_dtype=config.cudnn_attention_dtype,
+                explicit_attention_fp32=config.explicit_attention_fp32,
             )
         )
         llm.lazy_init(

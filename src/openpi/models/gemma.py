@@ -182,12 +182,74 @@ def _stop_gradient_for_fully_masked_queries(q, attn_mask):
     return jnp.where(query_has_key, q, jax.lax.stop_gradient(q))
 
 
+def _cudnn_attention_call(q, k, v, attn_mask):
+    """The plain cuDNN fused attention call used by training (q is pre-scaled)."""
+    q = _stop_gradient_for_fully_masked_queries(q, attn_mask)
+    return jax.nn.dot_product_attention(q, k, v, mask=attn_mask, scale=1.0, implementation="cudnn")
+
+
+def _cudnn_attention_in_dtype(q, k, v, attn_mask, compute_dtype):
+    """Run cuDNN fused attention with q/k/v cast to ``compute_dtype`` (e.g. float16).
+
+    Motivation: the flash-attention backward forms ``dS = P * (dP - rowsum(dO * O))``
+    from the *rounded* stored output ``O``. For peaked attention rows (attention
+    sinks) ``dP`` and ``rowsum(dO * O)`` nearly cancel, so the rounding error of
+    ``O`` is a large, sign-consistent fraction of ``dS`` -- a bias the explicit
+    path does not have because it forms ``sum(P * dP)`` from the same rounded
+    ``dP``. float16 keeps 3 more mantissa bits than bfloat16, shrinking that bias
+    about 8x, but has a much smaller exponent range, so the incoming cotangent is
+    rescaled to a power of two near 1 (dynamic loss scaling) before the fused
+    backward and unscaled in float32 afterwards. Forward values are unchanged up
+    to the output rounding; q/k/v are exactly representable in float16 unless
+    they exceed its range, which the probe script checks.
+    """
+    out_dtype = q.dtype
+
+    # attn_mask is an explicit argument (not a closure) so that the backward,
+    # which flax remat traces separately, does not capture a leaked tracer.
+    @jax.custom_vjp
+    def attention(q, k, v, attn_mask):
+        qc, kc, vc = (x.astype(compute_dtype) for x in (q, k, v))
+        return _cudnn_attention_call(qc, kc, vc, attn_mask).astype(out_dtype)
+
+    def attention_fwd(q, k, v, attn_mask):
+        return attention(q, k, v, attn_mask), (q, k, v, attn_mask)
+
+    def attention_bwd(residuals, d_out):
+        q, k, v, attn_mask = residuals
+        qc, kc, vc = (x.astype(compute_dtype) for x in (q, k, v))
+        d_out32 = d_out.astype(jnp.float32)
+        max_abs = jnp.max(jnp.abs(d_out32))
+        tiny = jnp.finfo(jnp.float32).tiny
+        # Power-of-two scale so max|d_out * scale| lands in [0.25, 0.5): exact
+        # in the mantissa, leaves ~17 binades of headroom for dP = dO @ V^T
+        # and the dQ/dK/dV outputs inside the float16 kernel.
+        exponent = jnp.floor(jnp.log2(jnp.maximum(max_abs, tiny)))
+        scale = jnp.where(max_abs > 0, jnp.exp2(-(exponent + 2.0)), 1.0)
+        _, vjp_fn = jax.vjp(lambda a, b, c: _cudnn_attention_call(a, b, c, attn_mask), qc, kc, vc)
+        dq, dk, dv = vjp_fn((d_out32 * scale).astype(compute_dtype))
+        inv_scale = 1.0 / scale
+
+        def unscale(g):
+            return (g.astype(jnp.float32) * inv_scale).astype(out_dtype)
+
+        return unscale(dq), unscale(dk), unscale(dv), None
+
+    attention.defvjp(attention_fwd, attention_bwd)
+    return attention(q, k, v, attn_mask)
+
+
 @at.typecheck
 class Attention(nn.Module):
     """Attention module."""
 
     configs: Sequence[Config]
     use_cudnn_attention: bool = False
+    # Compute dtype handed to the cuDNN kernel: "bfloat16" (historical) or "float16"
+    # (see _cudnn_attention_in_dtype). Ignored by the explicit path.
+    cudnn_attention_dtype: str = "bfloat16"
+    # Diagnostic only: run the explicit path with fp32 q/k/v/probs as a reference.
+    explicit_attention_fp32: bool = False
 
     @nn.compact
     def __call__(self, xs, positions, attn_mask, kv_cache, use_cudnn_attention=None):
@@ -254,18 +316,15 @@ class Attention(nn.Module):
             # existing implementation; this switch targets training throughput.
             # Fully masked query rows make cuDNN produce NaN q-gradients; drop
             # those rows from the backward pass instead of rebuilding the mask.
-            q = _stop_gradient_for_fully_masked_queries(q, mask)
-            return jax.nn.dot_product_attention(
-                q,
-                k,
-                v,
-                mask=mask,
-                scale=1.0,
-                implementation="cudnn",
-            )
+            compute_dtype = jnp.dtype(self.cudnn_attention_dtype)
+            if compute_dtype == q.dtype:
+                return _cudnn_attention_call(q, k, v, mask)
+            return _cudnn_attention_in_dtype(q, k, v, mask, compute_dtype)
 
         def explicit_attention(operands):
             q, k, v, mask = operands
+            if self.explicit_attention_fp32:
+                q, k, v = (x.astype(jnp.float32) for x in (q, k, v))
             grouped_q = einops.rearrange(q, "B T (K G) H -> B T K G H", K=self.configs[0].num_kv_heads)
             logits = jnp.einsum("BTKGH,BSKH->BKGTS", grouped_q, k, preferred_element_type=jnp.float32)
 
@@ -273,9 +332,9 @@ class Attention(nn.Module):
             big_neg = -2.3819763e38  # See gemma/modules.py
             masked_logits = jnp.where(mask[:, :, None, :, :], logits, big_neg)
 
-            probs = jax.nn.softmax(masked_logits, axis=-1).astype(dtype)
+            probs = jax.nn.softmax(masked_logits, axis=-1).astype(v.dtype)
 
-            encoded = jnp.einsum("BKGTS,BSKH->BTKGH", probs, v)
+            encoded = jnp.einsum("BKGTS,BSKH->BTKGH", probs, v).astype(dtype)
             return einops.rearrange(encoded, "B T K G H -> B T (K G) H")
 
         if use_cudnn_attention is None:
@@ -346,6 +405,8 @@ class Block(nn.Module):
     use_cudnn_attention: bool = False
     cudnn_attention_layer_start: int = 0
     cudnn_attention_num_layers: int | None = None
+    cudnn_attention_dtype: str = "bfloat16"
+    explicit_attention_fp32: bool = False
 
     dropout: float = 0.0
     dropout_bdims: tuple[int, ...] = ()
@@ -355,7 +416,13 @@ class Block(nn.Module):
         xs = sharding.activation_sharding_constraint(xs)
         drop = nn.Dropout(self.dropout, self.dropout_bdims) if self.dropout else lambda x, _: x
 
-        attn = Attention(configs=self.configs, use_cudnn_attention=self.use_cudnn_attention, name="attn")
+        attn = Attention(
+            configs=self.configs,
+            use_cudnn_attention=self.use_cudnn_attention,
+            cudnn_attention_dtype=self.cudnn_attention_dtype,
+            explicit_attention_fp32=self.explicit_attention_fp32,
+            name="attn",
+        )
         layer_uses_cudnn = self.use_cudnn_attention
         if layer_uses_cudnn and self.cudnn_attention_num_layers is not None:
             layer_uses_cudnn = jnp.logical_and(
@@ -422,6 +489,8 @@ class Module(nn.Module):
     use_cudnn_attention: bool = False
     cudnn_attention_layer_start: int = 0
     cudnn_attention_num_layers: int | None = None
+    cudnn_attention_dtype: str = "bfloat16"
+    explicit_attention_fp32: bool = False
 
     def setup(self):
         # all experts must have the same depth
@@ -456,6 +525,8 @@ class Module(nn.Module):
             use_cudnn_attention=self.use_cudnn_attention,
             cudnn_attention_layer_start=self.cudnn_attention_layer_start,
             cudnn_attention_num_layers=self.cudnn_attention_num_layers,
+            cudnn_attention_dtype=self.cudnn_attention_dtype,
+            explicit_attention_fp32=self.explicit_attention_fp32,
             dropout=self.dropout,
             dropout_bdims=self.dropout_bdims,
         )

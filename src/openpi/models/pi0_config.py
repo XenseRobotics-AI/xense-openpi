@@ -40,6 +40,11 @@ class Pi0Config(_model.BaseModelConfig):
     # otherwise only this contiguous layer range uses cuDNN.
     cudnn_attention_layer_start: int = 0
     cudnn_attention_num_layers: int | None = None
+    # Compute dtype for the cuDNN kernel: "bfloat16" or "float16". float16 uses a
+    # dynamically loss-scaled custom VJP (see gemma._cudnn_attention_in_dtype).
+    cudnn_attention_dtype: str = "bfloat16"
+    # Diagnostic only: explicit attention with fp32 q/k/v/probs as a numerical reference.
+    explicit_attention_fp32: bool = False
 
     # training-time RTC config
     enable_training_time_rtc: bool = False
@@ -54,6 +59,8 @@ class Pi0Config(_model.BaseModelConfig):
             raise ValueError("cudnn_attention_layer_start must be non-negative")
         if self.cudnn_attention_num_layers is not None and self.cudnn_attention_num_layers < 0:
             raise ValueError("cudnn_attention_num_layers must be non-negative or None")
+        if self.cudnn_attention_dtype not in ("bfloat16", "float16"):
+            raise ValueError("cudnn_attention_dtype must be 'bfloat16' or 'float16'")
 
     @property
     @override

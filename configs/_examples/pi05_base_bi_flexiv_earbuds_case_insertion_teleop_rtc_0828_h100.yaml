@@ -15,7 +15,7 @@ weight_loader:
 ema_decay: null
 data:
   type: LeRobotBiFlexivDataConfig
-  repo_id: Xense/earbud_case_insertion_teleop_0515
+  repo_id: Xense/earbud_case_insertion_teleop_0515_left_right
   base_config:
     prompt_from_task: true
     tactile: false
