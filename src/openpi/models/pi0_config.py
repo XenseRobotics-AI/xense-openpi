@@ -50,7 +50,7 @@ class Pi0Config(_model.BaseModelConfig):
     # pass; "none" disables remat entirely (fastest, most memory); any other name is looked
     # up in jax.checkpoint_policies (e.g. "dots_with_no_batch_dims_saveable").
     # NOTE: on 8xH100 80GB with global batch 256 neither "none" (XLA wants a 280 GiB buffer)
-    # nor "dots_with_no_batch_dims_saveable" (84.6 GB) fits; see docs/2026-09-04-h100-speed-ab.md.
+    # nor "dots_with_no_batch_dims_saveable" (84.6 GB) fits; see docs/training-optimization.md.
     gemma_remat_policy: str = "nothing_saveable"
     siglip_remat_policy: str = "nothing_saveable"
 

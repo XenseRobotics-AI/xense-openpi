@@ -247,7 +247,7 @@ strict_batch_order: false     # false ⇒ hand batches over as workers finish th
                               #   and lets the loader iterate without epoch boundaries.
                               #   true ⇒ strict sampler order, reproducible batch sequence,
                               #   one slow worker blocks everything behind it.
-                              #   See docs/data-pipeline-stalls.md.
+                              #   See docs/training-optimization.md.
 num_train_steps: 30000        # total gradient steps
 
 log_interval: 100             # how often to push metrics to wandb

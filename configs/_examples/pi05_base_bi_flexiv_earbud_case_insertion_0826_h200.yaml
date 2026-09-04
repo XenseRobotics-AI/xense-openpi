@@ -26,6 +26,6 @@ num_train_steps: 60000
 fsdp_devices: 8
 # 是否严格按 sampler 顺序交付 batch。false（默认）= 谁先算完谁先交付，
 # 消除每 num_workers 步一次的队头阻塞停顿；同时启用 InfiniteSampler，
-# 去掉 epoch 边界重建迭代器的停顿。详见 docs/data-pipeline-stalls.md。
+# 去掉 epoch 边界重建迭代器的停顿。详见 docs/training-optimization.md。
 # 代价：batch 的交付顺序不再逐次可复现（每个 index 每轮仍恰好出现一次）。
 strict_batch_order: false

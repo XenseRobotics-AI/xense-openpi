@@ -228,12 +228,15 @@ PyTorch 2.11 pins cuDNN 9.19 and JAX shares that same runtime. Before training,
 run `python scripts/check_cuda_stack.py`; it rejects mixed library sources and
 checks the real BF16 GQA forward/backward shape.
 
-`use_cudnn_attention` remains experimental because it has diverged from the
-explicit-attention baseline in a step-0 long run. Production configs must use:
+Full-layer cuDNN attention with the default `bfloat16` compute dtype is unsafe:
+it diverged from the explicit-attention baseline after roughly 1,000 steps.
+Either keep the explicit path (`use_cudnn_attention: false`) or use the
+3,000-step strict-order validated FP16 path:
 
 ```yaml
 model:
-  use_cudnn_attention: false
+  use_cudnn_attention: true
+  cudnn_attention_dtype: float16
 ```
 
 At startup, `scripts/train.py` logs `JAX cuDNN runtime version: <version>`;
@@ -242,8 +245,8 @@ does not detect mixed dispatcher/engine libraries, so the stack-check script is
 the required gate. Use `--overwrite` only for a new run that may replace an
 existing experiment directory; use `--resume` to preserve and continue an
 existing run. See
-[`docs/2026-08-30-cudnn-attention-divergence.md`](docs/2026-08-30-cudnn-attention-divergence.md)
-before attempting to re-enable fused attention.
+[`docs/training-optimization.md`](docs/training-optimization.md)
+for the numerical root cause, validation criteria, and fallback configuration.
 
 ⚠️ Before committing a YAML into `configs/_examples/`, scrub any machine-local
 absolute paths from `weight_loader.params_path` (e.g. `/home/<you>/...`). Use

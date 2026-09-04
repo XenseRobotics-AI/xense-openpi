@@ -1,6 +1,6 @@
 """Test the flash-attention D-term hypothesis on real Pi0.5 activations.
 
-Hypothesis (docs/2026-08-31-cudnn-sdpa-nan-summary.md, open question): the cuDNN
+Mechanism under test (confirmed in docs/training-optimization.md, section 4): the cuDNN
 fused backward forms ``dS = P * (dP - D)`` with ``D_i = rowsum(dO_i * O_i)`` taken
 from the *bf16-rounded* stored output ``O``. On attention-sink rows (P nearly
 one-hot) ``dP`` and ``D`` cancel almost exactly, so the rounding error of ``O`` is

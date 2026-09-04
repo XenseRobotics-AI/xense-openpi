@@ -179,10 +179,10 @@ def _stop_gradient_for_fully_masked_queries(q, attn_mask):
     training shape) but rebuilds the whole (B, 1, T, S) mask inside every layer,
     which costs about 0.3 s/step at batch 256. Prefer this one.
 
-    Neither variant is the cure for the 2026-08-30 divergence, which is still open:
-    the kernel itself is correct, but cuDNN's answer differs from the explicit path
-    by about 2% per step and this recipe has no margin for that. Do not spend time on
-    the mask again. See docs/2026-08-30-cudnn-attention-divergence.md.
+    Neither mask variant cures the 2026-08-30 bfloat16 divergence: the kernel's
+    rounded backward residual creates a structured error on peaked attention rows.
+    Use the validated float16 custom VJP instead; do not spend time on the mask again.
+    See docs/training-optimization.md.
     """
     query_has_key = jnp.any(attn_mask, axis=-1)[:, 0, :, None, None]
     return jnp.where(query_has_key, q, jax.lax.stop_gradient(q))

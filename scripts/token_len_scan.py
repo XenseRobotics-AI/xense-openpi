@@ -3,7 +3,7 @@
 For Pi0.5 the language prefix is ``Task: <prompt>, State: <discretized state>;\\nAction: `` and
 everything up to ``max_token_len`` is padded (and masked) -- but attention/MLP still run over the
 padding. On 2026-09-04 trimming ``max_token_len`` 200 -> 128 gave -6.2% step time with identical
-loss (see docs/2026-09-04-h100-speed-ab.md). This script runs the *actual* transform chain
+loss (see docs/training-optimization.md). This script runs the *actual* transform chain
 (repack -> data transforms -> model transforms) on real states with dummy images and reports the
 token-length distribution so ``max_token_len`` can be set with a known margin.
 

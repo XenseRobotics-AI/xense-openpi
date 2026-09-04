@@ -1,6 +1,6 @@
 # Launch (8xH100, hb-openpi env). XLA_FLAGS below measured -3.5% step time on 2026-09-04
 # (FSDP collective combining + pipelined all-gather/reduce-scatter); see
-# docs/2026-09-04-h100-speed-ab.md for the A/B table.
+# docs/training-optimization.md for the A/B table.
 #   XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
 #     --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
 #     --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
