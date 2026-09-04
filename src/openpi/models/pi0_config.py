@@ -45,6 +45,14 @@ class Pi0Config(_model.BaseModelConfig):
     cudnn_attention_dtype: str = "bfloat16"
     # Diagnostic only: explicit attention with fp32 q/k/v/probs as a numerical reference.
     explicit_attention_fp32: bool = False
+    # Activation rematerialization policy for the Gemma transformer blocks and the SigLIP
+    # encoder blocks. "nothing_saveable" (default) recomputes every block in the backward
+    # pass; "none" disables remat entirely (fastest, most memory); any other name is looked
+    # up in jax.checkpoint_policies (e.g. "dots_with_no_batch_dims_saveable").
+    # NOTE: on 8xH100 80GB with global batch 256 neither "none" (XLA wants a 280 GiB buffer)
+    # nor "dots_with_no_batch_dims_saveable" (84.6 GB) fits; see docs/2026-09-04-h100-speed-ab.md.
+    gemma_remat_policy: str = "nothing_saveable"
+    siglip_remat_policy: str = "nothing_saveable"
 
     # training-time RTC config
     enable_training_time_rtc: bool = False

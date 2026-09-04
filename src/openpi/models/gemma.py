@@ -191,6 +191,10 @@ def _stop_gradient_for_fully_masked_queries(q, attn_mask):
 def _cudnn_attention_call(q, k, v, attn_mask):
     """The plain cuDNN fused attention call used by training (q is pre-scaled)."""
     q = _stop_gradient_for_fully_masked_queries(q, attn_mask)
+    # The cuDNN custom partitioner requires q/k/v to carry identical shardings. Pin them to the
+    # batch axis explicitly; otherwise XLA sharding propagation can differ per operand (seen with
+    # non-default remat policies) and compilation fails with "should have same sharding".
+    q, k, v, attn_mask = sharding.activation_sharding_constraint((q, k, v, attn_mask))
     return jax.nn.dot_product_attention(q, k, v, mask=attn_mask, scale=1.0, implementation="cudnn")
 
 
@@ -225,6 +229,8 @@ def _cudnn_attention_in_dtype(q, k, v, attn_mask, compute_dtype):
     def attention_fwd(q, k, v, attn_mask):
         qc, kc, vc = (x.astype(compute_dtype) for x in (q, k, v))
         bias = jnp.where(attn_mask, jnp.asarray(0, compute_dtype), _cudnn_fa.get_large_negative_number(compute_dtype))
+        # See _cudnn_attention_call: the custom partitioner needs identical q/k/v/bias shardings.
+        qc, kc, vc, bias = sharding.activation_sharding_constraint((qc, kc, vc, bias))
         zeros = jnp.zeros(0, dtype=compute_dtype)
         out, res = _cudnn_fa._dot_product_attention_fwd_rule(
             qc, kc, vc, bias, zeros, zeros, zeros, zeros, *_cudnn_static_args(bias.shape, qc.shape)
@@ -527,6 +533,7 @@ class Module(nn.Module):
     cudnn_attention_num_layers: int | None = None
     cudnn_attention_dtype: str = "bfloat16"
     explicit_attention_fp32: bool = False
+    remat_policy: str = "nothing_saveable"
 
     def setup(self):
         # all experts must have the same depth
@@ -537,12 +544,15 @@ class Module(nn.Module):
             embed_dim=self.configs[0].width,  # embedder for first expert only
             name="embedder",
         )
-        block_cls = nn.remat(
-            Block,
-            prevent_cse=False,
-            static_argnums=(6,),  # 0=self, 7=deterministic
-            policy=jax.checkpoint_policies.nothing_saveable,
-        )
+        if self.remat_policy == "none":
+            block_cls = Block
+        else:
+            block_cls = nn.remat(
+                Block,
+                prevent_cse=False,
+                static_argnums=(6,),  # 0=self, 7=deterministic
+                policy=getattr(jax.checkpoint_policies, self.remat_policy),
+            )
         self.layers = nn.scan(
             block_cls,
             variable_axes={"params": 0},

@@ -124,12 +124,15 @@ class Encoder(nn.Module):
         out = {}
 
         if self.scan:
-            block = nn.remat(
-                Encoder1DBlock,
-                prevent_cse=False,
-                static_argnums=(2,),  # 0=self, 2=deterministic
-                policy=getattr(jax.checkpoint_policies, self.remat_policy, None),
-            )
+            if self.remat_policy == "none":
+                block = Encoder1DBlock
+            else:
+                block = nn.remat(
+                    Encoder1DBlock,
+                    prevent_cse=False,
+                    static_argnums=(2,),  # 0=self, 2=deterministic
+                    policy=getattr(jax.checkpoint_policies, self.remat_policy, None),
+                )
             x, scan_out = nn.scan(
                 block,
                 variable_axes={"params": 0},
