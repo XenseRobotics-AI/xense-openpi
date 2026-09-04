@@ -1,6 +1,9 @@
-# Launch (8xH100, hb-openpi env). XLA_FLAGS below measured -3.5% step time on 2026-09-04
-# (FSDP collective combining + pipelined all-gather/reduce-scatter); see
-# docs/training-optimization.md for the A/B table.
+# Production launch (8xH100, hb-openpi env). XLA_FLAGS must be set before Python/JAX
+# starts and therefore cannot be injected by a TrainConfig YAML. The flags below measured
+# -3.5% step time on 2026-09-04 (FSDP collective combining + pipelined collectives); see
+# docs/training-optimization.md for the complete A/B table and numerical validation.
+#   env -u LD_LIBRARY_PATH python scripts/check_cuda_stack.py
+#   env -u LD_LIBRARY_PATH \
 #   XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
 #     --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
 #     --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
@@ -8,7 +11,9 @@
 #     --xla_gpu_enable_pipelined_all_gather=true \
 #     --xla_gpu_enable_pipelined_reduce_scatter=true \
 #     --xla_gpu_enable_while_loop_double_buffering=true" \
-#   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py <this-config> --exp-name=...
+#   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+#   python scripts/train.py pi05_base_bi_flexiv_earbuds_case_insertion_teleop_rtc_0904_h100 \
+#     --exp-name=<experiment-name>
 model:
   type: Pi0Config
   # Scanned 2026-09-04 over this dataset (4037 states incl. per-dim extremes) with
@@ -19,15 +24,20 @@ model:
   pi05: true
   discrete_state_input: true
   enable_training_time_rtc: true
+  # Encode all three visual views in one SigLIP call.
   batch_image_views: true
+  # Run all 18 Gemma layers through the validated FP16 cuDNN custom VJP. Leaving
+  # cudnn_attention_num_layers null means there is no partial-layer restriction.
   use_cudnn_attention: true
+  cudnn_attention_layer_start: 0
+  cudnn_attention_num_layers: null
   cudnn_attention_dtype: float16
+  # On 8xH100 80GB / global batch 256, weaker remat policies require either a
+  # 280 GiB allocation or an 84.6 GB residual. Full recomputation is the fastest
+  # policy that actually fits this shape.
+  gemma_remat_policy: nothing_saveable
+  siglip_remat_policy: nothing_saveable
 weight_loader:
-  # Was /home/li/hubo/xense-openpi/checkpoints/20000/params — a continuation of a
-  # 20k-step run that only existed on one laptop, so nobody else could start this
-  # config. Points at the upstream base now; to continue from your own checkpoint:
-  #   uv run scripts/train.py <this-config> --exp-name=... \
-  #     --weight_loader.params_path=/path/to/checkpoint/params
   type: CheckpointWeightLoader
   params_path: gs://openpi-assets/checkpoints/pi05_base/params
 ema_decay: null
@@ -40,8 +50,13 @@ data:
   default_prompt: Pick up each earbud case from the left stands, insert the matching earbuds, close the lid, and place the case in the box.
 batch_size: 256
 num_workers: 64
-num_train_steps: 60000
-save_interval: 5000
+num_train_steps: 80000
+# Whole-model grad/parameter norms are computed only on these logging steps.
+log_interval: 100
+# Fine-grained pipeline profiling adds timers and device synchronization; keep it off
+# for production now that shared-memory Tensor IPC is the default loader path.
+profile_data_pipeline: false
+save_interval: 10000
 keep_period: 10000
 fsdp_devices: 8
 strict_batch_order: false

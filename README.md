@@ -222,6 +222,24 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
 python scripts/serve_policy.py policy:checkpoint --policy.config=my_task --policy.dir=checkpoints/my_task/my_exp/<step>
 ```
 
+For the optimized 8×H100 FSDP launch, set the measured XLA collective
+combining and pipelining flags before Python starts:
+
+```bash
+env -u LD_LIBRARY_PATH \
+  XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
+    --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
+    --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
+    --xla_gpu_all_reduce_combine_threshold_bytes=1073741824 \
+    --xla_gpu_enable_pipelined_all_gather=true \
+    --xla_gpu_enable_pipelined_reduce_scatter=true \
+    --xla_gpu_enable_while_loop_double_buffering=true" \
+  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  python scripts/train.py my_task \
+    --exp-name=my_exp \
+    --overwrite
+```
+
 Do **not** prepend `$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH`. The supported
 environment uses the pip CUDA 12.8 stack installed by `lerobot-xense`:
 PyTorch 2.11 pins cuDNN 9.19 and JAX shares that same runtime. Before training,
