@@ -182,7 +182,7 @@ class BiFlexivRizon4RTRealEnv:
         return 0.0
 
     def reset(self, *, fake: bool = False) -> dm_env.TimeStep:
-        """Reset both arms to start positions and wait for completion."""
+        """Reset both arms to start positions and open both grippers."""
         if not fake:
             logger.info("Resetting BiFlexiv Rizon4 RT to start positions...")
             try:
@@ -201,6 +201,17 @@ class BiFlexivRizon4RTRealEnv:
                         logger.warn("Reset trajectory timeout, proceeding anyway")
                         break
                     time.sleep(0.05)
+                # reset_to_initial_position homes the arms only — grippers
+                # keep their last commanded position, so an object grasped at
+                # episode end would be carried through homing and never
+                # released. Command both grippers fully open (normalized 1.0 =
+                # gripper_max_pos) while holding the home TCP pose, then wait
+                # out the jaw travel (85 mm at up to 100 mm/s).
+                qpos = self.get_qpos(self.robot.get_observation())
+                qpos[18] = 1.0
+                qpos[19] = 1.0
+                self.robot.send_action(self._build_action_dict(qpos))
+                time.sleep(1.0)
                 logger.info("BiFlexiv Rizon4 RT reset completed")
             except Exception as e:
                 logger.error(f"Failed to reset: {e}")
