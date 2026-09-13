@@ -55,6 +55,12 @@ Gemma 与 SigLIP 保持默认的全量 rematerialization；历史 8×H100、batc
 
 当前 VJP 直接调用固定 JAX 0.5.3 的私有 cuDNN forward/backward rule。
 升级 JAX 或 CUDA/cuDNN 时必须复核接口、分片约束和训练收敛性。
+
+历史上的 9.14 NaN q-gradient 已由 `_stop_gradient_for_fully_masked_queries` 在代码层解决,
+bf16 发散由 float16 custom VJP 解决,两者都不依赖某个 cuDNN 版本。真正出过问题的是
+多来源混装(9.10.2 dispatcher 套 9.14 engine),那是 `check_cuda_stack.py` section 2 的职责。
+torch 上界跟随 lerobot:lerobot 才是真正使用 torch 的组件(数据集与机器人驱动),
+越过它的上界会让依赖无解。
 q/k/v 与 mask/bias 显式使用一致的 batch 分片，避免 cuDNN partitioner 编译失败。
 通过 `policy_config.create_trained_policy` 加载 JAX 推理策略时会关闭 cuDNN attention；
 带 KV cache 的 attention 也继续使用显式实现。
@@ -82,7 +88,7 @@ q/k/v 与 mask/bias 显式使用一致的 batch 分片，避免 cuDNN partitione
 ## 环境与启动
 
 保持 pip CUDA 12.8 库来源一致，避免将 `$CONDA_PREFIX/lib` 加到 `LD_LIBRARY_PATH` 前面。
-当前依赖配置使用 PyTorch 2.11 对应的 cuDNN 9.19；训练启动时记录 JAX cuDNN runtime 版本。
+cuDNN 由 torch wheel 精确 pin 带入(jax-cuda12-plugin 只要求 `>=9.1,<10`)。融合路径的硬性下界是 **9.5**:低于它 JAX 会把 attention head dim 限制在 128,而本模型是 256(见 `fused_attention_stablehlo` 的 `H_max`)。更高版本不是必需。训练启动时记录 JAX cuDNN runtime 版本。
 运行 `check_cuda_stack.py` 检查实际加载的库来源,以及生产 shape 下 BF16 内核与 FP16 custom VJP
 的前后向(含全空 mask 行的 dQ)。该检查只覆盖单次前后向数值,不替代 FP16 收敛验证。
 
