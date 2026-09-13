@@ -10,12 +10,12 @@ weight_loader:
 ema_decay: null
 data:
   type: LeRobotBiFlexivDataConfig
-  repo_id: Xense/assemble_box_with_phone_stand0410_merged_fixed
+  repo_id: Xense/optical-module-insertion-0731
   base_config:
     prompt_from_task: true
-  default_prompt: Assemble the packaging by folding the flat box into shape, placing
-    the metal phone stand inside, and closing the box properly.
+  default_prompt: Pick up the bag, open it, inspect its contents, close it, and place
+    it on the opposite side.
 batch_size: 256
 num_workers: 64
-num_train_steps: 80000
+num_train_steps: 60000
 fsdp_devices: 8

@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 import os
 import pathlib
@@ -5,6 +6,7 @@ from typing import Any
 
 import jax.numpy as jnp
 
+from openpi.models import pi0_config
 import openpi.models.model as _model
 import openpi.policies.policy as _policy
 import openpi.shared.download as download
@@ -41,6 +43,8 @@ def create_trained_policy(
     Note:
         The function automatically detects whether the model is PyTorch-based by checking for the
         presence of "model.safensors" in the checkpoint directory.
+        JAX Pi0/Pi05 policies use explicit attention for inference, even when the training
+        config enables cuDNN attention, so checkpoints can be served on non-Hopper GPUs.
     """
     repack_transforms = repack_transforms or transforms.Group()
     checkpoint_dir = download.maybe_download(str(checkpoint_dir))
@@ -54,7 +58,15 @@ def create_trained_policy(
         model = train_config.model.load_pytorch(train_config, weight_path)
         model.paligemma_with_expert.to_bfloat16_for_selected_params("bfloat16")
     else:
-        model = train_config.model.load(_model.restore_params(checkpoint_dir / "params", dtype=jnp.bfloat16))
+        model_config = train_config.model
+        if isinstance(model_config, pi0_config.Pi0Config) and model_config.use_cudnn_attention:
+            # This training optimization also runs during lazy initialization and prefix
+            # prefill (before a KV cache exists). JAX 0.5.3 only permits head_dim=256
+            # cuDNN attention on Hopper, so disable it before load() traces the model.
+            # The attention backend does not change the checkpoint parameter structure.
+            logging.info("Using explicit attention for inference (disabling training-time cuDNN attention).")
+            model_config = dataclasses.replace(model_config, use_cudnn_attention=False)
+        model = model_config.load(_model.restore_params(checkpoint_dir / "params", dtype=jnp.bfloat16))
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)
     if norm_stats is None:
         # We are loading the norm stats from the checkpoint instead of the config assets dir to make sure

@@ -1,0 +1,53 @@
+# Production launch (8xH100, hb-openpi env). XLA_FLAGS must be set before Python/JAX
+# starts and therefore cannot be injected by a TrainConfig YAML. The flags below measured
+# -3.5% step time on 2026-09-04 (FSDP collective combining + pipelined collectives); see
+# docs/training-optimization.md for the performance results and numerical validation.
+#   env -u LD_LIBRARY_PATH python scripts/check_cuda_stack.py
+#   env -u LD_LIBRARY_PATH \
+#   XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
+#     --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
+#     --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
+#     --xla_gpu_all_reduce_combine_threshold_bytes=1073741824 \
+#     --xla_gpu_enable_pipelined_all_gather=true \
+#     --xla_gpu_enable_pipelined_reduce_scatter=true \
+#     --xla_gpu_enable_while_loop_double_buffering=true" \
+#   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+#   python scripts/train.py pi05_base_bi_flexiv_cube_color_sorting_rtc_0829_h100 \
+#     --exp-name=<experiment-name>
+model:
+  type: Pi0Config
+  # ⚠️ Carried over from the earbuds config, where 128 was measured against that dataset's
+  # prompts (longest tokenized prompt 116 tokens). It has NOT been re-scanned against
+  # cube-color-sorting-0821, whose prompt and state layout differ. Scan the full transform
+  # chain before trusting it here -- the tokenizer only warns and truncates on overflow --
+  # or put 200 back. See docs/training-optimization.md.
+  max_token_len: 128
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+  # Encode all three visual views in one SigLIP call.
+  batch_image_views: true
+  # Run all 18 Gemma layers through the validated FP16 cuDNN custom VJP.
+  use_cudnn_attention: true
+  cudnn_attention_dtype: float16
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotBiFlexivDataConfig
+  repo_id: Xense/cube-color-sorting-0821
+  base_config:
+    prompt_from_task: true
+    tactile: false
+  default_prompt: Put the green cubes in the right bin and the yellow cubes in the left bin.
+batch_size: 256
+num_workers: 64
+num_train_steps: 60000
+# Whole-model grad/parameter norms are computed only on these logging steps.
+log_interval: 100
+save_interval: 10000
+keep_period: 10000
+fsdp_devices: 8
+strict_batch_order: false
+project_name: xense-openpi-hubo

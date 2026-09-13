@@ -7,6 +7,58 @@ import openpi.models.pi0 as _pi0
 import openpi.models.pi0_config as _pi0_config
 
 
+class _FakeImageEncoder:
+    def __call__(self, images, *, train):
+        assert train is False
+        return jnp.mean(images, axis=(1, 2))[:, None, :], None
+
+
+def test_encode_image_views_as_batch_matches_separate_calls():
+    images = {
+        "base": jnp.arange(2 * 4 * 4 * 3, dtype=jnp.float32).reshape(2, 4, 4, 3),
+        "left": jnp.full((2, 4, 4, 3), 2.0),
+        "right": jnp.full((2, 4, 4, 3), 3.0),
+    }
+    encoder = _FakeImageEncoder()
+
+    actual = _pi0._encode_image_views_as_batch(encoder, images)
+    expected = {name: encoder(image, train=False)[0] for name, image in images.items()}
+
+    assert actual.keys() == expected.keys()
+    for name in images:
+        assert jnp.array_equal(actual[name], expected[name])
+
+
+def test_cudnn_attention_stops_gradient_only_for_empty_query_rows():
+    # Rows 0 and 1 have keys; rows 2 and 3 are the fully masked rows padding produces.
+    mask = jnp.array(
+        [
+            [
+                [
+                    [True, False, False, False],
+                    [True, True, False, False],
+                    [False, False, False, False],
+                    [False, False, False, False],
+                ]
+            ]
+        ],
+        dtype=jnp.bool_,
+    )
+
+    q = jnp.arange(16, dtype=jnp.float32).reshape(1, 4, 2, 2)
+
+    def apply_and_sum(q_value):
+        return jnp.sum(_gemma._stop_gradient_for_fully_masked_queries(q_value, mask))
+
+    stopped_q = _gemma._stop_gradient_for_fully_masked_queries(q, mask)
+    grad = jax.grad(apply_and_sum)(q)
+
+    # Forward is untouched, so valid attention outputs cannot change.
+    assert jnp.array_equal(stopped_q, q)
+    assert jnp.array_equal(grad[:, :2], jnp.ones_like(grad[:, :2]))
+    assert jnp.array_equal(grad[:, 2:], jnp.zeros_like(grad[:, 2:]))
+
+
 def _get_frozen_state(config: _pi0_config.Pi0Config) -> nnx.State:
     abstract_model = nnx.eval_shape(config.create, jax.random.key(0))
 

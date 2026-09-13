@@ -10,6 +10,7 @@ import flax.nnx as nnx
 from flax.training import common_utils
 import flax.traverse_util as traverse_util
 import jax
+from jax._src.lib import cuda_versions
 import jax.experimental
 import jax.numpy as jnp
 import numpy as np
@@ -134,12 +135,19 @@ def init_train_state(
     return train_state, state_sharding
 
 
+# Metrics that `train_step` fills with NaN on the steps it skips them on, and that the
+# logging reduction therefore has to skip too. Everything else is reduced with a plain
+# mean so that a NaN reaches the log instead of disappearing.
+_NAN_PLACEHOLDER_METRICS = frozenset({"grad_norm", "param_norm"})
+
+
 @at.typecheck
 def train_step(
     config: _config.TrainConfig,
     rng: at.KeyArrayLike,
     state: training_utils.TrainState,
     batch: tuple[_model.Observation, _model.Actions],
+    compute_metrics: bool = True,
 ) -> tuple[training_utils.TrainState, dict[str, at.Array]]:
     model = nnx.merge(state.model_def, state.params)
     model.train()
@@ -175,19 +183,29 @@ def train_step(
             ),
         )
 
-    # Filter out params that aren't kernels.
-    kernel_params = nnx.state(
-        model,
-        nnx.All(
-            nnx.Param,
-            nnx.Not(nnx_utils.PathRegex(".*/(bias|scale|pos_embedding|input_embedding)")),
-            lambda _, x: x.value.ndim > 1,
-        ),
-    )
+    if compute_metrics:
+        # These whole-model reductions are useful for diagnostics but need not run on
+        # every step when they are only logged every config.log_interval steps.
+        kernel_params = nnx.state(
+            model,
+            nnx.All(
+                nnx.Param,
+                nnx.Not(nnx_utils.PathRegex(".*/(bias|scale|pos_embedding|input_embedding)")),
+                lambda _, x: x.value.ndim > 1,
+            ),
+        )
+        grad_norm = optax.global_norm(grads)
+        param_norm = optax.global_norm(kernel_params)
+    else:
+        # Keep a stable output pytree for both JIT variants. The host-side logging
+        # reduction drops these placeholders with nanmean; see _NAN_PLACEHOLDER_METRICS.
+        grad_norm = jnp.asarray(jnp.nan, dtype=loss.dtype)
+        param_norm = jnp.asarray(jnp.nan, dtype=loss.dtype)
+
     info = {
         "loss": loss,
-        "grad_norm": optax.global_norm(grads),
-        "param_norm": optax.global_norm(kernel_params),
+        "grad_norm": grad_norm,
+        "param_norm": param_norm,
     }
     return new_state, info
 
@@ -195,6 +213,8 @@ def train_step(
 def main(config: _config.TrainConfig):
     init_logging()
     logging.info(f"Running on: {platform.node()}")
+    cudnn_runtime_version = cuda_versions.cudnn_get_version() if cuda_versions is not None else None
+    logging.info(f"JAX cuDNN runtime version: {cudnn_runtime_version}")
 
     if config.batch_size % jax.device_count() != 0:
         raise ValueError(
@@ -258,6 +278,7 @@ def main(config: _config.TrainConfig):
         in_shardings=(replicated_sharding, train_state_sharding, data_sharding),
         out_shardings=(train_state_sharding, replicated_sharding),
         donate_argnums=(1,),
+        static_argnums=(3,),
     )
 
     start_step = int(train_state.step)
@@ -277,7 +298,12 @@ def main(config: _config.TrainConfig):
 
         t0 = time.monotonic()
         with sharding.set_mesh(mesh):
-            train_state, info = ptrain_step(train_rng, train_state, batch)
+            train_state, info = ptrain_step(
+                train_rng,
+                train_state,
+                batch,
+                step % config.log_interval == 0,
+            )
         t_dispatch = time.monotonic() - t0
 
         infos.append(info)
@@ -286,9 +312,22 @@ def main(config: _config.TrainConfig):
         if step % config.log_interval == 0:
             t0 = time.monotonic()
             stacked_infos = common_utils.stack_forest(infos)
-            reduced_info = jax.device_get(jax.tree.map(jnp.mean, stacked_infos))
+            # Only the norms carry NaN placeholders from the steps that skipped the
+            # whole-model reductions, so only they may be reduced with nanmean. `loss`
+            # keeps a plain mean: a NaN loss is a divergence signal and has to reach
+            # the log rather than being silently dropped from the average.
+            reduced_info = jax.device_get(
+                {
+                    key: jnp.nanmean(value) if key in _NAN_PLACEHOLDER_METRICS else jnp.mean(value)
+                    for key, value in stacked_infos.items()
+                }
+            )
             info_str = ", ".join(f"{k}={v:.4f}" for k, v in reduced_info.items())
             pbar.write(f"Step {step}: {info_str}")
+            # tqdm_loggable can drop pbar.write() lines when stdout is redirected.
+            # Emit the same diagnostics through the normal logger so unattended
+            # training runs always retain loss and gradient trends.
+            logging.info("Step %d: %s", step, info_str)
             wandb.log(reduced_info, step=step)
             infos = []
             t_log = time.monotonic() - t0
@@ -323,7 +362,8 @@ def main(config: _config.TrainConfig):
                 f"dispatch={t_dispatch:.2f}s next_batch={t_next_batch:.2f}s "
                 f"log={t_log:.2f}s ckpt={t_ckpt:.2f}s"
             )
-
+    logging.info("Shutting down data loader")
+    data_loader.close()
     logging.info("Waiting for checkpoint manager to finish")
     checkpoint_manager.wait_until_finished()
 

@@ -30,7 +30,15 @@ class Pi0Config(_model.BaseModelConfig):
     pi05: bool = False
     # This config option is not used directly by the model, but it is read by the ModelTransformFactory.
     discrete_state_input: bool = None  # type: ignore
-
+    # Encode all camera views in one larger SigLIP batch. This is equivalent to
+    # one encoder call per view but avoids repeated launches and FSDP parameter use.
+    batch_image_views: bool = False
+    # Use cuDNN fused attention for training-time Gemma attention. This requires
+    # a cuDNN runtime that supports the model's BF16 GQA shapes and attention mask.
+    use_cudnn_attention: bool = False
+    # Compute dtype for the cuDNN kernel: "bfloat16" or "float16". float16 uses a
+    # dynamically loss-scaled custom VJP (see gemma._cudnn_attention_in_dtype).
+    cudnn_attention_dtype: str = "bfloat16"
     # training-time RTC config
     enable_training_time_rtc: bool = False
     max_delay: int = 10  # steps 330ms @ 30fps
@@ -40,6 +48,8 @@ class Pi0Config(_model.BaseModelConfig):
             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)
         if self.discrete_state_input is None:
             object.__setattr__(self, "discrete_state_input", self.pi05)
+        if self.cudnn_attention_dtype not in ("bfloat16", "float16"):
+            raise ValueError("cudnn_attention_dtype must be 'bfloat16' or 'float16'")
 
     @property
     @override

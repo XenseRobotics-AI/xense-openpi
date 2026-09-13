@@ -26,7 +26,7 @@ fsdp_devices: 8
 # Whether batches are delivered in strict sampler order. false (the default) hands each
 # batch over as soon as a worker finishes it, which removes the head-of-line stall every
 # num_workers steps, and enables the InfiniteSampler so the epoch boundary never tears the
-# prefetch pipeline down. See docs/data-pipeline-stalls.md.
+# prefetch pipeline down. See docs/training-optimization.md.
 # Cost: batch delivery order is no longer reproducible run to run (every index is still
 # visited exactly once per pass).
 strict_batch_order: false

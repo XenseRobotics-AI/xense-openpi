@@ -63,6 +63,10 @@ GIT_LFS_SKIP_SMUDGE=1 pip install -e .
 # 2. Install the main openpi package
 cd ../..
 GIT_LFS_SKIP_SMUDGE=1 pip install -e .
+
+# 3. Verify that JAX and PyTorch load one coherent pip cu128 stack
+#    (requires an accessible NVIDIA GPU)
+python scripts/check_cuda_stack.py
 ```
 
 ## Model Checkpoints
@@ -184,6 +188,9 @@ model:
   paligemma_variant: gemma_2b
   action_expert_variant: gemma_300m
   enable_training_time_rtc: true
+  # Explicit attention is the default. For validated FP16 cuDNN training,
+  # see the configuration and validation notes below.
+  use_cudnn_attention: false
   max_delay: 10
 
 data:
@@ -208,9 +215,57 @@ Then use it exactly like any other config:
 
 ```bash
 python scripts/compute_norm_stats.py --config-name my_task
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py my_task --exp-name=run_0520 --overwrite
-python scripts/serve_policy.py policy:checkpoint --policy.config=my_task --policy.dir=checkpoints/my_task/run_0520/<step>
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  python scripts/train.py my_task \
+    --exp-name=my_exp \
+    --overwrite
+python scripts/serve_policy.py policy:checkpoint --policy.config=my_task --policy.dir=checkpoints/my_task/my_exp/<step>
 ```
+
+For the optimized 8×H100 FSDP launch, set the measured XLA collective
+combining and pipelining flags before Python starts:
+
+```bash
+env -u LD_LIBRARY_PATH \
+  XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
+    --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
+    --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
+    --xla_gpu_all_reduce_combine_threshold_bytes=1073741824 \
+    --xla_gpu_enable_pipelined_all_gather=true \
+    --xla_gpu_enable_pipelined_reduce_scatter=true \
+    --xla_gpu_enable_while_loop_double_buffering=true" \
+  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  python scripts/train.py my_task \
+    --exp-name=my_exp \
+    --overwrite
+```
+
+Do **not** prepend `$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH`. The supported
+environment uses the pip CUDA 12.8 stack installed by `lerobot-xense`:
+PyTorch 2.11 pins cuDNN 9.19 and JAX shares that same runtime. Before training,
+run `python scripts/check_cuda_stack.py`; it rejects mixed library sources and checks a
+real production-shape forward/backward for both the raw BF16 kernel and the FP16 custom
+VJP, including the fully-masked query rows.
+
+Full-layer cuDNN attention with the default `bfloat16` compute dtype is unsafe:
+it diverged from the explicit-attention baseline after roughly 1,000 steps.
+Either keep the explicit path (`use_cudnn_attention: false`) or use the
+3,000-step strict-order validated FP16 path:
+
+```yaml
+model:
+  use_cudnn_attention: true
+  cudnn_attention_dtype: float16
+```
+
+At startup, `scripts/train.py` logs `JAX cuDNN runtime version: <version>`;
+the unified PyTorch 2.11 cu128 environment reports `91900`. This number alone
+does not detect mixed dispatcher/engine libraries, so the stack-check script is
+the required gate. Use `--overwrite` only for a new run that may replace an
+existing experiment directory; use `--resume` to preserve and continue an
+existing run. See
+[`docs/training-optimization.md`](docs/training-optimization.md)
+for the numerical root cause, validation criteria, and fallback configuration.
 
 ⚠️ Before committing a YAML into `configs/_examples/`, scrub any machine-local
 absolute paths from `weight_loader.params_path` (e.g. `/home/<you>/...`). Use
@@ -246,7 +301,10 @@ python scripts/compute_norm_stats.py --config-name pi05_base_xtac_umi_pick_up_cu
 Now we can kick off training with the following command (the `--overwrite` flag is used to overwrite existing checkpoints if you rerun fine-tuning with the same config):
 
 ```bash
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py pi05_base_xtac_umi_pick_up_cube_0807_h200 --exp-name=my_experiment --overwrite
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+  python scripts/train.py pi05_base_xtac_umi_pick_up_cube_0807_h200 \
+    --exp-name=my_experiment \
+    --overwrite
 ```
 
 The command will log training progress to the console and save checkpoints to the `checkpoints` directory. You can also monitor training progress on the Weights & Biases dashboard. For maximally using the GPU memory, set `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` before running training -- this enables JAX to use up to 90% of the GPU memory (vs. the default of 75%).

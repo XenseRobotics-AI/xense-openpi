@@ -22,6 +22,7 @@ import openpi.models.pi0_config as pi0_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.bi_flexiv_policy as bi_flexiv_policy
+import openpi.policies.dobot_nova5_policy as dobot_nova5_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.xtac_umi_policy as xtac_umi_policy
 import openpi.shared.download as _download
@@ -484,6 +485,59 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
             repack_transforms=self.repack_transforms,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotDobotNova5DataConfig(DataConfigFactory):
+    """Data config for the single right-arm Dobot Nova5 DH in LeRobot format.
+
+    State/action layout (10D): ``tcp.{x,y,z,r1-r6}`` followed by
+    ``gripper.pos``. Cameras are ``head`` and ``wrist``. This matches both the
+    ``dobot_nova5_dh`` LeRobot driver and datasets such as
+    ``Xense/loreal_returns_sorting_0831``.
+    """
+
+    use_delta_cartesian_actions: bool = True
+    default_prompt: str | None = None
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[dobot_nova5_policy.DobotNova5Inputs()],
+            outputs=[dobot_nova5_policy.DobotNova5Outputs()],
+        )
+
+        if self.use_delta_cartesian_actions:
+            # Cartesian TCP dims are relative to the current observation; the
+            # trailing gripper command remains absolute.
+            delta_action_mask = _transforms.make_bool_mask(9, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": {
+                                "head": "observation.images.head",
+                                "wrist": "observation.images.wrist",
+                            },
+                            "state": "observation.state",
+                            "actions": "action",
+                            "prompt": "task",
+                        }
+                    )
+                ]
+            ),
+            data_transforms=data_transforms,
+            model_transforms=ModelTransformFactory(default_prompt=self.default_prompt)(model_config),
             action_sequence_keys=self.action_sequence_keys,
         )
 

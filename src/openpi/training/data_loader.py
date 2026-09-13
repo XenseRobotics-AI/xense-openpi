@@ -89,6 +89,9 @@ class DataLoader(Protocol[T_co]):
     def __iter__(self) -> Iterator[T_co]:
         raise NotImplementedError("Subclasses of DataLoader should implement __iter__.")
 
+    def close(self) -> None:
+        """Release worker processes and other loader resources."""
+
 
 class TransformedDataset(Dataset[T_co]):
     def __init__(self, dataset: Dataset, transforms: Sequence[_transforms.DataTransformFn]):
@@ -584,6 +587,7 @@ class TorchDataLoader:
                 jax.sharding.PartitionSpec("B"),
             )
         self._num_batches = num_batches
+        self._active_iterator = None
 
         mp_context = None
         if num_workers > 0:
@@ -625,38 +629,86 @@ class TorchDataLoader:
 
     def __iter__(self):
         num_items = 0
-        while True:
-            t_inner_iter = time.monotonic()
-            logging.info("[TorchDataLoader] calling iter(self._data_loader) (spawning workers) ...")
-            data_iter = iter(self._data_loader)
-            logging.info(f"[TorchDataLoader] iter() returned in {time.monotonic() - t_inner_iter:.1f}s")
+        try:
             while True:
-                if self._num_batches is not None and num_items >= self._num_batches:
-                    return
-                t_batch = time.monotonic()
-                try:
-                    batch = next(data_iter)
-                except StopIteration:
-                    break  # We've exhausted the dataset. Create a new iterator and start over.
-                dt = time.monotonic() - t_batch
-                if num_items < 3 or dt > 3.0:
-                    logging.info(f"[TorchDataLoader] batch #{num_items} next() took {dt:.2f}s")
-                num_items += 1
-                # For JAX, convert to sharded arrays; for PyTorch, return torch tensors
-                if self._sharding is not None:
-                    yield jax.tree.map(
-                        lambda x: jax.make_array_from_process_local_data(self._sharding, x),
-                        batch,
-                    )
-                else:
-                    yield jax.tree.map(torch.as_tensor, batch)
+                t_inner_iter = time.monotonic()
+                logging.info("[TorchDataLoader] calling iter(self._data_loader) (spawning workers) ...")
+                data_iter = iter(self._data_loader)
+                self._active_iterator = data_iter
+                logging.info(f"[TorchDataLoader] iter() returned in {time.monotonic() - t_inner_iter:.1f}s")
+                while True:
+                    if self._num_batches is not None and num_items >= self._num_batches:
+                        return
+                    t_batch = time.monotonic()
+                    try:
+                        batch = next(data_iter)
+                    except StopIteration:
+                        break  # We've exhausted the dataset. Create a new iterator and start over.
+                    dt = time.monotonic() - t_batch
+                    if num_items < 3 or dt > 3.0:
+                        logging.info(f"[TorchDataLoader] batch #{num_items} next() took {dt:.2f}s")
+                    num_items += 1
+                    # For JAX, convert to sharded arrays; for PyTorch, return torch tensors
+                    if self._sharding is not None:
+                        batch = jax.tree.map(
+                            lambda x: jax.make_array_from_process_local_data(self._sharding, _to_numpy_view(x)),
+                            batch,
+                        )
+                    else:
+                        batch = jax.tree.map(torch.as_tensor, batch)
+                    yield batch
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        """Shut down the active multiprocessing iterator before interpreter teardown.
+
+        `_shutdown_workers`, `_workers` and `_iterator` are torch internals with no public
+        equivalent, so this is tied to the `torch>=2.11,<2.12` pin in pyproject.toml. Every
+        access is getattr-guarded: on a torch that renamed them the loader degrades to the
+        old behaviour (workers reaped by `__del__`) rather than raising.
+        """
+        data_iter = self._active_iterator
+        if data_iter is None:
+            return
+
+        workers = tuple(getattr(data_iter, "_workers", ()))
+        try:
+            shutdown_workers = getattr(data_iter, "_shutdown_workers", None)
+            if shutdown_workers is not None:
+                shutdown_workers()
+        except RuntimeError as error:
+            # Native libraries used by a worker can abort while reacting to the shutdown
+            # signal. PyTorch still terminates all remaining workers in its finally block;
+            # handle the resulting SIGCHLD report here instead of leaving it for __del__.
+            logging.warning(f"DataLoader worker exited while shutting down: {error}")
+        finally:
+            for worker in workers:
+                worker.join(timeout=5.0)
+                if worker.is_alive():
+                    worker.kill()
+                    worker.join()
+            self._active_iterator = None
+            if getattr(self._data_loader, "_iterator", None) is data_iter:
+                self._data_loader._iterator = None
+
+
+def _to_numpy_view(value):
+    """Return a NumPy view of a CPU tensor without copying its shared storage."""
+    if isinstance(value, torch.Tensor):
+        return value.numpy()
+    return np.asarray(value)
 
 
 def _collate_fn(items):
-    """Collate the batch elements into batched numpy arrays."""
-    # Make sure to convert to numpy arrays before stacking since some of the incoming elements
-    # may be JAX arrays.
-    return jax.tree.map(lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items)
+    """Collate batch elements into CPU tensors so workers use shared-memory IPC."""
+    # Some inputs are JAX arrays, so stack through NumPy first. Returning Torch tensors is
+    # important here: the DataLoader multiprocessing reducer transfers their storage through
+    # shared memory instead of pickling each ~900 MiB NumPy batch into the result queue.
+    return jax.tree.map(
+        lambda *xs: torch.from_numpy(np.stack([np.asarray(x) for x in xs], axis=0)),
+        *items,
+    )
 
 
 def _worker_init_fn(worker_id: int) -> None:
@@ -738,3 +790,8 @@ class DataLoaderImpl(DataLoader):
     def __iter__(self):
         for batch in self._data_loader:
             yield _model.Observation.from_dict(batch), batch["actions"]
+
+    def close(self) -> None:
+        close = getattr(self._data_loader, "close", None)
+        if close is not None:
+            close()

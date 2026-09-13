@@ -27,6 +27,7 @@ We follow this einsum axis naming convention:
 
 from collections.abc import Sequence
 import dataclasses
+import functools
 from typing import Literal, TypeAlias
 
 import einops
@@ -160,11 +161,184 @@ class Embedder(nn.Module):
         return jnp.dot(x, self.input_embedding_table.T)
 
 
+# The private symbols _cudnn_attention_in_dtype and _cudnn_static_args call directly.
+_CUDNN_FA_REQUIRED = (
+    "_dot_product_attention_fwd_rule",
+    "_dot_product_attention_bwd_rule",
+    "_normalize_layout",
+    "check_cudnn_version",
+    "get_large_negative_number",
+    "should_export_dbias",
+    "MaskType",
+)
+
+
+@functools.cache
+def _cudnn_fused_attention():
+    """Resolve the private JAX cuDNN fused-attention module, on first use only.
+
+    These are the fwd/bwd rules that jax.nn.dot_product_attention(implementation="cudnn")
+    wires into its own custom_vjp; _cudnn_attention_in_dtype calls them directly so the
+    float16 kernel can run under loss scaling without recomputing the forward inside the
+    backward. They are private and only validated against the pinned jax 0.5.3.
+
+    The module itself is not the fragile part -- jax.nn imports it, so it is already loaded
+    by the time anything here runs. What a JAX upgrade actually breaks is the *names*: a
+    renamed `_dot_product_attention_bwd_rule` would otherwise surface as an AttributeError
+    from inside a traced VJP, mid-training. Checking them here turns that into one
+    actionable error, and only for configs that opted into cuDNN attention -- explicit
+    attention, CPU-only use and inference never reach this function.
+    """
+    try:
+        from jax._src.cudnn import fused_attention_stablehlo
+    except ImportError as error:  # pragma: no cover - depends on the installed jax
+        raise ImportError(
+            "cuDNN fused attention needs jax._src.cudnn.fused_attention_stablehlo, a private API "
+            f"validated against jax 0.5.3 and missing from the installed jax ({jax.__version__}). "
+            "Set model.use_cudnn_attention=false to use explicit attention, or revalidate the "
+            "fused path against this jax version. See docs/training-optimization.md."
+        ) from error
+
+    missing = [name for name in _CUDNN_FA_REQUIRED if not hasattr(fused_attention_stablehlo, name)]
+    if missing:
+        raise RuntimeError(
+            f"jax._src.cudnn.fused_attention_stablehlo (jax {jax.__version__}) no longer exposes "
+            f"{', '.join(missing)}. These are private APIs validated against jax 0.5.3. Set "
+            "model.use_cudnn_attention=false to use explicit attention, or revalidate the fused "
+            "path -- including convergence -- against this jax version. "
+            "See docs/training-optimization.md."
+        )
+    return fused_attention_stablehlo
+
+
+def _stop_gradient_for_fully_masked_queries(q, attn_mask):
+    """Cut fully masked query rows out of the backward pass, keeping the mask intact.
+
+    Padding tokens are neither valid queries nor valid keys, so make_attn_mask
+    produces query rows that are entirely false, and cuDNN 9.14 returned NaN
+    q-gradients for them at the production shape. Zeroing the gradient of those rows
+    fixes that without touching attn_mask.
+
+    The alternative -- opening a dummy key for each empty row -- is equivalent
+    numerically (measured bit-identical q/k/v-gradients on valid rows at the real
+    training shape) but rebuilds the whole (B, 1, T, S) mask inside every layer,
+    which costs about 0.3 s/step at batch 256. Prefer this one.
+
+    Neither mask variant cures the 2026-08-30 bfloat16 divergence: the kernel's
+    rounded backward residual creates a structured error on peaked attention rows.
+    Use the validated float16 custom VJP instead; do not spend time on the mask again.
+    See docs/training-optimization.md.
+    """
+    query_has_key = jnp.any(attn_mask, axis=-1)[:, 0, :, None, None]
+    return jnp.where(query_has_key, q, jax.lax.stop_gradient(q))
+
+
+def _cudnn_attention_call(q, k, v, attn_mask):
+    """The plain cuDNN fused attention call used by training (q is pre-scaled)."""
+    q = _stop_gradient_for_fully_masked_queries(q, attn_mask)
+    # The cuDNN custom partitioner requires q/k/v to carry identical shardings. Pin them to the
+    # batch axis explicitly; otherwise XLA sharding propagation can differ per operand (seen with
+    # non-default remat policies) and compilation fails with "should have same sharding".
+    q, k, v, attn_mask = sharding.activation_sharding_constraint((q, k, v, attn_mask))
+    return jax.nn.dot_product_attention(q, k, v, mask=attn_mask, scale=1.0, implementation="cudnn")
+
+
+def _cudnn_attention_in_dtype(q, k, v, attn_mask, compute_dtype):
+    """Run cuDNN fused attention with q/k/v cast to ``compute_dtype`` (e.g. float16).
+
+    Motivation: the flash-attention backward forms ``dS = P * (dP - rowsum(dO * O))``
+    from the *rounded* stored output ``O``. For peaked attention rows (attention
+    sinks) ``dP`` and ``rowsum(dO * O)`` nearly cancel, so the rounding error of
+    ``O`` is a large, sign-consistent fraction of ``dS`` -- a bias the explicit
+    path does not have because it forms ``sum(P * dP)`` from the same rounded
+    ``dP``. float16 keeps 3 more mantissa bits than bfloat16, shrinking that bias
+    about 8x, but has a much smaller exponent range, so the incoming cotangent is
+    rescaled to a power of two near 1 (dynamic loss scaling) before the fused
+    backward and unscaled in float32 afterwards. Forward values are unchanged up
+    to the output rounding; q/k/v are exactly representable in float16 unless
+    they exceed its range. Validate activation ranges when changing the model or data.
+    """
+    out_dtype = q.dtype
+    _cudnn_fa = _cudnn_fused_attention()
+
+    # The forward and backward call JAX's cuDNN fwd/bwd rules directly (the same
+    # functions jax.nn.dot_product_attention's own custom_vjp uses) instead of
+    # re-running the forward through jax.vjp inside the backward: the softmax
+    # stats and the output are kept as residuals, so with flax remat the backward
+    # costs one recomputed forward plus one fused backward, like the bf16 path.
+    # attn_mask is an explicit argument (not a closure) so that the backward,
+    # which flax remat traces separately, does not capture a leaked tracer.
+    @jax.custom_vjp
+    def attention(q, k, v, attn_mask):
+        return attention_fwd(q, k, v, attn_mask)[0]
+
+    def attention_fwd(q, k, v, attn_mask):
+        qc, kc, vc = (x.astype(compute_dtype) for x in (q, k, v))
+        bias = jnp.where(attn_mask, jnp.asarray(0, compute_dtype), _cudnn_fa.get_large_negative_number(compute_dtype))
+        # See _cudnn_attention_call: the custom partitioner needs identical q/k/v/bias shardings.
+        qc, kc, vc, bias = sharding.activation_sharding_constraint((qc, kc, vc, bias))
+        zeros = jnp.zeros(0, dtype=compute_dtype)
+        out, res = _cudnn_fa._dot_product_attention_fwd_rule(
+            qc, kc, vc, bias, zeros, zeros, zeros, zeros, *_cudnn_static_args(bias.shape, qc.shape)
+        )
+        return out.astype(out_dtype), (res, attn_mask)
+
+    def attention_bwd(residuals, d_out):
+        res, attn_mask = residuals
+        d_out32 = d_out.astype(jnp.float32)
+        max_abs = jnp.max(jnp.abs(d_out32))
+        tiny = jnp.finfo(jnp.float32).tiny
+        # Power-of-two scale so max|d_out * scale| lands in [0.25, 0.5): exact
+        # in the mantissa, leaves ~17 binades of headroom for dP = dO @ V^T
+        # and the dQ/dK/dV outputs inside the float16 kernel.
+        exponent = jnp.floor(jnp.log2(jnp.maximum(max_abs, tiny)))
+        scale = jnp.where(max_abs > 0, jnp.exp2(-(exponent + 2.0)), 1.0)
+        grads = _cudnn_fa._dot_product_attention_bwd_rule(
+            *_cudnn_static_args(res[3].shape, res[0].shape), res, (d_out32 * scale).astype(compute_dtype)
+        )
+        dq, dk, dv = grads[:3]
+        # Same semantics as _stop_gradient_for_fully_masked_queries: fully masked
+        # query rows get a zero (never NaN) q-gradient.
+        query_has_key = jnp.any(attn_mask, axis=-1)[:, 0, :, None, None]
+        dq = jnp.where(query_has_key, dq, jnp.zeros_like(dq))
+        inv_scale = 1.0 / scale
+
+        def unscale(g):
+            return (g.astype(jnp.float32) * inv_scale).astype(out_dtype)
+
+        return unscale(dq), unscale(dk), unscale(dv), None
+
+    attention.defvjp(attention_fwd, attention_bwd)
+    return attention(q, k, v, attn_mask)
+
+
+def _cudnn_static_args(bias_shape, query_shape):
+    """Static parameters jax.nn.dot_product_attention(..., scale=1.0, implementation="cudnn") uses."""
+    _cudnn_fa = _cudnn_fused_attention()
+    layout = _cudnn_fa._normalize_layout("BTNH")
+    has_dbias = _cudnn_fa.should_export_dbias(bias_shape, query_shape, layout.value)
+    # (scale, seed, dropout_rate, variadic_args, mask_type, layout, sliding_window_length, cudnn_version)
+    return (
+        1.0,
+        42,
+        0.0,
+        (True, has_dbias),
+        _cudnn_fa.MaskType.NO_MASK,
+        layout.value,
+        None,
+        _cudnn_fa.check_cudnn_version(),
+    )
+
+
 @at.typecheck
 class Attention(nn.Module):
     """Attention module."""
 
     configs: Sequence[Config]
+    use_cudnn_attention: bool = False
+    # Compute dtype handed to the cuDNN kernel: "bfloat16" (historical) or "float16"
+    # (see _cudnn_attention_in_dtype). Ignored by the explicit path.
+    cudnn_attention_dtype: str = "bfloat16"
 
     @nn.compact
     def __call__(self, xs, positions, attn_mask, kv_cache):
@@ -219,22 +393,42 @@ class Attention(nn.Module):
             k = jnp.concatenate([cache_k, k], axis=1)
             v = jnp.concatenate([cache_v, v], axis=1)
 
-        q = einops.rearrange(q, "B T (K G) H -> B T K G H", K=self.configs[0].num_kv_heads)
-        logits = jnp.einsum("BTKGH,BSKH->BKGTS", q, k, preferred_element_type=jnp.float32)
-
         if attn_mask.shape != (q.shape[0], 1, q.shape[1], k.shape[1]):
             raise ValueError(
                 f"Attention mask with shape {attn_mask.shape} but shapes for q and k are: {q.shape} and {k.shape}"
             )
 
-        # big_neg = jnp.finfo(logits.dtype).min
-        big_neg = -2.3819763e38  # See gemma/modules.py
-        masked_logits = jnp.where(attn_mask[:, :, None, :, :], logits, big_neg)
+        def cudnn_attention(operands):
+            q, k, v, mask = operands
+            # q is already scaled above, so disable dot_product_attention's
+            # default head-dimension scaling. Keep cached inference on the
+            # existing implementation; this switch targets training throughput.
+            # Fully masked query rows make cuDNN produce NaN q-gradients; drop
+            # those rows from the backward pass instead of rebuilding the mask.
+            compute_dtype = jnp.dtype(self.cudnn_attention_dtype)
+            if compute_dtype == q.dtype:
+                return _cudnn_attention_call(q, k, v, mask)
+            return _cudnn_attention_in_dtype(q, k, v, mask, compute_dtype)
 
-        probs = jax.nn.softmax(masked_logits, axis=-1).astype(dtype)
+        def explicit_attention(operands):
+            q, k, v, mask = operands
+            grouped_q = einops.rearrange(q, "B T (K G) H -> B T K G H", K=self.configs[0].num_kv_heads)
+            logits = jnp.einsum("BTKGH,BSKH->BKGTS", grouped_q, k, preferred_element_type=jnp.float32)
 
-        encoded = jnp.einsum("BKGTS,BSKH->BTKGH", probs, v)
-        encoded = einops.rearrange(encoded, "B T K G H -> B T (K G) H")
+            # big_neg = jnp.finfo(logits.dtype).min
+            big_neg = -2.3819763e38  # See gemma/modules.py
+            masked_logits = jnp.where(mask[:, :, None, :, :], logits, big_neg)
+
+            probs = jax.nn.softmax(masked_logits, axis=-1).astype(v.dtype)
+
+            encoded = jnp.einsum("BKGTS,BSKH->BTKGH", probs, v).astype(dtype)
+            return einops.rearrange(encoded, "B T K G H -> B T (K G) H")
+
+        operands = (q, k, v, attn_mask)
+        if self.use_cudnn_attention and kv_cache is None:
+            encoded = cudnn_attention(operands)
+        else:
+            encoded = explicit_attention(operands)
 
         out = []
         start = 0
@@ -291,6 +485,8 @@ class Block(nn.Module):
     """Transformer block."""
 
     configs: tuple[Config, ...]
+    use_cudnn_attention: bool = False
+    cudnn_attention_dtype: str = "bfloat16"
 
     dropout: float = 0.0
     dropout_bdims: tuple[int, ...] = ()
@@ -300,8 +496,12 @@ class Block(nn.Module):
         xs = sharding.activation_sharding_constraint(xs)
         drop = nn.Dropout(self.dropout, self.dropout_bdims) if self.dropout else lambda x, _: x
 
-        attn = Attention(configs=self.configs, name="attn")
-
+        attn = Attention(
+            configs=self.configs,
+            use_cudnn_attention=self.use_cudnn_attention,
+            cudnn_attention_dtype=self.cudnn_attention_dtype,
+            name="attn",
+        )
         pre_attn = []
         gates = []
         for i, x in enumerate(xs):
@@ -356,6 +556,8 @@ class Module(nn.Module):
     dropout: float = 0.0
     dropout_bdims: tuple[int, ...] = ()  # Every float is dropped independently.
     adarms: bool = False
+    use_cudnn_attention: bool = False
+    cudnn_attention_dtype: str = "bfloat16"
 
     def setup(self):
         # all experts must have the same depth
@@ -386,6 +588,8 @@ class Module(nn.Module):
             length=self.configs[0].depth,
         )(
             configs=self.configs,
+            use_cudnn_attention=self.use_cudnn_attention,
+            cudnn_attention_dtype=self.cudnn_attention_dtype,
             dropout=self.dropout,
             dropout_bdims=self.dropout_bdims,
         )
