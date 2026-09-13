@@ -31,14 +31,24 @@ dependencies = [
     "safetensors>=0.4.3",
     # >=2.6 for `DataLoader(in_order=...)`, which the data loader uses to hand batches
     # over as workers finish them (see TrainConfig.strict_batch_order).
-    # >=2.11 is what pins cuDNN: torch 2.11.0+cu128 requires
-    # nvidia-cudnn-cu12==9.19.0.56, while 2.10 pinned ==9.10.2.21. JAX only asks for
-    # >=9.1,<10, so torch is what decides which cuDNN the training process loads even
-    # though torch itself only runs the DataLoader here. Keep torch and the cuDNN you
-    # want to train against in sync; see docs/training-optimization.md.
-    "torch>=2.11,<2.12",
-    "torchcodec>=0.11,<0.12; sys_platform != 'win32' and (sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64' and platform_machine != 'armv7l')) and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
-    "torchvision>=0.26,<0.27",
+    # Upper bounds track lerobot's. lerobot is the component that actually uses torch
+    # here (dataset loading and the robot drivers); openpi itself only runs the
+    # DataLoader through it. Pushing past lerobot's ceiling makes the dependency set
+    # unsolvable -- `uv pip install -e .` fails to resolve, which is how the 2.11 bump
+    # was caught.
+    #
+    # These bounds also decide which cuDNN JAX loads, because torch pins
+    # nvidia-cudnn-cu12 exactly (2.10 -> ==9.10.2.21) while jax-cuda12-plugin only asks
+    # >=9.1,<10. JAX needs >=9.5 for the head_dim=256 GQA this model runs -- below that
+    # fused_attention_stablehlo caps H_max at 128 and the fused path raises -- and
+    # 9.10.2 clears it. A newer cuDNN is not required: the 9.14 NaN q-gradients are
+    # handled in gemma._stop_gradient_for_fully_masked_queries, and the bf16 divergence
+    # is a kernel-precision issue the float16 custom VJP addresses, not a version issue.
+    # What actually broke was a mixed-source stack; scripts/check_cuda_stack.py is the
+    # check for that. See docs/training-optimization.md.
+    "torch>=2.6,<2.11.0",
+    "torchcodec>=0.2.1,<0.11.0; sys_platform != 'win32' and (sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64' and platform_machine != 'armv7l')) and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
+    "torchvision>=0.21.0,<0.26.0",
     "tqdm-loggable>=0.2",
     "typing-extensions>=4.12.2",
     "tyro>=0.9.5",

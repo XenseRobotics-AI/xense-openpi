@@ -241,8 +241,11 @@ env -u LD_LIBRARY_PATH \
 ```
 
 Do **not** prepend `$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH`. The supported
-environment uses the pip CUDA 12.8 stack installed by `lerobot-xense`:
-PyTorch 2.11 pins cuDNN 9.19 and JAX shares that same runtime. Before training,
+environment uses the pip CUDA 12.8 stack installed by `lerobot-xense`, and JAX shares
+whichever cuDNN the torch wheel brings in (torch pins `nvidia-cudnn-cu12` exactly;
+`jax-cuda12-plugin` only asks for `>=9.1,<10`). The fused path needs cuDNN **>= 9.5**,
+because JAX caps the attention head dim at 128 below that and this model runs 256.
+Nothing newer is required. Before training,
 run `python scripts/check_cuda_stack.py`; it rejects mixed library sources and checks a
 real production-shape forward/backward for both the raw BF16 kernel and the FP16 custom
 VJP, including the fully-masked query rows.
@@ -258,10 +261,11 @@ model:
   cudnn_attention_dtype: float16
 ```
 
-At startup, `scripts/train.py` logs `JAX cuDNN runtime version: <version>`;
-the unified PyTorch 2.11 cu128 environment reports `91900`. This number alone
-does not detect mixed dispatcher/engine libraries, so the stack-check script is
-the required gate. Use `--overwrite` only for a new run that may replace an
+At startup, `scripts/train.py` logs `JAX cuDNN runtime version: <version>`; anything
+`>= 90500` clears the head-dim requirement. This number alone does not detect mixed
+dispatcher/engine libraries -- a 9.10.2 dispatcher over 9.14 engines still reports
+`91400` -- so the stack-check script is the required gate, and that mixed stack, not an
+old version, is what actually caused trouble. Use `--overwrite` only for a new run that may replace an
 existing experiment directory; use `--resume` to preserve and continue an
 existing run. See
 [`docs/training-optimization.md`](docs/training-optimization.md)

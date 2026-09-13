@@ -16,26 +16,32 @@ import re
 import sys
 
 FAIL = []
-# Major.minor only: pyproject pins these as ranges (torch >=2.11,<2.12 and friends), so an
-# exact pin here would fail the gate on every upstream patch release even though the
-# environment is still the supported one.
-EXPECTED = {
-    "torch": "2.11",
-    "torchvision": "0.26",
-    "torchcodec": "0.11",
-    "nvidia-cudnn-cu12": "9.19",
-    "cuda": "12.8",
-}
+# The one hard cuDNN requirement, and where it comes from: JAX caps the fused-attention
+# head dim at 128 unless cuDNN is >= 9.5 AND the GPU is Hopper (see
+# jax/_src/cudnn/fused_attention_stablehlo.py, `H_max`). pi0.5 runs head_dim=256, so
+# anything below this makes the fused path raise instead of running.
+#
+# There is deliberately no upper bound and no exact pin. A newer cuDNN is not required:
+# the 9.14 NaN q-gradients are handled in gemma._stop_gradient_for_fully_masked_queries,
+# and the bf16 divergence is a kernel-precision problem the float16 custom VJP addresses.
+# What actually broke was a mixed-source stack -- a 9.10.2 dispatcher over 9.14 engines --
+# which is what section 2 exists to catch, and which no version number can reveal.
+MIN_CUDNN = 90500
+EXPECTED_CUDA = "12.8"
 # The three torch wheels must come from the cu128 index. A CPU-only wheel installs cleanly
 # and silently removes everything this script is here to check.
 CU_SUFFIX = "+cu128"
 CU_WHEELS = ("torch", "torchvision", "torchcodec")
-EXPECTED_CUDNN = (9, 19)
 
 
 def major_minor(version):
-    """'2.11.0+cu128' -> '2.11'. Also handles '9.19.0.56' and '12.8'."""
+    """'2.10.0+cu128' -> '2.10'. Also handles '9.10.2.21' and '12.8'."""
     return ".".join(re.split(r"[.+]", str(version))[:2])
+
+
+def format_cudnn(version):
+    """91002 -> '9.10.2'."""
+    return f"{version // 10000}.{version // 100 % 100}.{version % 100}"
 
 
 def loaded_libs(pattern):
@@ -91,6 +97,7 @@ def main():
     print(f"  torch cuDNN runtime    : {torch_rt}")
     print(f"  cuDNN runtime (reported): {rt}")
     print(f"  cuDNN build            : {build}")
+    print(f"  cuDNN floor for head_dim=256 : {format_cudnn(MIN_CUDNN)}")
     print(f"  LD_LIBRARY_PATH        : {os.environ.get('LD_LIBRARY_PATH', '(unset)')}")
 
     actual = {
@@ -100,16 +107,18 @@ def main():
         "nvidia-cudnn-cu12": cudnn_package_version,
         "cuda": torch.version.cuda,
     }
-    for name, expected in EXPECTED.items():
-        if major_minor(actual[name]) != expected:
-            FAIL.append(f"{name} must be {expected}.x, got {actual[name]}")
+    if major_minor(actual["cuda"]) != EXPECTED_CUDA:
+        FAIL.append(f"torch must be built against CUDA {EXPECTED_CUDA}, got {actual['cuda']}")
     FAIL.extend(
         f"{name} must be a {CU_SUFFIX} wheel, got {actual[name]}"
         for name in CU_WHEELS
         if not str(actual[name]).endswith(CU_SUFFIX)
     )
-    if (rt // 10000, rt // 100 % 100) != EXPECTED_CUDNN:
-        FAIL.append(f"cuDNN runtime must be {EXPECTED_CUDNN[0]}.{EXPECTED_CUDNN[1]}.x, got {rt}")
+    if rt < MIN_CUDNN:
+        FAIL.append(
+            f"cuDNN runtime must be >= {format_cudnn(MIN_CUDNN)} for head_dim=256 fused attention, "
+            f"got {format_cudnn(rt)}"
+        )
     if torch_rt != rt:
         FAIL.append(f"PyTorch reports cuDNN {torch_rt}, while JAX reports {rt}")
 
