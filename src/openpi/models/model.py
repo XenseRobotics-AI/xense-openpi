@@ -39,8 +39,6 @@ class ModelType(enum.Enum):
     PI0 = "pi0"
     PI0_FAST = "pi0_fast"
     PI05 = "pi05"
-    PI0_TACTILE = "pi0_tactile"
-    PI05_TACTILE = "pi05_tactile"
 
 
 # The model always expects these images
@@ -48,19 +46,6 @@ IMAGE_KEYS = (
     "base_0_rgb",
     "left_wrist_0_rgb",
     "right_wrist_0_rgb",
-)
-
-
-# The tactile suffix names the jaw the pad sits on, not an enumeration index:
-# `<arm>_tactile_<finger>`, the fleet's serial-parity rule (odd -> left jaw), so
-# a key names the same physical pad on every bench. Same scheme lerobot-xense
-# emits its tactile cameras under.
-IMAGE_KEYS_TACTILE = (
-    "base_0_rgb",
-    "left_wrist_0_rgb",
-    "right_wrist_0_rgb",
-    "left_tactile_left_rgb",
-    "right_tactile_left_rgb",
 )
 
 
@@ -160,90 +145,6 @@ class Observation(Generic[ArrayT]):
 # Defines the format of the actions. This field is included as "actions" inside the dictionary
 # produced by the data transforms.
 Actions = at.Float[ArrayT, "*b ah ad"]
-
-
-def preprocess_observation_tactile(
-    rng: at.KeyArrayLike | None,
-    observation: Observation,
-    *,
-    train: bool = False,
-    image_keys: Sequence[str] = IMAGE_KEYS_TACTILE,
-    image_resolution: tuple[int, int] = IMAGE_RESOLUTION,
-) -> Observation:
-    """Preprocess the observations by performing image augmentations (if train=True), resizing (if necessary), and
-    filling in a default image mask (if necessary).
-    Preprocess observations with separate augmentation for tactile images.
-    """
-
-    if not set(image_keys).issubset(observation.images):
-        raise ValueError(f"images dict missing keys: expected {image_keys}, got {list(observation.images)}")
-
-    batch_shape = observation.state.shape[:-1]
-
-    out_images = {}
-    for key in image_keys:
-        image = observation.images[key]
-        if image.shape[1:3] != image_resolution:
-            logger.info(f"Resizing image {key} from {image.shape[1:3]} to {image_resolution}")
-            image = image_tools.resize_with_pad(image, *image_resolution)
-
-        if train:
-            # Convert from [-1, 1] to [0, 1] for augmax.
-            image = image / 2.0 + 0.5
-
-            transforms = []
-            if "tactile" in key:
-                height, width = image.shape[1:3]
-                transforms += [
-                    augmax.RandomCrop(int(width * 0.98), int(height * 0.98)),
-                    augmax.Resize(width, height),
-                    augmax.Rotate((-2, 2)),
-                ]
-                transforms += [
-                    augmax.ColorJitter(brightness=0.1, contrast=0.2, saturation=0.2),
-                    augmax.GaussianNoise(std=0.02),
-                ]
-            elif "wrist" in key:
-                transforms += [
-                    augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
-                ]
-            else:
-                height, width = image.shape[1:3]
-                transforms += [
-                    augmax.RandomCrop(int(width * 0.95), int(height * 0.95)),
-                    augmax.Resize(width, height),
-                    augmax.Rotate((-5, 5)),
-                ]
-                transforms += [
-                    augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
-                ]
-
-            sub_rngs = jax.random.split(rng, image.shape[0])
-            image = jax.vmap(augmax.Chain(*transforms))(sub_rngs, image)
-
-            # Back to [-1, 1].
-            image = image * 2.0 - 1.0
-
-        out_images[key] = image
-
-    # obtain mask
-    out_masks = {}
-    for key in out_images:
-        if key not in observation.image_masks:
-            # do not mask by default
-            out_masks[key] = jnp.ones(batch_shape, dtype=jnp.bool)
-        else:
-            out_masks[key] = jnp.asarray(observation.image_masks[key])
-
-    return Observation(
-        images=out_images,
-        image_masks=out_masks,
-        state=observation.state,
-        tokenized_prompt=observation.tokenized_prompt,
-        tokenized_prompt_mask=observation.tokenized_prompt_mask,
-        token_ar_mask=observation.token_ar_mask,
-        token_loss_mask=observation.token_loss_mask,
-    )
 
 
 def preprocess_observation(

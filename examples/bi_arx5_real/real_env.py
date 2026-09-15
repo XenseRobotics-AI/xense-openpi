@@ -116,10 +116,11 @@ class BiARX5RealEnv:
             "right_wrist": "cam_right_wrist",  # right wrist camera -> cam_right_wrist
         }
         if self.config.enable_tactile:
-            # Carried through under lerobot's own key. The model takes one pad per
-            # arm and this bench wires the left jaw of each (OG000337, OG000339 —
-            # both odd, and odd is the left jaw); the other two pads are recorded
-            # but not consumed. See openpi.models.model.IMAGE_KEYS_TACTILE.
+            # Carried through under lerobot's own key. This bench wires the left
+            # jaw of each arm (OG000337, OG000339 — both odd, and odd is the left
+            # jaw); the other two pads are recorded but not published here. No
+            # shipped model consumes these streams — they are published so a
+            # policy that grows a tactile branch can pick them up unchanged.
             camera_mapping["left_tactile_left"] = "left_tactile_left"
             camera_mapping["right_tactile_left"] = "right_tactile_left"
 

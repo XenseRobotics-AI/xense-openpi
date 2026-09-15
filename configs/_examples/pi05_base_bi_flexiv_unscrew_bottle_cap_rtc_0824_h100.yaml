@@ -15,8 +15,8 @@ data:
     prompt_from_task: true
     # This dataset carries 7 video streams; the repack discards the 4 tactile ones.
     # false (the default) skips decoding them, which makes a single-sample
-    # __getitem__ ~1.7x faster. Models that consume tactile images (Pi0Tactile,
-    # Pi05Tactile) must set this to true.
+    # __getitem__ ~1.7x faster. Set it to true only for a model that actually
+    # consumes tactile images; no shipped model does today.
     tactile: false
   default_prompt: unscrew the bottle cap
 batch_size: 256
