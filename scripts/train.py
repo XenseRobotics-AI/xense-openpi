@@ -76,8 +76,7 @@ def _validate_and_log_first_batch_images(config: _config.TrainConfig, obs: _mode
     num_examples = min(5, batch_size)
 
     camera_views = [
-        _make_wandb_image_strip(obs.images, image_keys=image_keys, sample_index=i)
-        for i in range(num_examples)
+        _make_wandb_image_strip(obs.images, image_keys=image_keys, sample_index=i) for i in range(num_examples)
     ]
     wandb_payload: dict[str, Any] = {"camera_views": camera_views}
 
@@ -212,7 +211,9 @@ def _load_weights_and_validate(loader: _weight_loaders.WeightLoader, params_shap
 def init_train_state(
     config: _config.TrainConfig, init_rng: at.KeyArrayLike, mesh: jax.sharding.Mesh, *, resume: bool
 ) -> tuple[training_utils.TrainState, Any]:
-    tx = _optimizer.create_optimizer(config.optimizer, config.lr_schedule, weight_decay_mask=None)
+    tx = _optimizer.create_optimizer(
+        config.optimizer, config.lr_schedule, weight_decay_mask=None, lr_scales=config.param_lr_scales
+    )
 
     def init(rng: at.KeyArrayLike, partial_params: at.Params | None = None) -> training_utils.TrainState:
         rng, model_rng = jax.random.split(rng)
@@ -263,7 +264,81 @@ def init_train_state(
 # Metrics that `train_step` fills with NaN on the steps it skips them on, and that the
 # logging reduction therefore has to skip too. Everything else is reduced with a plain
 # mean so that a NaN reaches the log instead of disappearing.
-_NAN_PLACEHOLDER_METRICS = frozenset({"grad_norm", "param_norm"})
+_NAN_PLACEHOLDER_METRICS = frozenset({"grad_norm", "param_norm", "aux/grad_ratio"})
+# Per-bin auxiliary-loss metrics are NaN whenever a bin has no samples in a step.
+_NAN_PLACEHOLDER_PREFIXES = ("tac/",)
+
+
+def _reduce_with_nanmean(key: str) -> bool:
+    return key in _NAN_PLACEHOLDER_METRICS or key.startswith(_NAN_PLACEHOLDER_PREFIXES)
+
+
+def _aux_loss_weight(config: _config.TrainConfig, step: at.Array) -> at.Array:
+    """lambda(step): linear warm-up from 0 to ``aux_loss_weight`` over ``aux_loss_warmup_steps``."""
+    weight = jnp.asarray(config.aux_loss_weight, dtype=jnp.float32)
+    if config.aux_loss_warmup_steps <= 0:
+        return weight
+    ramp = jnp.minimum(1.0, (step.astype(jnp.float32) + 1.0) / config.aux_loss_warmup_steps)
+    return weight * ramp
+
+
+def _masked_mean(values: at.Array, mask: at.Array) -> at.Array:
+    mask = mask.astype(values.dtype)
+    return jnp.sum(values * mask) / jnp.maximum(jnp.sum(mask), 1.0)
+
+
+def _combine_losses(losses: dict[str, at.Array], aux_weight: at.Array) -> tuple[at.Array, dict[str, at.Array]]:
+    """``flow + lambda * tac`` for the dict contract of ``Pi0TactileFastVit.compute_loss``."""
+    flow = jnp.mean(losses["flow"])
+    tac = _masked_mean(losses["tac"], losses["tac_mask"])
+    metrics = {"loss/flow": flow, "loss/tac": tac, "loss/tac_weight": aux_weight}
+    for index, value in enumerate(losses["tac_by_time"]):
+        metrics[f"tac/time_bin{index}"] = value
+    return flow + aux_weight * tac, metrics
+
+
+def _model_returns_loss_dict(config: _config.TrainConfig) -> bool:
+    """Static (trace-time) answer to "does compute_loss return the flow/tac dict?"."""
+    return getattr(config.model, "tactile_future_layer", None) is not None
+
+
+# Expert-side parameters of the stacked Gemma blocks (the ``_1`` suffix is the action
+# expert). Every leaf under ``layers`` carries the block index on axis 0.
+_ACTION_EXPERT_BLOCK_PARAMS = nnx_utils.PathRegex(r".*/layers/.*_1(/.*)?")
+
+
+def _aux_grad_ratio(
+    config: _config.TrainConfig,
+    model: _model.BaseModel,
+    rng: at.KeyArrayLike,
+    observation: _model.Observation,
+    actions: _model.Actions,
+    total_grads: nnx.State,
+    aux_weight: at.Array,
+) -> at.Array:
+    """r_g = |grad L_tac| / |grad L_flow| over the expert parameters of blocks 1..m.
+
+    docs/action-conditioned-tactile-pretraining.md section 2.3.4 wants this in 0.1-0.5.
+    Costs one extra forward/backward, so train_step only calls it on metric steps and
+    only when ``log_aux_grad_ratio`` is set. The flow gradient is recovered as
+    ``total - lambda * tac`` rather than with a third pass.
+    """
+    layer = config.model.tactile_future_layer
+    shared_filter = nnx.All(config.trainable_filter, _ACTION_EXPERT_BLOCK_PARAMS)
+
+    def tac_loss(model, rng, observation, actions):
+        losses = model.compute_loss(rng, observation, actions, train=True)
+        return _masked_mean(losses["tac"], losses["tac_mask"])
+
+    tac_grads = nnx.grad(tac_loss, argnums=nnx.DiffState(0, shared_filter))(model, rng, observation, actions)
+    total_subset = total_grads.filter(shared_filter)
+
+    def first_blocks(grads: nnx.State) -> nnx.State:
+        return jax.tree.map(lambda g: g[:layer], grads)
+
+    tac_subset = first_blocks(tac_grads)
+    flow_subset = jax.tree.map(lambda total, tac: total - aux_weight * tac, first_blocks(total_subset), tac_subset)
+    return optax.global_norm(tac_subset) / jnp.maximum(optax.global_norm(flow_subset), 1e-12)
 
 
 @at.typecheck
@@ -277,12 +352,17 @@ def train_step(
     model = nnx.merge(state.model_def, state.params)
     model.train()
 
+    returns_loss_dict = _model_returns_loss_dict(config)
+    aux_weight = _aux_loss_weight(config, state.step)
+
     @at.typecheck
     def loss_fn(
         model: _model.BaseModel, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions
     ):
-        chunked_loss = model.compute_loss(rng, observation, actions, train=True)
-        return jnp.mean(chunked_loss)
+        losses = model.compute_loss(rng, observation, actions, train=True)
+        if returns_loss_dict:
+            return _combine_losses(losses, aux_weight)
+        return jnp.mean(losses), {}
 
     train_rng = jax.random.fold_in(rng, state.step)
     observation, actions = batch
@@ -290,7 +370,9 @@ def train_step(
     # Filter out frozen params.
     diff_state = nnx.DiffState(0, config.trainable_filter)
     with jax.named_scope("train_step/loss_and_grad"):
-        loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(model, train_rng, observation, actions)
+        (loss, loss_metrics), grads = nnx.value_and_grad(loss_fn, argnums=diff_state, has_aux=True)(
+            model, train_rng, observation, actions
+        )
 
     params = state.params.filter(config.trainable_filter)
     with jax.named_scope("train_step/optimizer_update"):
@@ -327,17 +409,31 @@ def train_step(
             grad_norm = optax.global_norm(grads)
         with jax.named_scope("train_step/param_norm"):
             param_norm = optax.global_norm(kernel_params)
+        aux_grad_ratio = jnp.asarray(jnp.nan, dtype=loss.dtype)
+        if returns_loss_dict and config.log_aux_grad_ratio:
+            with jax.named_scope("train_step/aux_grad_ratio"):
+                # `model` was updated in place above; rebuild the pre-update model so the
+                # ratio is measured at the same parameters as `grads`.
+                pre_update_model = nnx.merge(state.model_def, state.params)
+                pre_update_model.train()
+                aux_grad_ratio = _aux_grad_ratio(
+                    config, pre_update_model, train_rng, observation, actions, grads, aux_weight
+                )
     else:
         # Keep a stable output pytree for both JIT variants. The host-side logging
         # reduction drops these placeholders with nanmean; see _NAN_PLACEHOLDER_METRICS.
         grad_norm = jnp.asarray(jnp.nan, dtype=loss.dtype)
         param_norm = jnp.asarray(jnp.nan, dtype=loss.dtype)
+        aux_grad_ratio = jnp.asarray(jnp.nan, dtype=loss.dtype)
 
     info = {
         "loss": loss,
         "grad_norm": grad_norm,
         "param_norm": param_norm,
+        **loss_metrics,
     }
+    if returns_loss_dict:
+        info["aux/grad_ratio"] = aux_grad_ratio
     return new_state, info
 
 
@@ -376,17 +472,17 @@ def main(config: _config.TrainConfig):
         sharding=data_sharding,
         shuffle=True,
     )
-    logging.info(f"[INIT] create_data_loader() done in {time.monotonic()-t_dl:.1f}s")
+    logging.info(f"[INIT] create_data_loader() done in {time.monotonic() - t_dl:.1f}s")
 
     t_it = time.monotonic()
     logging.info("[INIT] calling iter(data_loader) (this spawns workers) ...")
     data_iter = iter(data_loader)
-    logging.info(f"[INIT] iter() done in {time.monotonic()-t_it:.1f}s — workers spawned")
+    logging.info(f"[INIT] iter() done in {time.monotonic() - t_it:.1f}s — workers spawned")
 
     t_nb = time.monotonic()
     logging.info("[INIT] waiting for first batch via next(data_iter) ...")
     batch = next(data_iter)
-    logging.info(f"[INIT] first batch received in {time.monotonic()-t_nb:.1f}s")
+    logging.info(f"[INIT] first batch received in {time.monotonic() - t_nb:.1f}s")
 
     logging.info(f"Initialized data loader:\n{training_utils.array_tree_to_info(batch)}")
 
@@ -460,7 +556,7 @@ def main(config: _config.TrainConfig):
             # the log rather than being silently dropped from the average.
             reduced_info = jax.device_get(
                 {
-                    key: jnp.nanmean(value) if key in _NAN_PLACEHOLDER_METRICS else jnp.mean(value)
+                    key: jnp.nanmean(value) if _reduce_with_nanmean(key) else jnp.mean(value)
                     for key, value in stacked_infos.items()
                 }
             )

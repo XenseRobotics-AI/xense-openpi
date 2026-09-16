@@ -12,15 +12,15 @@ require touching ``Pi0TactileFastVit`` or ``pi0.py``.
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, override
 
 import flax.nnx as nnx
 import jax
 import jax.numpy as jnp
-from typing_extensions import override
 
 from openpi.models import model as _model
 from openpi.models import pi0_config
+import openpi.models.gemma as _gemma
 from openpi.shared import array_typing as at
 
 if TYPE_CHECKING:
@@ -56,13 +56,48 @@ class Pi0TactileFastVitConfig(pi0_config.Pi0Config):
     # quality loss for FastViT-T12.
     tactile_compute_dtype: str = "bfloat16"
 
+    # ---- Latent Tactile Predictor (LTP), training-only auxiliary head ----
+    # docs/action-conditioned-tactile-pretraining.md section 2.3. ``None`` disables the
+    # head entirely: no parameters are created and compute_loss is bit-identical to
+    # the plain tactile model. Otherwise this is ``m``, the 1-based index of the action
+    # expert block whose output residual stream the head reads (RATG: 5-9 of 18).
+    tactile_future_layer: int | None = None
+    # Frame offsets of the future tactile frames to predict (30 fps -> 0.33 s .. 1.67 s).
+    # Must match the label store the data config injects.
+    tactile_future_horizons: tuple[int, ...] = (10, 20, 30, 40, 50)
+    # Dimension of the target per (horizon, pad): 256 for the PCA-whitened FastViT
+    # latent, 16*16*3 = 768 for the pixel-field control.
+    tactile_future_dim: int = 256
+    tactile_future_num_heads: int = 8
+    tactile_future_head_dim: int = 128
+    tactile_future_mlp_dim: int = 4096
+    # Which suffix positions the head may attend to. "action": only the action
+    # tokens (the main design -- the head cannot copy the tactile tokens, so the
+    # information has to travel tactile -> action-token stream). "all": every suffix
+    # token including the tactile ones (the read-out control).
+    tactile_future_kv: Literal["action", "all"] = "action"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.tactile_future_layer is not None:
+            depth = _gemma.get_config(self.action_expert_variant).depth
+            if not 1 <= self.tactile_future_layer <= depth:
+                raise ValueError(
+                    f"tactile_future_layer must be in [1, {depth}] for {self.action_expert_variant}, "
+                    f"got {self.tactile_future_layer}"
+                )
+            if not self.tactile_future_horizons:
+                raise ValueError("tactile_future_horizons must not be empty when the LTP head is enabled")
+            if self.enable_training_time_rtc:
+                raise ValueError("the LTP head is not supported together with training-time RTC")
+
     @property
     @override
     def model_type(self) -> _model.ModelType:
         return _model.ModelType.PI05_TACTILE if self.pi05 else _model.ModelType.PI0_TACTILE
 
     @override
-    def create(self, rng: at.KeyArrayLike) -> "Pi0TactileFastVit":
+    def create(self, rng: at.KeyArrayLike) -> Pi0TactileFastVit:
         from openpi.models.pi0_tactile_fastvit import Pi0TactileFastVit
 
         return Pi0TactileFastVit(self, rngs=nnx.Rngs(rng))

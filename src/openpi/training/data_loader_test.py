@@ -218,6 +218,27 @@ def test_resolve_decode_video_keys_rejects_repack_that_needs_tactile():
         _data_loader._resolve_decode_video_keys(data_config, _XENSE_VIDEO_KEYS)
 
 
+@_VIDEO_KEY_SETS
+def test_tactile_repack_reads_whichever_tactile_spelling_the_dataset_has(video_keys):
+    # The tactile config lists both spellings, so exactly the four streams this dataset
+    # actually carries come back -- never a phantom key from the other convention.
+    factory = _config.LeRobotBiFlexivTactileDataConfig(repo_id="Xense/bottle-sorting-0810")
+    data_config = dataclasses.replace(_config.DataConfig(tactile=True), repack_transforms=factory.repack_transforms)
+
+    source_keys = _data_loader._repack_source_keys(data_config)
+
+    assert source_keys & set(video_keys) == set(video_keys)
+
+
+@_VIDEO_KEY_SETS
+def test_tactile_repack_rejects_tactile_false_under_either_spelling(video_keys):
+    factory = _config.LeRobotBiFlexivTactileDataConfig(repo_id="Xense/bottle-sorting-0810")
+    data_config = dataclasses.replace(_config.DataConfig(tactile=False), repack_transforms=factory.repack_transforms)
+
+    with pytest.raises(ValueError, match="tactile=False disabled their decode"):
+        _data_loader._resolve_decode_video_keys(data_config, video_keys)
+
+
 def test_selective_video_dataset_filters_query_timestamps():
     dataset = _data_loader.SelectiveVideoLeRobotDataset.__new__(_data_loader.SelectiveVideoLeRobotDataset)
     dataset.decode_video_keys = frozenset({"observation.images.head"})

@@ -29,11 +29,13 @@ import pathlib
 import numpy as np
 import pandas as pd
 
-_DEFAULT_CAMERAS = (
-    "left_tactile_0",
-    "left_tactile_1",
-    "right_tactile_0",
-    "right_tactile_1",
+# Two recorder conventions are on disk: pads suffixed by USB enumeration order (`_0`/`_1`,
+# most datasets) and pads suffixed by the jaw they sit on (`_left`/`_right`, e.g.
+# earbud_case_insertion_teleop_0515_left_right). Pad 0 is the left jaw, 1 the right, so the
+# two tuples are the same four streams in the same order and `--cameras` can stay unset.
+_CAMERA_CONVENTIONS = (
+    ("left_tactile_0", "left_tactile_1", "right_tactile_0", "right_tactile_1"),
+    ("left_tactile_left", "left_tactile_right", "right_tactile_left", "right_tactile_right"),
 )
 # Must match the order InjectTactileReference is configured with; that transform
 # indexes by position, and the policy-side names are the *_ref keys it writes.
@@ -43,6 +45,16 @@ _DEFAULT_POLICY_NAMES = (
     "right_tactile_top",
     "right_tactile_bottom",
 )
+
+
+def _detect_cameras(data_dir: pathlib.Path) -> tuple[str, ...]:
+    """Pick the tactile naming convention this dataset was recorded under."""
+    features = json.loads((data_dir / "meta" / "info.json").read_text())["features"]
+    for cameras in _CAMERA_CONVENTIONS:
+        if all(f"observation.images.{cam}" in features for cam in cameras):
+            return cameras
+    present = sorted(k for k in features if "tactile" in k)
+    raise SystemExit(f"no known tactile naming matches {data_dir}; tactile columns present: {present}")
 
 
 def _gripper_open_at_frame0(data_dir: pathlib.Path) -> dict[int, tuple[float, float]]:
@@ -58,7 +70,12 @@ def main() -> None:
     parser.add_argument("--repo-id", default="Xense/bottle-sorting-0810")
     parser.add_argument("--out", type=pathlib.Path, required=True)
     parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path("~/.cache/huggingface/lerobot"))
-    parser.add_argument("--cameras", nargs="+", default=list(_DEFAULT_CAMERAS))
+    parser.add_argument(
+        "--cameras",
+        nargs="+",
+        default=None,
+        help="tactile column names without the 'observation.images.' prefix; auto-detected if unset",
+    )
     parser.add_argument("--policy-names", nargs="+", default=list(_DEFAULT_POLICY_NAMES))
     parser.add_argument(
         "--open-threshold",
@@ -69,6 +86,9 @@ def main() -> None:
     parser.add_argument("--allow-closed", action="store_true", help="write anyway if some references look deformed")
     args = parser.parse_args()
 
+    if args.cameras is None:
+        args.cameras = _detect_cameras((args.root / args.repo_id).expanduser())
+        print(f"detected tactile columns: {list(args.cameras)}")
     if len(args.cameras) != len(args.policy_names):
         raise SystemExit("--cameras and --policy-names must have the same length")
 

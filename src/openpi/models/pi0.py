@@ -1,11 +1,11 @@
 import logging
+from typing import Unpack, override
 
 import einops
 import flax.nnx as nnx
 import flax.nnx.bridge as nnx_bridge
 import jax
 import jax.numpy as jnp
-from typing_extensions import Unpack, override
 
 from openpi.models import model as _model
 from openpi.models import pi0_config
@@ -277,6 +277,24 @@ class Pi0(_model.BaseModel):
         actions: _model.Actions,
     ) -> at.Float[at.Array, "*b ah"]:
         """Standard Pi0 loss computation."""
+        return self._flow_forward(rng, observation, actions)["loss"]
+
+    def _flow_forward(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        actions: _model.Actions,
+        *,
+        return_suffix_hidden: bool = False,
+    ) -> dict[str, at.Array | None]:
+        """One flow-matching training forward pass.
+
+        Returns a dict with ``loss`` [b, ah], the sampled ``time`` [b], the
+        ``suffix_mask`` [b, s] and, when ``return_suffix_hidden`` is set, the action
+        expert's per-block residual stream ``suffix_hidden`` [depth, b, s, d] (else
+        None). Subclasses that attach auxiliary heads to an intermediate layer
+        (Pi0TactileFastVit) call this instead of duplicating the pass.
+        """
         with jax.named_scope("loss/rng_noise_time"):
             noise_rng, time_rng = jax.random.split(rng)
             batch_shape = actions.shape[:-2]
@@ -298,15 +316,26 @@ class Pi0(_model.BaseModel):
             attn_mask = make_attn_mask(input_mask, ar_mask)
             positions = jnp.cumsum(input_mask, axis=1) - 1
         with jax.named_scope("loss/llm_forward"):
-            (prefix_out, suffix_out), _ = self.PaliGemma.llm(
-                [prefix_tokens, suffix_tokens],
-                mask=attn_mask,
-                positions=positions,
-                adarms_cond=[None, adarms_cond],
-            )
+            suffix_hidden = None
+            if return_suffix_hidden:
+                (_, suffix_out), _, suffix_hidden = self.PaliGemma.llm(
+                    [prefix_tokens, suffix_tokens],
+                    mask=attn_mask,
+                    positions=positions,
+                    adarms_cond=[None, adarms_cond],
+                    return_suffix_hidden=True,
+                )
+            else:
+                (_, suffix_out), _ = self.PaliGemma.llm(
+                    [prefix_tokens, suffix_tokens],
+                    mask=attn_mask,
+                    positions=positions,
+                    adarms_cond=[None, adarms_cond],
+                )
         with jax.named_scope("loss/action_out"):
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
-            return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+            loss = jnp.mean(jnp.square(v_t - u_t), axis=-1)
+        return {"loss": loss, "time": time, "suffix_mask": suffix_mask, "suffix_hidden": suffix_hidden}
 
     def _compute_loss_training_time_rtc(
         self,

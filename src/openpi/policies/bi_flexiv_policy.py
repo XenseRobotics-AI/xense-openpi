@@ -137,9 +137,7 @@ class BiFlexivTactileInputs(transforms.DataTransformFn):
 
         in_images = data["images"]
         if set(in_images) - set(self.EXPECTED_CAMERAS):
-            raise ValueError(
-                f"Expected images to be a subset of {self.EXPECTED_CAMERAS}, got {tuple(in_images)}"
-            )
+            raise ValueError(f"Expected images to be a subset of {self.EXPECTED_CAMERAS}, got {tuple(in_images)}")
 
         if "head" not in in_images:
             raise ValueError("BiFlexivTactileInputs requires a 'head' camera")
@@ -185,6 +183,10 @@ class BiFlexivTactileInputs(transforms.DataTransformFn):
 
         if "prompt" in data:
             inputs["prompt"] = data["prompt"]
+
+        # Training-only auxiliary targets (InjectTactileFutureLabels) ride through untouched.
+        if "aux_targets" in data:
+            inputs["aux_targets"] = data["aux_targets"]
 
         return inputs
 
@@ -259,6 +261,8 @@ class BiFlexivTactileDiffInputs(transforms.DataTransformFn):
             inputs["actions"] = np.asarray(data["actions"])
         if "prompt" in data:
             inputs["prompt"] = data["prompt"]
+        if "aux_targets" in data:
+            inputs["aux_targets"] = data["aux_targets"]
         return inputs
 
 

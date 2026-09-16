@@ -211,13 +211,16 @@ class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
 
 
 def _repack_source_keys(data_config: _config.DataConfig) -> set[str]:
-    """Flat dataset column names that the repack transforms read."""
+    """Flat dataset column names that the repack transforms read.
+
+    An `AliasKey` contributes every spelling it accepts: only one of them is on disk for a
+    given dataset, so intersecting with the dataset's own keys picks out the right one.
+    """
     return {
-        leaf
+        key
         for transform in data_config.repack_transforms.inputs
         if isinstance(transform, _transforms.RepackTransform)
-        for leaf in jax.tree.leaves(transform.structure)
-        if isinstance(leaf, str)
+        for key in transform.source_keys()
     }
 
 
@@ -788,7 +791,7 @@ class DataLoaderImpl(DataLoader):
         return self._data_config
 
     def __iter__(self):
-        for batch in self._data_loader:#从 _data_loader中拿一个数据
+        for batch in self._data_loader:  # 从 _data_loader中拿一个数据
             yield _model.Observation.from_dict(batch), batch["actions"]
 
     def close(self) -> None:
