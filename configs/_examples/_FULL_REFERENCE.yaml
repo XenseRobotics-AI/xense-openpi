@@ -39,7 +39,7 @@ project_name: openpi           # wandb project; rarely needs changing
 # ---------------------------------------------------------------------------
 
 model:
-  type: Pi0Config              # ← one of: Pi0Config, Pi0FASTConfig, Pi0TactileConfig
+  type: Pi0Config              # ← one of: Pi0Config, Pi0FASTConfig
 
   # ---- shared by all BaseModelConfig subclasses ----
   action_dim: 32               # padded action vector size; pi0 family uses 32
@@ -61,8 +61,6 @@ model:
   # ---- Pi0FASTConfig-specific (uncomment when using Pi0FASTConfig) ----
   # fast_model_tokenizer: null          # optional override; defaults to FASTTokenizer
   # fast_model_tokenizer_kwargs: null   # dict[str, Any] passed to the tokenizer
-
-  # ---- Pi0TactileConfig has the same fields as Pi0Config minus RTC ----
 
 
 # ---------------------------------------------------------------------------

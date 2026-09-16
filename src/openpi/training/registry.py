@@ -12,7 +12,6 @@ are intentionally not registered and remain Python-only; see
 
 import openpi.models.pi0_config as _pi0_config
 import openpi.models.pi0_fast as _pi0_fast
-import openpi.models.pi0_tactile_config as _pi0_tactile_config
 import openpi.training.optimizer as _optimizer
 import openpi.training.weight_loaders as _weight_loaders
 import openpi.transforms as _transforms
@@ -21,7 +20,6 @@ import openpi.transforms as _transforms
 MODELS: dict[str, type] = {
     "Pi0Config": _pi0_config.Pi0Config,
     "Pi0FASTConfig": _pi0_fast.Pi0FASTConfig,
-    "Pi0TactileConfig": _pi0_tactile_config.Pi0TactileConfig,
 }
 
 
