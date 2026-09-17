@@ -29,7 +29,8 @@ model:
   tactile_compute_dtype: bfloat16
   # ---- LTP head ----
   # 1-based action-expert block whose output residual stream the head reads.
-  tactile_future_layer: 6
+  # 10 = the linear-probe minimum on the step-1a 10k checkpoint (docs §6.1, 2026-09-17).
+  tactile_future_layer: 10
   # 256 = PCA-whitened latent (data.tactile_future_target: latent); use 768 with
   # the pixel_delta control. tactile_future_horizons stays at its default
   # (10, 20, 30, 40, 50): overriding it here would make the config unhashable.

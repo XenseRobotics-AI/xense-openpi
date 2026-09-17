@@ -120,6 +120,11 @@ class ProbeDataset:
     # Sampling                                                           #
     # ------------------------------------------------------------------ #
 
+    @property
+    def episodes(self) -> list[int]:
+        """Episode indices present in the dataset, ascending."""
+        return sorted(self._ep_len)
+
     def episode_length(self, episode_index: int) -> int:
         return self._ep_len[episode_index]
 

@@ -1,9 +1,19 @@
 # 未来触觉预测的触觉预训练方案
 
-日期：2026-09-17（第 3 版）。状态：步骤 2 的代码已实现并通过单测，实验未开跑。不依赖任何已有
-checkpoint 的结果。
+日期：2026-09-17（第 5 版）。状态：步骤 2 的代码已实现并通过单测；步骤 1 的两个逐层探针已在本机对
+步骤 1a 的 10k 步 checkpoint（`checkpoints/pi05_base_bi_flexiv_bottle_sorting_0915_fastvit_h100/10000`）
+正式跑完，结论见 §6.1 末"正式跑"：触觉 token 有信息、expert 不消费，选层候选 `l10`（§3 步骤 1）。
+方案本身不依赖任何已有 checkpoint 的结果。
+
+第 5 版改动：写入步骤 1 两个探针在 10k checkpoint 上的正式结果（线性探针 2048 帧、敏感度探针 512 帧）。
 依据：RATG（`/home/li/papers/Representation-Aligned Tactile Grounding for.pdf`）、STAR、N0、
-`vtla_future_tactile_posttraining_plan.md`、xense-openpi 代码（HEAD 763a0db）。
+`vtla_future_tactile_posttraining_plan.md`、xense-openpi 代码（HEAD 8d563f2 + 工作区的探针改动）。
+
+第 4 版改动：写入步骤 1 两个探针的实际实现（`scripts/probe_future_tactile_layers.py`、
+`scripts/probe_tactile_sensitivity_layers.py`、公共件 `test/tactile_counterfactual/layer_probe.py`），
+以及实现时定下的几个细节：`vl-swap` 在 pi05 下连离散 state 一起换；`pad-pert` 默认只遮 2 个尾 token；
+接触代理有 `delta` / `state` 两种；线性探针默认对 50 个动作位置做平均池化；§7 第 7 项的四个新条件先进
+轻量探针。附冒烟首跑观察（§6.1 末）。
 
 第 3 版改动：去掉 BN 统计重估。输入编码器和目标编码器都用未经任何改动的原始 ImageNet FastViT-T12
 权重，预处理只保留 center crop。理由见 §2.1。
@@ -254,8 +264,12 @@ RATG 用的是 PaXini 触觉阵列（taxel），不是光学凝胶；数字只�
 | 标签库 | `scripts/compute_tactile_future_labels.py` → `episode_offsets.npy`、`feat_tac.npy`、`z_tac.npy`、`pixel_field.npy`、PCA 基、`meta.json`（含 `y_delta_rms`） |
 | 查表 transform | `transforms.InjectTactileFutureLabels`（`target` = latent / pixel_delta），由 `LeRobotBiFlexivTactileDataConfig.tactile_future_labels_path` 接入 repack；越界置 invalid，用 LeRobot `index` 校验库与数据集一致 |
 | 示例配置 | `configs/_examples/pi05_base_bi_flexiv_bottle_sorting_0917_fastvit_ltp_h100.yaml` |
+| 逐层线性探针（步骤 1 第 2 项） | `scripts/probe_future_tactile_layers.py`：对 `vlm`、`l0`（suffix 输入）、`l1..l18` 各拟合闭式 ridge 预测 §4.2 的未来场（`--target pixel_delta`，或 `latent`）；τ×{real, null, tac-shuffle} 全组合，按 episode 切验证集，输出每层 nMSE、`null−real` 增益、best layer、按 horizon/pad/接触子集分解 |
+| 逐层敏感度探针（§6.1） | `scripts/probe_tactile_sensitivity_layers.py`：五变体 + `--extra`（tac-zero / pad-swap / tac-timeshift），测量点 tactile token、`l0..l18`、`v_t`、最终 chunk；每 τ、每子集报 `S_tac/S_vl/S_null/S_pad/S_x/R/share`，自检 real 两次逐位相等、触觉变体像素确实变了 |
+| 探针公共件 | `test/tactile_counterfactual/layer_probe.py`：`load_setup`（复用 runner 的模型/归一化加载，探针默认关 cuDNN attention 与 LTP 头）、`FutureTactileStore`（标签库查表 + 像素场接触代理）、`sample_frames`（batch 内 episode 互不相同、接触/非接触各半）、`LayerForward`（固定 τ、ε 的训练式前向，逐层动作位置残差流）、`make_variant`、去均值余弦、闭式 ridge（d>n 走对偶形式） |
 
-未实现：RTC 与 LTP 同开（配置直接拒绝）、步骤 1 的三个探针脚本、步骤 3 的多数据集混合。
+未实现：RTC 与 LTP 同开（配置直接拒绝）、重型反事实探针 `tactile_counterfactual_probe.py` 的新增条件
+（全零 / 时间错位 / shuffle / pad 互换目前只在轻量敏感度探针里有，见 §7 第 7 项）、步骤 3 的多数据集混合。
 
 - `Observation.aux_targets`：可选字段，装 `future_tactile_z [B,5,4,256]` 与 `future_tactile_mask [B,5]`；
   `from_dict`/preprocess 透传；部署时为 None。
@@ -278,10 +292,50 @@ RATG 用的是 PaXini 触觉阵列（taxel），不是光学凝胶；数字只�
   2. **逐层线性探针**（RATG §3.2）：冻结 1a checkpoint，对 VLM 输出和 expert 18 层每层的动作位置
      hidden 各拟合闭式 ridge 预测 §4.2 的未来场；τ∈{0.25,0.5,0.75,1.0}，有/无触觉输入；附触觉
      shuffle 对照。产出误差随层曲线，最小值所在层 = 步骤 2 的 m 的候选。
+
+     实现（`scripts/probe_future_tactile_layers.py`）：
+     - 层：`vlm`（PaliGemma 输出对有效 prefix token 做 mask 平均，2048 维，与 τ 无关）、`l0`
+       （suffix 输入，即 `action_in_proj(x_t)`，触觉尚未混入）、`l1..l18`（每个 Block 输出的残差流，
+       `return_suffix_hidden`）。取 50 个动作位置。
+     - 特征：默认 `--features mean`，50 个位置平均成 1024 维；`meanpos` 再拼上第 k−1 个动作 token
+       （k 为 5 个 horizon），6144 维，此时 ridge 走对偶形式（n<d）。
+     - 目标：默认 `--target pixel_delta`，`[5,4,768]` 展平，逐 pad 用标签库的 `y_delta_rms` 归一化；
+       `latent` 可选。每帧要求 5 个 horizon 都在 episode 内（抽帧时 `frame + 50 < 长度`）。
+     - 条件：`real`、`null`（触觉 `image_mask=False`）、`tac-shuffle`（batch 内 roll）× 4 个 τ，
+       同一帧同一噪声。`vlm` 与触觉条件无关，只算一次。
+     - 拟合：特征按训练集标准化，闭式 ridge，`λ = α·tr(XᵀX)/d`，α 在 1e-3…1e3 网格上按验证集 nMSE 选；
+       验证集按 episode 切（`--val-fraction 0.25`）。报 nMSE = 验证 MSE / 训练均值预测的 MSE，即 1−R²，
+       零预测≈1。另按 horizon、pad、接触/非接触子集分解。
+     - 选层：每个 τ 下 `real` 条件 nMSE 最小的 expert 层；同时报 `nMSE(null) − nMSE(real)` 最大的层。
+       前者是"哪层最能读出未来"，后者是"哪层的可读性真正来自触觉 token"。两者一致最好；若增益处处≈0，
+       说明可读性全来自视觉/state/干净动作，选层只能靠敏感度曲线，且本身就是"expert 不看触觉"的证据。
+     - 特征存 `features.npy`（float16 memmap `[cond, tau, layer, frame, dim]`），可离线重拟合。
   3. **逐层敏感度探针**（§6.1）：同一 checkpoint，batch 内 roll 触觉 / roll VL，量 18 层动作位置
      hidden 与 `v_t` 的 `S_tac`、`S_vl`、`S_x`。产出 `S_tac` 随层曲线。与无触觉基线同图对比。
      选层规则：取线性探针误差最小、且 `S_tac` 已明显上升的最浅层。两条曲线不一致时以线性探针为准，
      `S_tac` 曲线记录下来作为步骤 2 前后的对照基线。
+
+  两个探针的命令（本机单卡，输出在 `outputs/tactile_layer_probes/<linear|sensitivity>/<时间戳>/`，
+  各含 `results.json`、`report.md`、`frames.json`）：
+
+  ```bash
+  CKPT=checkpoints/pi05_base_bi_flexiv_bottle_sorting_0915_fastvit_h100/10000
+  CFG=pi05_base_bi_flexiv_bottle_sorting_0915_fastvit_h100
+  LABELS=assets/tactile_future_labels/bottle-sorting-0810
+  python scripts/probe_future_tactile_layers.py --config-name $CFG --checkpoint-dir $CKPT \
+      --labels-dir $LABELS --num-frames 2048 --batch-size 16 --num-workers 8
+  python scripts/probe_tactile_sensitivity_layers.py --config-name $CFG --checkpoint-dir $CKPT \
+      --labels-dir $LABELS --num-frames 512 --batch-size 16 --extra
+  ```
+
+  10k checkpoint 的正式结果见 §6.1 末"正式跑"：线性探针谷底 `l10`/`l11`（nMSE 0.964，触觉增益 ≈0），
+  敏感度探针 `v_t` 处 share ≈1e-6，选 **m = 10**。
+
+  读法：线性探针 `report.md` 的"layer choice"表给出每个 τ 下 `real` 条件 nMSE 最小的 expert 层，
+  以及 `null−real` 增益最大的层（增益为 0 说明该层的可预测性全来自视觉/state/动作，不来自触觉 token）；
+  敏感度探针的 verdict 段给出触觉 token 是否塌缩、pad-pert 是否≈0、`v_t` 处 share 在接触子集是否更高，
+  以及每个 τ 下 `S_tac` 曲线的起升层与峰值层。两个脚本对无触觉基线 checkpoint 同样可跑。
+  注意：pi05 的离散 state 在 prompt 里，`vl-swap` 会连 state 一起换，`S_vl` 是"视觉 + 本体感觉"敏感度。
 - 意义：给步骤 2 一个同管线基线，并选层。预期这一步的反事实探针效应很弱（RATG 41 vs 18 的差距主要
   来自任务本身），不是终点。
 - 可选 1c：前 N 千步以高比例把三路 RGB `image_mask=False` 逼 expert 学触觉接口（N0 Stage 2），
@@ -429,19 +483,118 @@ share = S_tac / S_x                              触觉解释了多大比例的�
 配对、跑完整去噪轨迹的工具，一对样本四次完整采样。轻量探针单前向、按 batch 算，便宜两个量级，负责
 18 层曲线与大样本统计；重型探针在选出的 m 层与配对样本上做行为级验证。
 
-**实施要点。**
+**实现（`scripts/probe_tactile_sensitivity_layers.py`，2026-09-17）。**
 
-- batch 必须跨 episode 抽，并混合接触帧与非接触帧。同 episode 相邻帧 roll 之后触觉几乎不变，`S_tac`
-  会被系统性低估。可直接用 heavy↔light 配对作为 roll 的伙伴。
-- 复用 `test/tactile_counterfactual/runner.py` 的模型加载与数据集构建；逐层 hidden 依赖 `gemma.py`
-  的逐层输出开关（§7 第 3 项）；变体生成可按 N0 的 `variant_obs` 逐行翻译成 JAX。
-- 自检：real 跑两次逐位相等（确定性前向）；tac-shuffle 与 real 的触觉图逐位不等。
-- 输出 JSON 与 Markdown 表，每层一行，每 τ 一列组。
+- 抽帧（`layer_probe.sample_frames`）：每个 batch 的 episode 互不相同（roll 的伙伴必然来自别的
+  episode），奇偶槽位交替要接触帧 / 非接触帧。接触代理来自标签库的 16×16 像素场：`delta` =
+  `‖(D(T_{t+10}) − D(T_t)) / rms_10‖`（文档原定义，衡量接下来 1/3 秒的触觉变化），`state` =
+  `‖(D(T_t) − D(T_0)) / rms_50‖`（离 episode 首帧的距离，衡量当前是否处于接触态）。阈值取随机池
+  （4096 帧）的 `--contact-quantile`（默认中位数）。不给 `--labels-dir` 则不分子集。
+- 前向（`LayerForward`）：训练式全序列前向（prefix + suffix 一次算，无 KV cache），固定 τ 与噪声，
+  `x_t = τ·ε + (1−τ)·A`，A 是该帧的干净动作块（抽帧时要求 `frame + 50 < 长度`）。cuDNN attention 默认
+  关掉、LTP 头关掉，走显式 attention，保证逐位可复现。一次前向返回触觉 token、`l0..l18` 动作位置、
+  `v_t`。最终 chunk 用生产采样器（RTC 配置则用 RTC 采样器）跑 `--chunk-steps` 步。
+- 变体（`make_variant`）：五个核心变体如上表；`--extra` 追加 `tac-zero`（触觉图置 0，即 [−1,1] 里的
+  中灰，mask 不动）、`pad-swap`（左右爪互换：key 0↔2、1↔3）、`tac-timeshift`（同 episode 后
+  `--time-shift` 帧的触觉，默认 30 帧）。这三个就是 §7 第 7 项的条件，先在这里落地。
+  两处与原表的出入：(a) pi05 的离散 state 在 prompt 里，`vl-swap` roll prompt 时 state 一起被换，
+  `S_vl` 实际是"视觉 + 本体感觉"敏感度，无法在不重新 tokenize 的前提下只换视觉；(b) prompt 尾部是
+  `;\nAction: `，`pad-pert` 默认只遮 2 个尾 token（`--pad-extra`），多遮会吃掉 state 数字，就不再是
+  红鲱鱼。
+- 指标：每个测量点对每个变体算逐样本 `1 − cos_cent`，中心是该 batch 内 real 的均值；`S_x` 用
+  `real[i]` 对 `real[i+1]`。汇总报 mean/std/n，分 all / contact / noncontact；R 与 share 用均值之比，
+  分母小于 1e-7（float32 舍入级，例如 `l0` 处的 `S_vl`）时记 n/a。
+- 自检：real 两次前向 `action_stream` 逐位相等（冒烟实测 0.0）；每个触觉变体与 real 的触觉图逐行不等。
+- 输出：`results.json`（全部统计）、`report.md`（每 τ 一张表，每测量点一行）、`frames.json`
+  （抽到的帧、接触标记、阈值）。verdict 段直接给出三条判定所需的数：触觉 token 的 `S_x`（塌缩检查）、
+  `v_t` 处 `S_pad/S_vl`（红鲱鱼）、`v_t` 处 share 的接触 / 非接触对比、每个 τ 下 `S_tac` 曲线的起升层
+  （首次达到峰值一半）与峰值层。
+
+**冒烟首跑（2026-09-17，10k checkpoint，16 帧 / 15 个 episode，τ∈{1.0, 0.5}，仅作管线验证，
+数字不能当结论）。**
+
+- 触觉 token 未塌缩：`S_x = 1.16`；`tac-shuffle` 处 1.16、`tac-zero` 1.00、`tac-timeshift` 0.51，
+  即时间错位 1 秒的触觉图与当前差异约为跨样本差异的一半。
+- 动作流几乎不看触觉：`S_tac` 在 `l1..l18` 从 1e-7 单调升到 3e-5，`v_t` 处 1e-6，share≈1e-6；
+  同一位置 `S_vl` 从 3e-3 升到 0.9，`v_t` 处 0.1–0.3。R 在 1e-5 量级。
+- `null`（mask 掉触觉 token）的响应 1e-4…1e-2，比 shuffle 大两个量级：去掉 4 个 key 改变了 attention
+  的归一化，比换 token 内容影响大。所以 `S_tac` 用 shuffle 而不用 null 是对的。
+- `pad-pert` 在 `v_t` 处 `S_pad/S_vl ≈ 0.01`，红鲱鱼检查通过；但在 `l17/l18` 达到 0.03–0.04，比 `S_tac`
+  大三个量级，提示深层对 prompt 尾部格式 token 的敏感度已高于对触觉的敏感度。
+- 这与 §3 步骤 1 的预期一致（"这一步的反事实探针效应很弱"）：10k 步、模仿损失单独训练下，触觉 token
+  有信息但 expert 不消费。正式跑（512 帧、4 个 τ、`--extra`）与无触觉基线的同图对比，是步骤 2 前后
+  对照的基线。
+- 线性探针冒烟（64 帧、44 个训练行、1024 维）nMSE 全部 >1，属训练行不足，无结论；正式跑 2048 帧。
+
+**正式跑（2026-09-17，同一 10k checkpoint，本机 5090 单卡；输出
+`outputs/tactile_layer_probes/linear/10k_2048/` 与 `outputs/tactile_layer_probes/sensitivity/10k_512/`）。**
+
+线性探针：2048 帧 / 160 episodes，按 episode 切 1517 训练行 / 531 验证行，`--features mean`，
+`--target pixel_delta`，τ∈{0.25,0.5,0.75,1.0} × {real, null, tac-shuffle}。前向 767 s，拟合 516 s。
+
+| 层 | τ=0.25 | τ=0.5 | τ=0.75 | τ=1.0 |
+|---|---|---|---|---|
+| vlm | 0.9729 | 0.9729 | 0.9729 | 0.9729 |
+| l0 | 0.9905 | 0.9926 | 0.9964 | 1.0000 |
+| l5 | 0.9691 | 0.9677 | 0.9706 | 0.9700 |
+| l8 | 0.9663 | 0.9641 | 0.9670 | 0.9678 |
+| **l10** | **0.9657** | **0.9639** | 0.9646 | 0.9637 |
+| l11 | 0.9662 | 0.9640 | **0.9646** | **0.9637** |
+| l14 | 0.9699 | 0.9694 | 0.9698 | 0.9692 |
+| l18 | 0.9750 | 0.9750 | 0.9746 | 0.9745 |
+
+- 曲线形状与 RATG 一致：`l0` ≈ 1（干净动作本身几乎不含未来触觉），沿层单调下降到 `l10`/`l11`
+  的谷底，再回升到 `l18`。四个 τ 的最优层都是 `l10` 或 `l11`（两者差 <1e-3），接触子集最优层 `l8`–`l11`。
+  谷底比 `vlm`（0.973）好 0.009，比 `l18` 好 0.011。ridge 的 α 选在网格中段（10），不是边界。
+- 可读出的方差极小：最好也只有 3.6%（nMSE 0.964）。按 horizon 单调（k=10 时 0.987，k=50 时 0.953，
+  越远越可读，即读出的是慢变的接触趋势），按 pad 左右分明（左爪两片 ≈1.01，即读不出；右爪两片
+  0.90–0.94），接触子集 0.96 略好于非接触 0.97。
+- **可读性完全不来自触觉 token**：`null − real` 增益在所有层、所有 τ 都在 ±8e-4 以内，中间层反而略负
+  （去掉触觉 token 后动作位置对未来触觉略更可读）；`tac-shuffle − real` 在 1e-6 量级，即换掉触觉内容
+  对动作位置的特征没有任何影响。3.6% 全来自视觉 / state / 干净动作。
+- 副产品：同一批帧的 flow loss，`real` 与 `tac-shuffle` 逐位相同（τ=0.25 都是 5.46e-3），`null`
+  高 35–70%（7.30e-3）。去掉 4 个 key 改变了 attention 归一化，模型对"触觉 token 在不在"敏感、对
+  "触觉 token 是什么"不敏感。这条数据本身就否定了"推理时把触觉 mask 掉来验证无触觉基线"的做法。
+
+敏感度探针：512 帧 / 153 episodes，接触 / 非接触各 256，四个 τ，`--extra`，最终 chunk 10 步去噪。
+前向 771 s。自检：real 重复前向逐位相等（0.0），四个触觉变体像素均变了。
+
+| 测量点（τ=1.0） | S_tac | S_vl | S_null | S_pad | S[tac-timeshift] | S_x | share |
+|---|---|---|---|---|---|---|---|
+| tactile_tokens | 1.076 | 0 | 0 | 0 | 0.492 | 1.076 | 1 |
+| l1 | 2.4e-7 | 1.9e-3 | 1.3e-4 | 2.8e-5 | 2.2e-7 | 1.066 | 2.2e-7 |
+| l10 | 3.5e-6 | 0.045 | 2.2e-3 | 7.7e-4 | 3.5e-6 | 1.068 | 3.3e-6 |
+| l14 | 1.1e-5 | 0.224 | 6.9e-3 | 6.7e-3 | 1.1e-5 | 1.074 | 1.0e-5 |
+| l18 | 3.1e-5 | 0.627 | 8.6e-3 | 0.032 | 3.1e-5 | 1.100 | 2.8e-5 |
+| v_t | 1.2e-6 | 0.091 | 3.5e-4 | 1.0e-3 | 1.2e-6 | 1.071 | 1.1e-6 |
+| chunk（10 步） | 2.2e-6 | 1.134 | 6.5e-3 | 0.012 | 2.2e-6 | 1.134 | 1.9e-6 |
+
+- 判定 1：触觉 token 未塌缩（`S_x=1.08`，tac-zero 1.00、pad-swap 1.00、timeshift 30 帧 0.49）；
+  pad-pert 在 `v_t` 处 `S_pad/S_vl` = 0.011–0.028，红鲱鱼通过。前提成立，后面的数字有效。
+- 判定 2 不成立：`v_t` 处 share 在 1e-6 量级，四个 τ 下接触子集与非接触子集完全相同（1.10e-6 vs
+  1.10e-6）；最终 chunk 处 share 1.9e-6。逐样本 std 与均值同量级（`v_t` τ=1.0：1.18e-6 ± 0.25e-6），
+  是稳定的极小值，不是噪声。
+- 判定 3 不成立：`S_tac` 沿层从 2e-7 单调升到 `l18` 的 3e-5，无起升层（"半峰"落在 `l13`–`l16` 只是单调
+  曲线的算术结果），到 `v_t` 又跌回 1e-6。`S_vl` 同位置 2e-3 → 0.63 → 0.09，R 全程 1e-5–1e-3。
+  τ 越小（动作越干净）`S_tac` 略大（τ=0.25 时 `v_t` 处 3.0e-6），但仍差四个量级。
+- 三个 `--extra` 条件（tac-zero、pad-swap、tac-timeshift）在动作流上与 shuffle 给出相同数字
+  （例如 `l18` 三者都是 3.1e-5），即 expert 对触觉内容的任何改动都一视同仁地不响应；tac-zero 略大
+  （1.3e-4）是因为它把 token 幅度也改了。
+- 深层对 prompt 尾部 2 个格式 token 的敏感度（`l17`/`l18` 的 `S_pad` 0.03–0.05）比对触觉高三个量级，
+  冒烟观察在大样本上成立。
+
+**结论与选层。** 步骤 1a（10k 步、仅模仿损失、编码器冻结）的 expert 完全不消费触觉 token：线性探针的
+触觉增益 ≈0，敏感度探针 share ≈1e-6，与 §3 步骤 1 的预期一致，也是 §2.3.5 "触觉当输入 41 vs 中间层
+挂头 74" 那条差距在本架构上的直接证据。选层规则"线性探针误差最小、且 `S_tac` 已明显上升的最浅层"
+里第二个条件在这个 checkpoint 上不可用（`S_tac` 无起升层），按规则以线性探针为准：**m = 10**
+（四个 τ 下的谷底，`l11` 等价备选），落在 RATG 报告的 5–9 层区间的深端。这条曲线（`l10` 谷底
+0.964、`S_tac` 单调 2e-7→3e-5、`v_t` share 1e-6）就是步骤 2 前后对照的基线。
+无触觉基线 checkpoint 的同图对比仍待跑（需要先训练 1a 的 `image_mask=False` 对照）。
 
 ### 6.2 其他验收项
 
 - 策略：反事实探针（`scripts/tactile_counterfactual_probe.py`，已有 heavy↔light 配对与 hidden/action
-  测量，加全零、时间错位、shuffle、pad 互换条件）；训练级无触觉基线与推理时去触觉联合解释；分块
+  测量；全零、时间错位、shuffle、pad 互换四个条件目前在轻量探针里，重型探针尚未加）；训练级无触觉基线与推理时去触觉联合解释；分块
   留出分箱准确率；闭环实机。hidden cosine、梯度非零只是诊断。
 - LTP：`L_tac` 相对零预测基线（=1）；按 horizon、pad、接触子集、τ 分箱；触觉 shuffle 后应回到基线附近。
   头预测得好只是必要条件。
@@ -455,10 +608,12 @@ share = S_tac / S_x                              触觉解释了多大比例的�
 2. 配置：`freeze_filter`、`rgb_mask_prob`；参数组 LR（1b）
 3. `gemma.py`：`nn.scan` 逐层 suffix hidden 输出开关（`out_axes`，训练时才开）
 4. `scripts/compute_tactile_future_labels.py`（像素场 + `z_tac` 列）
-5. `scripts/probe_future_tactile_layers.py`（逐层线性探针）
-6. `scripts/probe_tactile_sensitivity_layers.py`（§6.1 逐层敏感度探针：五变体、三测量点、
-   S_tac/S_vl/S_x/R/share，按 τ 与接触子集分箱，JSON + Markdown 输出）
-7. 反事实探针加条件
+5. ~~`scripts/probe_future_tactile_layers.py`（逐层线性探针）~~ 已实现（2026-09-17）
+6. ~~`scripts/probe_tactile_sensitivity_layers.py`（§6.1 逐层敏感度探针：五变体、三测量点、
+   S_tac/S_vl/S_x/R/share，按 τ 与接触子集分箱，JSON + Markdown 输出）~~ 已实现（2026-09-17）
+7. 反事实探针加条件：全零、时间错位、shuffle、pad 互换已作为 `--extra` 变体进了第 6 项的轻量探针
+   （单前向、hidden 与 `v_t`、最终 chunk 级）；重型 `tactile_counterfactual_probe.py`（完整去噪轨迹、
+   heavy↔light 配对）尚未加这些条件
 
 步骤 2：
 8. `transforms.InjectTactileFutureLabels`
