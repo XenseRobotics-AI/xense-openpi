@@ -1,12 +1,15 @@
 # 未来触觉预测的触觉预训练方案
 
-日期：2026-09-16（第 2 版）。状态：实现建议，未实施。以当前工作区为起点，不依赖任何已有 checkpoint 的结果。
+日期：2026-09-17（第 3 版）。状态：步骤 2 的代码已实现并通过单测，实验未开跑。不依赖任何已有
+checkpoint 的结果。
 依据：RATG（`/home/li/papers/Representation-Aligned Tactile Grounding for.pdf`）、STAR、N0、
-`vtla_future_tactile_posttraining_plan.md`、xense-openpi 代码（HEAD cd7684c，含未提交变更）。
+`vtla_future_tactile_posttraining_plan.md`、xense-openpi 代码（HEAD 763a0db）。
+
+第 3 版改动：去掉 BN 统计重估。输入编码器和目标编码器都用未经任何改动的原始 ImageNet FastViT-T12
+权重，预处理只保留 center crop。理由见 §2.1。
 
 第 2 版改动：删掉原"步骤 1：独立未来触觉预测器"。输入编码器和目标编码器都直接用原始 ImageNet
-FastViT-T12，只做 BN 统计校准，不单独预训练。原步骤 2/3/4 顺次改为步骤 1/2/3，主实验（策略 + LTP）
-展开写在 §2.3。
+FastViT-T12，不单独预训练。原步骤 2/3/4 顺次改为步骤 1/2/3，主实验（策略 + LTP）展开写在 §2.3。
 
 ## 1. 目标与原则
 
@@ -16,7 +19,7 @@ FastViT-T12，只做 BN 统计校准，不单独预训练。原步骤 2/3/4 顺�
 
 三条原则：
 
-1. 编码器不单独预训练。原始 FastViT 校准 BN 后直接进策略；触觉表示由策略训练本身塑造。
+1. 编码器不单独预训练，也不改它的统计。原始 FastViT 直接进策略；触觉表示由策略训练本身塑造。
 2. 每一步的验收是因果干预（换触觉看输出变不变），不是 loss 曲线。
 3. 一次只改一个变量。
 
@@ -33,7 +36,7 @@ head / left_wrist / right_wrist RGB (3×224×224×3)
                      PaliGemma 2B  ── prefix hidden / KV ──────────────┐
                                                                        │
 4 路触觉 (4×224×224×3)                                                  │
-        │ FastViT-T12（共享，ImageNet 权重，BN 统计校准后冻结）            │
+        │ FastViT-T12（共享，原始 ImageNet 权重，BN 统计冻结）             │
         │ → 4×1024                                                     │
         │ tactile_proj (1024→1024)                                      │
         ▼                                                              ▼
@@ -54,17 +57,24 @@ head / left_wrist / right_wrist RGB (3×224×224×3)
 
 时间条件 `adarms_cond` 是 `[B,1024]`，广播到全部 54 个 suffix token（非 RTC 路径）。
 
-编码器归一化：FastViT 的 BN 在 Flax 实现里固定 `use_running_average=True`，ImageNet 统计与凝胶图像
-不匹配。做法：`resize_with_pad` 改 center crop，在训练集触觉帧上重估全部 BN 统计写回初始化权重，
-训练期间冻结统计（`scripts/audit_tactile_bn.py` 已有重估逻辑）。审计结论：BN 重估前 ImageNet 统计把
-触觉特征幅度压了约 290×，但没丢信息，接触标签仍可从特征线性读出（约 0.79）。这是"不预训练也能直接用
-原始 FastViT"的依据。
+编码器归一化：FastViT 的 BN 在 Flax 实现里固定 `use_running_average=True`，走的是 ImageNet 统计，
+与凝胶图像不匹配。本方案不动这些统计，预处理只把 `resize_with_pad` 换成 center crop
+（`DataConfig.tactile_resize_mode` 默认已是 `center_crop`）。
+
+为什么不重估 BN。`scripts/audit_tactile_bn.py` 的审计结论是：ImageNet 统计把触觉特征幅度压了约
+290×，但没丢信息，接触标签仍可从特征线性读出（约 0.79）。幅度压缩对两侧都无害——策略侧
+`tactile_proj` 是可训线性层，尺度它自己会放回来；目标侧 §2.2 的 PCA 白化本来就要重新定尺度。
+重估换来的收益是这个已经被吸收掉的尺度，代价却是一条新的失效路径：E_tac 与策略初始化必须逐位同权重，
+多一步写回就多一处两边错配的机会，而错配是静默的——标签会变成"另一个编码器眼里的未来"，loss 曲线
+照样下降。省掉这一步，这条不变量由"两边都不做任何事"保证。这也是"不预训练也能直接用原始 FastViT"
+的依据。
+若步骤 2 的 `L_tac` 降不到零预测基线以下，且 16×16 像素场对照明显更好，再回来考虑重估。
 
 ### 2.2 目标编码器 E_tac（步骤 2 的监督目标，离线算）
 
 ```text
 未来触觉帧 T_{t+k,s} (224×224×3, center crop)
-        │ E_tac = 原始 FastViT-T12 的冻结拷贝（与 2.1 同一份初始化权重、同一份校准 BN；训练中永不更新）
+        │ E_tac = 原始 FastViT-T12 的冻结拷贝（与 2.1 逐位同一份初始化权重与 BN 统计；训练中永不更新）
         ▼
    f ∈ R^1024（全局平均池化输出）
         │ 训练集统计：均值 μ，协方差 → PCA 取前 d=256 维，白化
@@ -78,8 +88,8 @@ head / left_wrist / right_wrist RGB (3×224×224×3)
   塌成常数让 `L_tac=0`（RATG 用同一个编码器，论文未讨论这一点）。冻结拷贝彻底排除塌缩，也让目标在
   整个训练过程中固定，可以离线算成标签库。
 - **为什么原始 ImageNet 权重够用。** 目标编码器只需要"未来帧之间的差异在特征里可分辨"，不需要特征
-  语义正确。2.1 的审计说明校准 BN 后特征保留了接触信息。若步骤 2 的目标对照（换 16×16 像素场）反而
-  更好，说明这个前提不成立，再考虑别的目标编码器。
+  语义正确。2.1 的审计说明即便沿用 ImageNet BN 统计，特征也保留了接触信息。若步骤 2 的目标对照
+  （换 16×16 像素场）反而更好，说明这个前提不成立，再考虑别的目标编码器。
 - **为什么 PCA 白化到 256 维而不是 1024 维逐维标准化。** ImageNet 特征在凝胶图像上有效秩低（幅度压缩
   290× 就是这个现象），逐维标准化会把大量近常数维放大成噪声维，头会花容量去拟合噪声。PCA 白化把方差
   集中到少数方向，零预测基线 loss 恰好 = 1，好解释。1024 维逐维标准化作为变体保留。
@@ -245,7 +255,7 @@ RATG 用的是 PaXini 触觉阵列（taxel），不是光学凝胶；数字只�
 | 查表 transform | `transforms.InjectTactileFutureLabels`（`target` = latent / pixel_delta），由 `LeRobotBiFlexivTactileDataConfig.tactile_future_labels_path` 接入 repack；越界置 invalid，用 LeRobot `index` 校验库与数据集一致 |
 | 示例配置 | `configs/_examples/pi05_base_bi_flexiv_bottle_sorting_0917_fastvit_ltp_h100.yaml` |
 
-未实现：RTC 与 LTP 同开（配置直接拒绝）、步骤 1 的 BN 重估写回与三个探针脚本、步骤 3 的多数据集混合。
+未实现：RTC 与 LTP 同开（配置直接拒绝）、步骤 1 的三个探针脚本、步骤 3 的多数据集混合。
 
 - `Observation.aux_targets`：可选字段，装 `future_tactile_z [B,5,4,256]` 与 `future_tactile_mask [B,5]`；
   `from_dict`/preprocess 透传；部署时为 None。
@@ -259,7 +269,8 @@ RATG 用的是 PaXini 触觉阵列（taxel），不是光学凝胶；数字只�
 
 ### 步骤 1：接入策略、探针、选层（8×H100，10k–20k 步）
 
-- 做：§2.1 的策略，编码器用校准 BN 后的原始 FastViT。1a 编码器冻结；1b 编码器 0.1× LR。对照：四路
+- 做：§2.1 的策略，编码器用原始 FastViT（ImageNet 权重与 BN 统计，center crop）。1a 编码器冻结；
+  1b 编码器 0.1× LR。对照：四路
   触觉 `image_mask=False` 的无触觉基线，同 seed 同数据同步数。
 - 测：
   1. 反事实探针：同 RGB/state/prompt/噪声，换触觉（heavy↔light 配对、全零、时间错位、episode 内
@@ -306,8 +317,23 @@ RATG 用的是 PaXini 触觉阵列（taxel），不是光学凝胶；数字只�
 - 过冻结 `E_tac`（§2.2）得 1024 维特征，训练集上算 μ 与 PCA 基，写 `z_tac (num_frames, 4, 256)`
   float16 与 PCA 基/均值（步骤 2 主目标）；
 
-另存 episode 帧偏移表、训练集每 horizon 每 pad 的 `y_delta` RMS。bottle-sorting：像素场 0.42 GB，
-latent 0.28 GB。
+另存 episode 帧偏移表、训练集每 horizon 每 pad 的 `y_delta` RMS。
+
+bottle-sorting-0810 实测（2026-09-17 建库，160 episodes / 136,959 帧 / 547,836 个拟合向量，
+单卡 61 分钟，37 帧/s）：`pixel_field.npy` 402 MB + `z_tac.npy` 268 MB + PCA 基 1.1 MB，
+另有 `feat_tac.npy` 1.1 GB，合计 1.8 GB。**`feat_tac.npy` 建完即可删**：它只用于拟合 PCA，
+`InjectTactileFutureLabels` 只读 `z_tac` 和 `pixel_field`。删掉后训练实际需要 0.67 GB。
+
+PCA 谱与 d 的选择。256 维解释 1024 维总方差的 99.56%；在保留的 256 维内部，第 1 维占 51.8%、
+前 32 维 95.4%、前 64 维 97.7%、前 128 维 99.2%。白化按 `1/sqrt(特征值)` 缩放，末维相对首维放大
+127×，所以"尾部维会不会只是被放大的编码器噪声"是个真问题——若成立，后 128 维将占掉一半的 MSE
+预算却只携带 0.8% 的方差，§2.2 反对 1024 维逐维标准化的理由就会反过来适用于白化本身。
+
+实测否掉了这个担心：逐维算 episode 内 lag-1 自相关（40 个 episode），全部 256 维都在 0.91 以上
+（前 8 维 0.977，第 224–256 维 0.916），256 维内不存在噪声底——尾部维是低幅度但时间连贯的信号。
+故 `--pca-dim` 保持 256。保留一条余地：30 fps 下的时间平滑性也能被缓慢漂移的伪迹满足，真正的判据
+是尾部维能否由"动作 + 当前触觉"预测，即步骤 2 的 `L_tac` 按维度分块看。z_tac 的维是有序的、白化是
+逐维的，若要降 d 只需切片，不必重建库。
 
 `transforms.InjectTactileFutureLabels`（`repack_transforms`，与 `InjectTactileReference` 同模式）：
 按 `(episode_index, frame_index + k)` 查表，写出 `future_tactile_delta/state [K,4,16,16,3]`、
@@ -323,6 +349,11 @@ latent 0.28 GB。
 
 像素场按训练集固定尺度归一化，零预测基线 loss = 1。不逐图标准化，不给当前/未来帧独立光度增广，
 几何变换共用。四路分别监督。
+
+实测的 `y_delta_rms`（bottle-sorting-0810 全量）在左右夹爪之间差约 3 倍，且在全部 5 个 horizon 上
+一致：左爪两片 pad 在 k=10 时是 5.0e-4，右爪两片是 1.4–1.7e-3；同爪的两片彼此几乎相等。这是稳定的
+左右不对称，不是噪声。它正是 §2.3.3"四路分别监督，不平均"要保住的信号，同时也意味着像素场对照的
+归一化必须逐 pad 做——用一个全局 RMS 会让右爪主导损失。
 
 ### 4.3 时间与切分
 
@@ -419,7 +450,8 @@ share = S_tac / S_x                              触觉解释了多大比例的�
 ## 7. 工程清单
 
 步骤 1：
-1. `tactile_encoders/fastvit.py`：center crop、BN 统计写回
+1. ~~center crop~~ 已有：`DataConfig.tactile_resize_mode` 默认 `center_crop`。BN 统计重估已从方案中
+   去掉（§2.1），此项无剩余工作。
 2. 配置：`freeze_filter`、`rgb_mask_prob`；参数组 LR（1b）
 3. `gemma.py`：`nn.scan` 逐层 suffix hidden 输出开关（`out_axes`，训练时才开）
 4. `scripts/compute_tactile_future_labels.py`（像素场 + `z_tac` 列）

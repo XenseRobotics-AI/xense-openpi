@@ -17,7 +17,9 @@ field so the ``pixel_delta`` control target has a unit-variance zero-prediction 
 
 E_tac is the *frozen* copy of the same initial FastViT weights the policy starts from,
 so pass the same ``--encoder-weights`` the training config uses for
-``tactile_pretrained_path`` (after BN re-estimation, if that was applied). It never
+``tactile_pretrained_path`` -- the stock ImageNet file, BN statistics included: the plan
+deliberately re-estimates nothing, so that the two sides are bit-identical by
+construction (docs/action-conditioned-tactile-pretraining.md section 2.1). E_tac never
 trains, which is what rules out target collapse.
 
 Usage:
@@ -179,7 +181,9 @@ def main() -> None:
             for block in range(0, length, args.batch):
                 frames_idx = range(block, min(block + args.batch, length))
                 timestamps = [from_ts + i / fps for i in frames_idx]
-                frames = decode_video_frames(video_path, timestamps, dataset.tolerance_s, dataset.video_backend)
+                # backend=None lets lerobot pick get_safe_default_codec(), the same choice
+                # LeRobotDataset makes internally; 0.5.1 has no per-dataset backend to honour.
+                frames = decode_video_frames(video_path, timestamps, dataset.tolerance_s)
                 if frames.shape[0] != len(frames_idx):
                     raise SystemExit(
                         f"episode {ep} {cam}: asked for {len(frames_idx)} frames from {block}, decoded {frames.shape[0]}"
