@@ -224,5 +224,5 @@ dewu_debug_*.jsonl
 dewu_blue_*/
 dewu_*_debug/
 
-# Offline probe run artifacts (large, regenerable from configs/probes/*.yaml)
+# Local experiment outputs
 outputs/

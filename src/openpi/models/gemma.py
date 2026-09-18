@@ -492,7 +492,7 @@ class Block(nn.Module):
     dropout_bdims: tuple[int, ...] = ()
 
     @nn.compact
-    def __call__(self, xs, kv_cache, positions, attn_mask, adarms_cond, deterministic=True, collect_hidden=False):
+    def __call__(self, xs, kv_cache, positions, attn_mask, adarms_cond, deterministic=True):
         xs = sharding.activation_sharding_constraint(xs)
         drop = nn.Dropout(self.dropout, self.dropout_bdims) if self.dropout else lambda x, _: x
 
@@ -540,14 +540,7 @@ class Block(nn.Module):
         xs = [_gated_residual(x, y, gate) for x, y, gate in zip(xs, out, gates, strict=True)]
         xs = sharding.activation_sharding_constraint(xs)
 
-        # Per-layer residual stream of the *last* expert (the action expert), so that
-        # `Module` can stack it across layers via nn.scan's out_axes. `collect_hidden`
-        # is static (see the remat/scan setup in Module.setup): when False the scan
-        # output is None and the compiled graph is identical to before the switch
-        # existed. Only the last expert is exposed on purpose -- stacking the
-        # PaliGemma stream would cost depth x B x ~1000 x 2048 activations.
-        hidden = xs[-1] if collect_hidden else None
-        return xs, (kv_cache, hidden)
+        return xs, kv_cache
 
 
 KVCache: TypeAlias = tuple[at.Float[at.Array, "l b _t _k _h"], at.Float[at.Array, "l b _t _v _h"]]
@@ -575,15 +568,10 @@ class Module(nn.Module):
             embed_dim=self.configs[0].width,  # embedder for first expert only
             name="embedder",
         )
-        # nn.remat counts `self` as argument 0 and subtracts one before handing the
-        # indices to jax.checkpoint, so 5 is adarms_cond and 7 is collect_hidden.
-        # (5,) predates this file's per-layer output and is kept as-is so the
-        # compiled training graph does not change; 7 has to be static because
-        # Block branches on it in Python.
         block_cls = nn.remat(
             Block,
             prevent_cse=False,
-            static_argnums=(5, 7),
+            static_argnums=(5,),  # 0=self, 6=deterministic
             policy=jax.checkpoint_policies.nothing_saveable,
         )
         self.layers = nn.scan(
@@ -596,8 +584,7 @@ class Module(nn.Module):
                 nn.broadcast,
                 nn.broadcast,
                 nn.broadcast,
-                nn.broadcast,
-            ),  # 0=kv_cache, 1=positions, 2=mask, 3=adarms_cond, 4=deterministic, 5=collect_hidden
+            ),  # 0=kv_cache, 1=positions, 2=mask, 3=adarms_cond, 4=deterministic
             length=self.configs[0].depth,
         )(
             configs=self.configs,
@@ -623,39 +610,19 @@ class Module(nn.Module):
         *,
         kv_cache: KVCache | None = None,
         deterministic: bool = True,
-        return_suffix_hidden: bool = False,
-    ) -> (
-        tuple[Sequence[at.Float[at.Array, "b _t _d"] | None], KVCache]
-        | tuple[Sequence[at.Float[at.Array, "b _t _d"] | None], KVCache, at.Float[at.Array, "l b _t _d"]]
-    ):
-        """Run all experts through the stacked blocks.
-
-        With ``return_suffix_hidden=True`` a third element is returned: the residual
-        stream of the last expert after every block, stacked as ``[depth, b, t, d]``
-        (element ``m - 1`` is the output of block ``m``, i.e. the input of block
-        ``m + 1``'s pre-attention norm, before the final norm). The last expert must
-        be running (its tokens not None). Training-only: the switch is static, so
-        turning it off leaves the compiled graph untouched.
-        """
+    ) -> tuple[Sequence[at.Float[at.Array, "b _t _d"] | None], KVCache]:
         embedded = jax.tree.map(lambda e: e.astype(self.embed_dtype), embedded)
         mask = jnp.asarray(mask)[:, None, :, :]
         if adarms_cond is None:
             adarms_cond = [None] * len(self.configs)
-        if return_suffix_hidden and embedded[-1] is None:
-            raise ValueError("return_suffix_hidden requires the last expert's tokens; got None")
 
-        embedded, (kv_cache, suffix_hidden) = self.layers(
-            embedded, kv_cache, positions, mask, adarms_cond, deterministic, return_suffix_hidden
-        )
+        embedded, kv_cache = self.layers(embedded, kv_cache, positions, mask, adarms_cond, deterministic)
 
         assert all(e.dtype == jnp.dtype(self.embed_dtype) for e in embedded if e is not None)
 
-        outputs = [
+        return [
             f(e, a)[0] if e is not None else e for f, e, a in zip(self.final_norms, embedded, adarms_cond, strict=True)
-        ]
-        if return_suffix_hidden:
-            return outputs, kv_cache, suffix_hidden
-        return outputs, kv_cache
+        ], kv_cache
 
     def init(self, use_adarms: Sequence[bool]):
         """Convenience method for initializing all parameters, necessary due to the quirks of linen."""

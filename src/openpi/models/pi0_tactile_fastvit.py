@@ -12,19 +12,11 @@ The class subclasses ``Pi0`` and only changes these things:
 
 A small ``_preprocess_observation`` override swaps in the tactile-aware
 preprocess so that the 4 tactile keys are correctly augmented during training.
-
-Optionally (``config.tactile_future_layer`` set) the model also carries a
-training-only Latent Tactile Predictor head, ``tactile_future_head``, that reads
-block ``m``'s residual stream at the action-token positions and regresses the
-future tactile latents supplied in ``Observation.aux_targets``. ``compute_loss``
-then returns a dict of losses instead of one array; see ``_compute_loss_with_ltp``.
-Inference is untouched.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import itertools
 
 import flax.nnx as nnx
 import jax
@@ -33,18 +25,9 @@ import jax.numpy as jnp
 from openpi.models import model as _model
 from openpi.models import pi0
 from openpi.models import pi0_tactile_fastvit_config
-from openpi.models import tactile_future_head as _ltp
-import openpi.models.gemma as _gemma
 from openpi.models.tactile_encoders import build_tactile_encoder
+import openpi.models.gemma as _gemma
 from openpi.shared import array_typing as at
-
-# Names of the entries the LTP head reads from ``Observation.aux_targets``.
-FUTURE_TACTILE_Z = "future_tactile_z"
-FUTURE_TACTILE_MASK = "future_tactile_mask"
-# Edges of the flow-matching time bins that the LTP loss is reported by. Low tau =
-# nearly clean actions in the suffix (action-conditioned prediction); high tau =
-# noise (the head can only use what the action tokens pulled in from prefix/tactile).
-TAC_TIME_BIN_EDGES = (0.0, 0.25, 0.5, 0.75, 1.0)
 
 
 class Pi0TactileFastVit(pi0.Pi0):
@@ -73,27 +56,7 @@ class Pi0TactileFastVit(pi0.Pi0):
         self._tactile_keys: tuple[str, ...] = tuple(config.tactile_image_keys)
         self._num_tactile = len(self._tactile_keys)
 
-        # ---- Latent Tactile Predictor (training-only) ----
-        self._tactile_future_layer = config.tactile_future_layer
-        self._tactile_future_kv = config.tactile_future_kv
-        self._num_future_horizons = len(config.tactile_future_horizons)
-        if config.tactile_future_layer is not None:
-            self.tactile_future_head = _ltp.TactileFuturePredictor(
-                width=action_expert_width,
-                num_horizons=self._num_future_horizons,
-                num_pads=self._num_tactile,
-                out_dim=config.tactile_future_dim,
-                num_heads=config.tactile_future_num_heads,
-                head_dim=config.tactile_future_head_dim,
-                mlp_dim=config.tactile_future_mlp_dim,
-                rngs=rngs,
-            )
-
-    @property
-    def has_tactile_future_head(self) -> bool:
-        return self._tactile_future_layer is not None
-
-    def _preprocess_observation(self, rng, observation, *, train):
+    def _preprocess_observation(self, rng, observation, *, train):  # noqa: D401
         return _model.preprocess_observation_tactile(
             rng,
             observation,
@@ -135,8 +98,12 @@ class Pi0TactileFastVit(pi0.Pi0):
         # but lets XLA fuse a single graph and gives the small depthwise convs
         # a much larger effective batch — the dominant win on H100.
         with jax.named_scope("suffix/tactile/stack"):
-            tactile_imgs = jnp.stack([obs.images[key] for key in self._tactile_keys], axis=1)  # (b, N, h, w, 3)
-            tactile_mask = jnp.stack([obs.image_masks[key] for key in self._tactile_keys], axis=1)  # (b, N)
+            tactile_imgs = jnp.stack(
+                [obs.images[key] for key in self._tactile_keys], axis=1
+            )  # (b, N, h, w, 3)
+            tactile_mask = jnp.stack(
+                [obs.image_masks[key] for key in self._tactile_keys], axis=1
+            )  # (b, N)
             b, n, h, w, c = tactile_imgs.shape
         with jax.named_scope("suffix/tactile/fastvit"):
             feats = self.tactile_encoder(tactile_imgs.reshape(b * n, h, w, c))  # (b*n, feat)
@@ -148,7 +115,9 @@ class Pi0TactileFastVit(pi0.Pi0):
         tactile_ar = jnp.asarray([True] + [False] * (self._num_tactile - 1))
 
         with jax.named_scope("suffix/base"):
-            base_tokens, base_mask, base_ar, adarms_cond = super().embed_suffix(obs, noisy_actions, timestep)
+            base_tokens, base_mask, base_ar, adarms_cond = super().embed_suffix(
+                obs, noisy_actions, timestep
+            )
 
         with jax.named_scope("suffix/concat"):
             tokens = jnp.concatenate([tactile_tokens_arr, base_tokens], axis=1)
@@ -171,97 +140,5 @@ class Pi0TactileFastVit(pi0.Pi0):
 
         return tokens, input_mask, ar_mask, adarms_cond
 
-    def compute_loss(
-        self,
-        rng: at.KeyArrayLike,
-        observation: _model.Observation,
-        actions: _model.Actions,
-        *,
-        train: bool = False,
-    ) -> at.Float[at.Array, "*b ah"] | dict[str, at.Array]:
-        """Flow loss, plus the LTP loss when the head is enabled.
 
-        Without the head this is exactly ``Pi0.compute_loss`` (one ``[b, ah]`` array).
-        With it, returns a dict::
-
-            flow        [b, ah]    per-token flow-matching loss (the main objective)
-            tac         [b, K, S]  per-(sample, horizon, pad) LTP squared error, mean over Z
-            tac_mask    [b, K, S]  which of those entries have a valid future frame
-            tac_by_time [n_bins]   masked mean of ``tac`` per flow-time bin (NaN if empty)
-
-        ``scripts/train.py`` combines ``flow`` and ``tac`` with the configured weight.
-        """
-        if not self.has_tactile_future_head:
-            return super().compute_loss(rng, observation, actions, train=train)
-        if observation.aux_targets is None or FUTURE_TACTILE_Z not in observation.aux_targets:
-            raise ValueError(
-                "tactile_future_layer is set but the batch carries no "
-                f"aux_targets[{FUTURE_TACTILE_Z!r}]. Add InjectTactileFutureLabels to the data config "
-                "(LeRobotBiFlexivTactileDataConfig.tactile_future_labels_path) or disable the head."
-            )
-        preprocess_rng, loss_rng = jax.random.split(rng)
-        with jax.named_scope("loss/preprocess"):
-            observation = self._preprocess_observation(preprocess_rng, observation, train=train)
-        return self._compute_loss_with_ltp(loss_rng, observation, actions)
-
-    def _compute_loss_with_ltp(
-        self,
-        rng: at.KeyArrayLike,
-        observation: _model.Observation,
-        actions: _model.Actions,
-    ) -> dict[str, at.Array]:
-        out = self._flow_forward(rng, observation, actions, return_suffix_hidden=True)
-        suffix_hidden = out["suffix_hidden"]  # [depth, b, s, d]
-        suffix_mask = out["suffix_mask"]  # [b, s]
-
-        # h^(m): the output residual stream of block m (1-based), before block m+1's norm.
-        with jax.named_scope("loss/ltp/select_layer"):
-            hidden = suffix_hidden[self._tactile_future_layer - 1]
-            if self._tactile_future_kv == "action":
-                # The tactile tokens are the first ``num_tactile`` suffix positions; the
-                # action tokens are the last ``action_horizon``. Only the latter may be
-                # read so that the only route to the future is tactile -> action stream.
-                hidden = hidden[:, -self.action_horizon :]
-                key_mask = suffix_mask[:, -self.action_horizon :]
-            else:
-                key_mask = suffix_mask
-
-        with jax.named_scope("loss/ltp/head"):
-            z_hat = self.tactile_future_head(hidden, key_mask)  # [b, K, S, Z]
-
-        with jax.named_scope("loss/ltp/target"):
-            targets = observation.aux_targets
-            z = jax.lax.stop_gradient(jnp.asarray(targets[FUTURE_TACTILE_Z]).astype(jnp.float32))
-            valid = jnp.asarray(targets[FUTURE_TACTILE_MASK]).astype(jnp.bool_)  # [b, K]
-            if z.shape != z_hat.shape:
-                raise ValueError(
-                    f"future_tactile_z has shape {z.shape}, but the LTP head predicts {z_hat.shape}. Check "
-                    "tactile_future_horizons / tactile_future_dim against the label store."
-                )
-            if valid.shape != z.shape[:2]:
-                raise ValueError(f"future_tactile_mask must be [b, K]={z.shape[:2]}, got {valid.shape}")
-            # Mean over Z, so that a zero prediction of a whitened target scores exactly 1.
-            tac = jnp.mean(jnp.square(z_hat - z), axis=-1)  # [b, K, S]
-            tac_mask = jnp.broadcast_to(valid[:, :, None], tac.shape)
-            tac_by_time = _masked_mean_by_bins(tac, tac_mask, out["time"], TAC_TIME_BIN_EDGES)
-
-        return {"flow": out["loss"], "tac": tac, "tac_mask": tac_mask, "tac_by_time": tac_by_time}
-
-
-def _masked_mean_by_bins(values: at.Array, mask: at.Array, time: at.Array, edges: tuple[float, ...]) -> at.Array:
-    """Masked mean of ``values`` [b, ...] over the samples whose ``time`` [b] falls in each ``(lo, hi]``.
-
-    Returns one entry per bin (``len(edges) - 1``), NaN where a bin has no valid entry.
-    """
-    flat_values = values.reshape(values.shape[0], -1)
-    flat_mask = mask.reshape(mask.shape[0], -1).astype(jnp.float32)
-    means = []
-    for lo, hi in itertools.pairwise(edges):
-        in_bin = ((time > lo) & (time <= hi)).astype(jnp.float32)[:, None]
-        weight = flat_mask * in_bin
-        count = jnp.sum(weight)
-        means.append(jnp.where(count > 0, jnp.sum(flat_values * weight) / jnp.maximum(count, 1.0), jnp.nan))
-    return jnp.stack(means)
-
-
-__all__ = ["FUTURE_TACTILE_MASK", "FUTURE_TACTILE_Z", "TAC_TIME_BIN_EDGES", "Pi0TactileFastVit"]
+__all__ = ["Pi0TactileFastVit"]

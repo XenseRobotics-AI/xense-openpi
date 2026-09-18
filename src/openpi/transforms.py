@@ -1,7 +1,5 @@
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
-import json
-import pathlib
 import re
 from typing import Protocol, TypeAlias, TypeVar, runtime_checkable
 
@@ -244,10 +242,9 @@ def fit_square(image: np.ndarray, size: int, mode: str) -> np.ndarray:
 
     "pad" is `resize_with_pad`, what every other camera uses. For a 400x700
     tactile frame that keeps the aspect ratio but spends 43% of the result on
-    black bars and throws away 3.1x of vertical resolution, which measurably
-    costs discriminability (see docs/tactile-ignored-experiment.md B3). The other
-    two modes trade differently: "center_crop" keeps resolution and drops the
-    left/right thirds of the gel, "stretch" keeps the whole gel and distorts it.
+    black bars and reduces vertical resolution. "center_crop" keeps resolution
+    and drops the left/right thirds of the gel; "stretch" keeps the whole gel
+    and distorts it.
     """
     if mode == "pad":
         return np.asarray(image_tools.resize_with_pad(image[None], size, size)[0])
@@ -271,19 +268,8 @@ def fit_square(image: np.ndarray, size: int, mode: str) -> np.ndarray:
 class TactileDifference(DataTransformFn):
     """Replace each tactile image with its gain-scaled difference from a reference frame.
 
-    A gel sensor encodes load as marker displacement against its own undeformed
-    appearance, and that appearance drifts between recording sessions. A single
-    absolute frame therefore separates the two bottles barely better than chance
-    (linear probe 0.58 vs a 0.556 baseline), while the difference against the
-    episode's undeformed reference reaches 0.88 -- see
-    docs/tactile-ignored-experiment.md section 8.4.
-
-    The raw difference is tiny (mean |d| ~ 0.01 in [-1, 1] units), so it is scaled
-    by `gain` before clipping: feeding it unscaled hands the encoder a near
-    constant grey image, which is exactly the collapse this transform exists to
-    fix. gain=16 puts the contact-time std at 0.24 -- natural-image territory --
-    while keeping a 3.3x std ratio between gripping and not gripping and
-    saturating under 3% of pixels.
+    Subtracting the undeformed reference removes the sensor baseline. The gain
+    scales the small deformation signal before clipping to the image range.
 
     Runs in both training and serving, so `ref_suffix` keys must be present in
     both. Missing references raise: zero-filling them is what silently disabled
@@ -362,117 +348,6 @@ class InjectTactileReference(DataTransformFn):
             raise IndexError(f"episode {episode} out of range for reference store of {len(store)} episodes")
         for i, name in enumerate(self.camera_names):
             data["images"][f"{name}{self.ref_suffix}"] = np.asarray(store[episode, i])
-        return data
-
-
-@dataclasses.dataclass(frozen=True)
-class InjectTactileFutureLabels(DataTransformFn):
-    """Attach the future-tactile targets of the Latent Tactile Predictor. Training only.
-
-    Writes ``data["aux_targets"] = {"future_tactile_z": [K, S, Z] float32,
-    "future_tactile_mask": [K] bool}`` for the frame ``t`` of episode ``e``: entry
-    ``i`` is the target for frame ``t + horizons[i]`` and is valid iff that frame is
-    still inside the episode. Invalid entries are zero.
-
-    Belongs in ``repack_transforms`` next to ``InjectTactileReference``: serving does
-    not run repack, so a deployed policy never sees these keys.
-
-    The label store is the directory ``scripts/compute_tactile_future_labels.py``
-    writes for one dataset:
-
-    * ``meta.json``          horizons the pixel RMS was computed for, ``num_pads``, dims
-    * ``episode_offsets.npy``  int64 ``[num_episodes + 1]``; episode ``e`` owns global
-                               frames ``offsets[e]:offsets[e+1]`` in ``frame_index`` order
-    * ``z_tac.npy``          float16 ``[num_frames, S, Z]``, PCA-whitened frozen-encoder
-                             latents (``target="latent"``, the main objective)
-    * ``pixel_field.npy``    uint8 ``[num_frames, S, 16, 16, 3]`` centre-cropped
-                             down-sampled frames (``target="pixel_delta"``: the target
-                             is ``(D(T_{t+k}) - D(T_t)) / rms_k`` flattened to 768)
-
-    Both arrays are memory-mapped lazily inside each dataloader worker so the page
-    cache holds one copy. When the item carries LeRobot's global ``index`` the
-    transform checks it against ``offsets[e] + t`` so a store built for a different
-    dataset or episode order fails loudly instead of teaching the wrong future.
-    """
-
-    labels_dir: str
-    horizons: Sequence[int]
-    target: str = "latent"
-    episode_key: str = "episode_index"
-    frame_key: str = "frame_index"
-    index_key: str = "index"
-    _cache: dict = dataclasses.field(default_factory=dict, compare=False, repr=False)
-
-    def __post_init__(self) -> None:
-        if self.target not in ("latent", "pixel_delta"):
-            raise ValueError(f"target must be 'latent' or 'pixel_delta', got {self.target!r}")
-        if not self.horizons or any(int(k) <= 0 for k in self.horizons):
-            raise ValueError(f"horizons must be positive frame offsets, got {list(self.horizons)}")
-
-    def _store(self) -> dict:
-        if not self._cache:
-            root = pathlib.Path(self.labels_dir).expanduser()
-            meta = json.loads((root / "meta.json").read_text())
-            store = {
-                "offsets": np.load(root / "episode_offsets.npy"),
-                "num_pads": int(meta["num_pads"]),
-            }
-            if self.target == "latent":
-                store["z"] = np.load(root / "z_tac.npy", mmap_mode="r")
-            else:
-                store["field"] = np.load(root / "pixel_field.npy", mmap_mode="r")
-                rms = {int(k): np.asarray(v, dtype=np.float32) for k, v in meta["y_delta_rms"].items()}
-                missing = [int(k) for k in self.horizons if int(k) not in rms]
-                if missing:
-                    raise ValueError(
-                        f"pixel_delta RMS for horizons {missing} is not in {root / 'meta.json'}; "
-                        f"the store was built for {sorted(rms)}"
-                    )
-                store["rms"] = rms
-            self._cache.update(store)
-        return self._cache
-
-    def __call__(self, data: DataDict) -> DataDict:
-        for key in (self.episode_key, self.frame_key):
-            if key not in data:
-                raise ValueError(
-                    f"InjectTactileFutureLabels needs {key!r} in the repacked data. Add it to the "
-                    f"RepackTransform structure. Got {sorted(data)}"
-                )
-        episode = int(np.asarray(data[self.episode_key]).reshape(-1)[0])
-        frame = int(np.asarray(data[self.frame_key]).reshape(-1)[0])
-        store = self._store()
-        offsets = store["offsets"]
-        if not 0 <= episode < len(offsets) - 1:
-            raise IndexError(f"episode {episode} out of range for a label store of {len(offsets) - 1} episodes")
-        start, end = int(offsets[episode]), int(offsets[episode + 1])
-        if not 0 <= frame < end - start:
-            raise IndexError(f"frame {frame} out of range for episode {episode} of {end - start} frames")
-        if self.index_key in data:
-            index = int(np.asarray(data[self.index_key]).reshape(-1)[0])
-            if index != start + frame:
-                raise ValueError(
-                    f"label store disagrees with the dataset: episode {episode} frame {frame} is global index "
-                    f"{index} in the dataset but {start + frame} in {self.labels_dir}"
-                )
-
-        horizons = [int(k) for k in self.horizons]
-        mask = np.array([frame + k < end - start for k in horizons], dtype=bool)
-        if self.target == "latent":
-            z_store = store["z"]
-            z = np.zeros((len(horizons), *z_store.shape[1:]), dtype=np.float32)
-            for i, k in enumerate(horizons):
-                if mask[i]:
-                    z[i] = z_store[start + frame + k]
-        else:
-            field = store["field"]
-            current = field[start + frame].astype(np.float32) / 255.0  # [S, h, w, 3]
-            z = np.zeros((len(horizons), field.shape[1], int(np.prod(field.shape[2:]))), dtype=np.float32)
-            for i, k in enumerate(horizons):
-                if mask[i]:
-                    delta = field[start + frame + k].astype(np.float32) / 255.0 - current
-                    z[i] = (delta / store["rms"][k][:, None, None, None]).reshape(z.shape[1], -1)
-        data["aux_targets"] = {"future_tactile_z": z, "future_tactile_mask": mask}
         return data
 
 

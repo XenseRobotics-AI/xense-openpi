@@ -1,9 +1,6 @@
-from collections.abc import Mapping
 import dataclasses
-import re
 from typing import Protocol, runtime_checkable
 
-import jax
 import jax.numpy as jnp
 import optax
 
@@ -106,50 +103,7 @@ class SGD(OptimizerConfig):
 
 
 def create_optimizer(
-    optimizer: OptimizerConfig,
-    lr_schedule: LRScheduleConfig,
-    weight_decay_mask: at.PyTree | None = None,
-    lr_scales: Mapping[str, float] | None = None,
+    optimizer: OptimizerConfig, lr_schedule: LRScheduleConfig, weight_decay_mask: at.PyTree | None = None
 ) -> optax.GradientTransformation:
-    """Build the optimizer, optionally with per-parameter-group learning-rate multipliers.
-
-    ``lr_scales`` maps a regex over the ``/``-joined parameter path (e.g.
-    ``".*tactile_future_head.*"``) to a multiplier applied to that group's update after
-    the base optimizer, i.e. an effective learning rate of ``peak_lr * scale``. A
-    parameter matched by several patterns gets the product. Adam-type optimizers
-    are invariant to gradient scale, so scaling the *update* is the only way to give
-    a group its own LR without a second optimizer state.
-    """
     lr = lr_schedule.create()
-    tx = optimizer.create(lr, weight_decay_mask=weight_decay_mask)
-    for pattern, scale in (lr_scales or {}).items():
-        if scale <= 0:
-            raise ValueError(f"lr scale for {pattern!r} must be positive, got {scale}")
-        tx = optax.chain(tx, optax.masked(optax.scale(scale), _path_mask_fn(pattern)))
-    return tx
-
-
-def _path_mask_fn(pattern: str):
-    """Return ``params -> bool pytree`` that is True where the joined param path fullmatches ``pattern``."""
-    compiled = re.compile(pattern)
-
-    def mask(tree: at.PyTree) -> at.PyTree:
-        return jax.tree_util.tree_map_with_path(lambda path, _: compiled.fullmatch(join_path(path)) is not None, tree)
-
-    return mask
-
-
-def join_path(path) -> str:
-    """``/``-join the dict/attr/sequence keys of a jax key path; the nnx ``.value`` leaf is dropped."""
-    parts = []
-    for entry in path:
-        if isinstance(entry, jax.tree_util.DictKey):
-            parts.append(str(entry.key))
-        elif isinstance(entry, jax.tree_util.GetAttrKey):
-            if entry.name != "value":
-                parts.append(entry.name)
-        elif isinstance(entry, jax.tree_util.SequenceKey):
-            parts.append(str(entry.idx))
-        else:
-            parts.append(str(entry))
-    return "/".join(parts)
+    return optimizer.create(lr, weight_decay_mask=weight_decay_mask)

@@ -4,13 +4,7 @@
 # only intended differences are the tactile input representation and the resize
 # mode, so the two runs can be compared directly.
 #
-# Rationale (docs/tactile-ignored-experiment.md):
-#   - The previous run's tactile encoder collapsed: contact vs no-contact came
-#     out at 1.011x token separation, below frame-to-frame jitter.
-#   - A linear probe on the raw frame reaches 0.58 against a 0.556 baseline; on
-#     (frame - episode reference) it reaches 0.88 under a block-held-out split.
-#   - So the encoder is handed the deformation directly instead of being asked to
-#     infer it from an absolute image whose baseline drifts every session.
+# Subtract the episode reference to remove the sensor baseline.
 
 model:
   type: Pi0TactileFastVitConfig
@@ -44,8 +38,6 @@ data:
   tactile_ref_path: assets/tactile_refs/bottle-sorting-0810.npy
   # Unscaled the difference is ~0.01 mean|d| — a flat grey image. Too high and
   # clipping eats the deformation magnitude that distinguishes full from empty.
-  # Gain sweep through the real pipeline (held-out probe / std@grasp+45 / %sat):
-  #   1 -> 0.887 / 0.07 / 0%   8 -> 0.881 / 0.27 / 4.4%   32 -> 0.838 / 0.49 / 17%
   tactile_gain: 8.0
   # Not "pad": resize_with_pad spends 43% of a tactile frame on black bars and
   # drops 3.1x of vertical resolution. The inference client must match this.

@@ -12,14 +12,11 @@ model:
   max_token_len: 200
   pi05: true
   discrete_state_input: true
-  enable_training_time_rtc: false
+  enable_training_time_rtc: true
   # RTC delay window in steps; 10 steps = 333 ms @ 30 fps, which matches this
   # dataset's fps. Left at the default, spelled out because it only has meaning
   # when enable_training_time_rtc is true.
   max_delay: 10
-  batch_image_views: true
-  use_cudnn_attention: true
-  cudnn_attention_dtype: float16
   # ---- tactile branch ----
   tactile_encoder_name: fastvit_t12
   # Flax weights produced by scripts/convert_fastvit_torch_to_flax.py. `~` is
@@ -59,7 +56,6 @@ data:
   repo_id: Xense/bottle-sorting-0810
   base_config:
     prompt_from_task: true
-    tactile: true
   default_prompt: Pick up the bottle, and place it in the far bin if it is heavy, or in the near bin if it is light.
 
 # The default CosineDecaySchedule decays over 30k steps, so with num_train_steps
@@ -67,16 +63,14 @@ data:
 # num_train_steps.
 lr_schedule:
   type: CosineDecaySchedule
-  warmup_steps: 5000
+  warmup_steps: 1000
   peak_lr: 2.5e-5
-  decay_steps: 80000
+  decay_steps: 60000
   decay_lr: 2.5e-6
 
 batch_size: 256
 num_workers: 64
-num_train_steps: 80000
-log_interval: 100
+num_train_steps: 60000
 fsdp_devices: 8
 save_interval: 10000
 keep_period: 10000
-strict_batch_order: false

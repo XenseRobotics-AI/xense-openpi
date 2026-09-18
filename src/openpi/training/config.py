@@ -517,66 +517,9 @@ def tactile_column(arm: str, index: int) -> _transforms.AliasKey:
     )
 
 
-def with_tactile_future_labels(
-    repack: _transforms.Group,
-    model_config: _model.BaseModelConfig,
-    labels_path: str | None,
-    target: str,
-) -> _transforms.Group:
-    """Append the future-tactile label lookup to a repack group when the model wants it.
-
-    The LTP head (``tactile_future_layer``) needs ``aux_targets`` in every training
-    batch, so a head without a label store is a config error caught here rather than
-    at the first train step. A label store without a head is allowed (probes use it).
-    """
-    head_enabled = getattr(model_config, "tactile_future_layer", None) is not None
-    if labels_path is None:
-        if head_enabled:
-            raise ValueError(
-                "model.tactile_future_layer is set, so the data config needs tactile_future_labels_path "
-                "(run scripts/compute_tactile_future_labels.py first)"
-            )
-        return repack
-    horizons = tuple(getattr(model_config, "tactile_future_horizons", ()))
-    if not horizons:
-        raise ValueError(f"{type(model_config).__name__} has no tactile_future_horizons; use Pi0TactileFastVitConfig")
-    if head_enabled:
-        expected_dim = 256 if target == "latent" else 16 * 16 * 3
-        if model_config.tactile_future_dim != expected_dim:
-            logging.warning(
-                "tactile_future_dim=%d but target %r usually has %d dims; make sure the label store matches",
-                model_config.tactile_future_dim,
-                target,
-                expected_dim,
-            )
-    first, *rest = repack.inputs
-    if not isinstance(first, _transforms.RepackTransform):
-        raise TypeError("expected the first repack transform to be a RepackTransform")
-    # episode/frame indices key the lookup; LeRobot's global `index` lets the transform
-    # verify the store was built for this dataset.
-    repacked = _transforms.RepackTransform(
-        {
-            **first.structure,
-            "episode_index": "episode_index",
-            "frame_index": "frame_index",
-            "index": "index",
-        }
-    )
-    inject = _transforms.InjectTactileFutureLabels(labels_dir=labels_path, horizons=horizons, target=target)
-    return _transforms.Group(inputs=[repacked, *rest, inject], outputs=repack.outputs)
-
-
 @dataclasses.dataclass(frozen=True)
 class LeRobotBiFlexivTactileDataConfig(LeRobotBiFlexivDataConfig):
     """BiFlexiv data config with four tactile camera streams."""
-
-    # Directory written by scripts/compute_tactile_future_labels.py for this repo_id.
-    # Required when the model enables the LTP head (model.tactile_future_layer); see
-    # transforms.InjectTactileFutureLabels for the layout.
-    tactile_future_labels_path: str | None = None
-    # "latent": PCA-whitened frozen-FastViT latents (main). "pixel_delta": 16x16 pixel
-    # change field (the target control); set model.tactile_future_dim to 768 with it.
-    tactile_future_target: str = "latent"
 
     repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
         default=_transforms.Group(
@@ -614,12 +557,9 @@ class LeRobotBiFlexivTactileDataConfig(LeRobotBiFlexivDataConfig):
                 outputs=[_transforms.AbsoluteActions(delta_action_mask)],
             )
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
-        repack = with_tactile_future_labels(
-            self.repack_transforms, model_config, self.tactile_future_labels_path, self.tactile_future_target
-        )
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),
-            repack_transforms=repack,
+            repack_transforms=self.repack_transforms,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,
@@ -634,11 +574,7 @@ class LeRobotBiFlexivTactileDiffDataConfig(LeRobotBiFlexivTactileDataConfig):
     The reference is frame 0 of the episode, precomputed into a memory-mapped
     store by ``scripts/compute_tactile_refs.py``.
 
-    Why: a gel sensor's undeformed appearance drifts between recording sessions,
-    so an absolute frame separates the heavy and light bottle barely above the
-    majority-class baseline (linear probe 0.58 vs 0.556) while the difference
-    reaches 0.88 under a block-held-out split. See
-    docs/tactile-ignored-experiment.md section 8.
+    Subtracting the reference removes the sensor baseline between recording sessions.
 
     The reference injection sits in ``repack_transforms`` on purpose: serving runs
     ``data_transforms`` but not repack, and when serving the reference comes off
@@ -648,15 +584,7 @@ class LeRobotBiFlexivTactileDiffDataConfig(LeRobotBiFlexivTactileDataConfig):
 
     # Written by scripts/compute_tactile_refs.py. Required.
     tactile_ref_path: str = tyro.MISSING
-    # Scales the difference before clipping. Unscaled, mean |d| is ~0.01 in
-    # [-1, 1] units -- effectively a flat grey image, which is the collapse this
-    # whole transform exists to avoid. Too high is also bad: clipping compresses
-    # deformation *magnitude*, and magnitude is exactly what separates the full
-    # bottle from the empty one. Measured end-to-end (see
-    # docs/tactile-ignored-experiment.md section 8.5), held-out probe accuracy is
-    # flat at 0.88 for gain 1-8 and decays past 16, while std at peak deformation
-    # climbs 0.07 -> 0.27 -> 0.49. 8 is the knee: clear of flat grey, only 4.4%
-    # of pixels saturated, separability statistically tied with the maximum.
+    # Scale small deformations before clipping to the image range.
     tactile_gain: float = 8.0
     # How a 400x700 tactile frame becomes 224x224. "pad" matches the visual
     # cameras but spends 43% of the result on black bars; "center_crop" keeps
@@ -688,9 +616,6 @@ class LeRobotBiFlexivTactileDiffDataConfig(LeRobotBiFlexivTactileDataConfig):
                     camera_names=policy_names,
                 ),
             ]
-        )
-        repack = with_tactile_future_labels(
-            repack, model_config, self.tactile_future_labels_path, self.tactile_future_target
         )
 
         data_transforms = _transforms.Group(
@@ -877,21 +802,6 @@ class TrainConfig:
 
     # Specifies which weights should be frozen.
     freeze_filter: tyro.conf.Suppress[Filter] = dataclasses.field(default_factory=nnx.Nothing)
-
-    # Per-parameter-group learning-rate multipliers: regex over the `/`-joined parameter
-    # path -> factor on top of `lr_schedule`. Used for the LTP head (`.*tactile_future_head.*`:
-    # 4.0 turns a 2.5e-5 peak into 1e-4) and for a slow tactile encoder
-    # (`.*tactile_encoder.*`: 0.1). See optimizer.create_optimizer.
-    param_lr_scales: dict[str, float] = dataclasses.field(default_factory=dict)
-
-    # Weight `lambda` of the auxiliary loss for models whose compute_loss returns a dict
-    # (`flow + lambda * tac`, Pi0TactileFastVit with tactile_future_layer set). Ignored
-    # otherwise. Ramps linearly from 0 over `aux_loss_warmup_steps` steps (0 = no ramp).
-    aux_loss_weight: float = 1.0
-    aux_loss_warmup_steps: int = 1000
-    # On logging steps, also measure r_g = |grad tac| / |grad flow| over the action
-    # expert's blocks 1..m (target 0.1-0.5). One extra forward/backward per log step.
-    log_aux_grad_ratio: bool = False
 
     # Determines the data to be trained on.
     data: DataConfigFactory = dataclasses.field(default_factory=FakeDataConfig)
