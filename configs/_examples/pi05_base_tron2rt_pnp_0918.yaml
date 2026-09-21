@@ -1,0 +1,21 @@
+model:
+  type: Pi0Config
+  pi05: true
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotTron2DataConfig
+  # Uses the local LeRobot cache under ~/.cache/huggingface/lerobot/.
+  repo_id: Xense/tron2rt-pnp-0918
+  use_delta_cartesian_actions: true
+  base_config:
+    prompt_from_task: true
+    # The four tactile streams are not consumed by this policy.
+    tactile: false
+# Adjust these training settings to the target hardware.
+batch_size: 32
+num_workers: 8
+num_train_steps: 30000
+fsdp_devices: 1

@@ -490,6 +490,40 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotTron2DataConfig(LeRobotBiFlexivDataConfig):
+    """TRON2 dual-arm Cartesian datasets with grippers and no head joints.
+
+    The 20D state/action layout matches BiFlexiv exactly: left TCP (0:9),
+    right TCP (9:18), then left/right grippers (18:20). Reuse its policy
+    transforms and delta encoding (TCP relative, grippers absolute).
+
+    Xense/tron2rt-pnp-0918 records top, left_wrist and right_wrist cameras;
+    map top to the policy's head input. The plain tron2 driver's default
+    left/right camera names require a custom repack_transforms override.
+    Optional head joints and gripper-less recordings are not supported.
+    """
+
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "head": "observation.images.top",
+                            "left_wrist": "observation.images.left_wrist",
+                            "right_wrist": "observation.images.right_wrist",
+                        },
+                        "state": "observation.state",
+                        "actions": "action",
+                        "prompt": "task",
+                    }
+                )
+            ]
+        )
+    )
+
+
+@dataclasses.dataclass(frozen=True)
 class LeRobotDobotNova5DataConfig(DataConfigFactory):
     """Data config for the single right-arm Dobot Nova5 DH in LeRobot format.
 
