@@ -2,7 +2,13 @@
 # sending them to the robot.
 #   python -m examples.tron2_rt.main --args.run dry-run --args.host <server>
 
+robot_recipe: default
 dry_run: true
 
 host: localhost
 port: 8000
+
+runtime_hz: 30.0
+num_episodes: 1
+max_episode_steps: 200
+log_level: DEBUG

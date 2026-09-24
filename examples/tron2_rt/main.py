@@ -4,25 +4,36 @@
 Drives the lerobot ``Tron2RT`` driver (native 300 Hz joint publisher with
 Cartesian waypoint streaming) against a policy served from e.g.
 ``configs/_examples/pi05_base_tron2rt_pnp_0918.yaml``. The bench is described by
-``Tron2RTConfig`` defaults (robot IP, Bridge camera host, start joints, TacCap
-grippers); the flags below override the few knobs that change between runs.
+the recipe selected by ``--args.robot-recipe`` (robot IP, Bridge camera host,
+start joints, TacCap grippers); the flags below override the few knobs that
+change between runs. With no recipe, ``Tron2RTConfig`` defaults are used.
 
 --args.run picks a run YAML from runs/, which presets any of the flags below.
 Flags still override the file. See examples/run_config.py.
 
 Example usage:
-    # Serve the policy (GPU machine)
-    uv run scripts/serve_policy.py policy:checkpoint \\
-        --policy.config=pi05_base_tron2rt_pnp_0918 --policy.dir=<checkpoint_dir>
 
-    # Basic inference
-    python -m examples.tron2_rt.main --args.host 192.168.2.100 --args.port 8000
+# Serve the policy (GPU machine)
+uv run scripts/serve_policy.py policy:checkpoint \\
+    --policy.config=pi05_base_tron2rt_pnp_0918 --policy.dir=<checkpoint_dir>
 
-    # Dry run (robot connected but actions not sent)
-    python -m examples.tron2_rt.main --args.run dry-run --args.host 192.168.2.100
+# Basic inference
+python -m examples.tron2_rt.main --args.robot-recipe default \
+    --args.host 192.168.2.100 --args.port 8000
 
-    # Override the prompt sent to the server
-    python -m examples.tron2_rt.main --args.host 192.168.2.100 --args.prompt "Put the block into the box"
+# Dry run (robot connected but actions not sent)
+python -m examples.tron2_rt.main --args.robot-recipe default \
+    --args.run dry-run --args.host 192.168.2.100
+
+# Override the prompt sent to the server
+python -m examples.tron2_rt.main --args.host 192.168.2.100 --args.prompt "Put the block into the box"
+
+
+python -m examples.tron2_rt.main \
+    --args.robot-recipe default \
+    --args.host <policy-server-ip> \
+    --args.port 8000 \
+    --args.dry-run
 """
 
 from dataclasses import dataclass
@@ -43,6 +54,7 @@ from xense_client.runtime.agents import policy_agent as _policy_agent
 
 import examples.run_config as _run_config
 import examples.tron2_rt.env as _env
+import examples.tron2_rt.recipe as _recipe
 
 logger = get_logger("Tron2RTMain")
 
@@ -129,6 +141,11 @@ class Args:
     # examples/tron2_rt/runs/; a path loads any YAML.
     run: str | None = None
 
+    # Which physical bench recipe to load. A name resolves against
+    # examples/tron2_rt/recipes/; a path loads any recipe YAML. When omitted,
+    # the Tron2RTConfig defaults are used for backwards compatibility.
+    robot_recipe: str | None = None
+
     # Policy server
     host: str = "localhost"
     port: int = 8000
@@ -137,8 +154,8 @@ class Args:
     prompt: str | None = None
 
     # Robot (overrides on top of Tron2RTConfig defaults)
-    robot_ip: str = "10.192.1.2"
-    camera_host: str = "10.192.1.4"
+    robot_ip: str | None = None
+    camera_host: str | None = None
     go_to_start: bool = True
     # Return to the start pose on exit (Ctrl+C / end of run).
     reset_on_disconnect: bool = True
@@ -170,20 +187,33 @@ class Args:
 
 
 def make_robot_config(args: Args) -> Tron2RTConfig:
-    return Tron2RTConfig(
-        robot_ip=args.robot_ip,
-        camera_host=args.camera_host,
-        go_to_start=args.go_to_start,
-        reset_on_disconnect=args.reset_on_disconnect,
-        gripper=TaccapFollowerConfig(enable_tactile=args.enable_tactile),
-        use_tool_calibration=args.use_tool_calibration,
-        tool_calibration_path=pathlib.Path(args.tool_calibration_path) if args.tool_calibration_path else None,
-        log_level=args.log_level,
-    )
+    overrides = {
+        "robot_ip": args.robot_ip,
+        "camera_host": args.camera_host,
+        "go_to_start": args.go_to_start,
+        "reset_on_disconnect": args.reset_on_disconnect,
+        "enable_tactile": args.enable_tactile,
+        "use_tool_calibration": args.use_tool_calibration,
+        "tool_calibration_path": pathlib.Path(args.tool_calibration_path) if args.tool_calibration_path else None,
+        "log_level": args.log_level,
+    }
+    if args.robot_recipe is not None:
+        return _recipe.load_robot_config(args.robot_recipe, **overrides)
+
+    # Preserve the original no-recipe behavior: Tron2RTConfig supplies the
+    # network, startup pose, camera and TacCap defaults, while the CLI flags
+    # below still override the run-tunable fields.
+    robot_kwargs = {key: value for key, value in overrides.items() if value is not None and key != "enable_tactile"}
+    robot_kwargs["gripper"] = TaccapFollowerConfig(enable_tactile=args.enable_tactile)
+    return Tron2RTConfig(**robot_kwargs)
 
 
 def main(args: Args) -> None:
     logger.info(_run_config.describe(args, Args, RUNS_DIR))
+
+    if args.robot_recipe is not None:
+        recipe_path = _recipe.resolve_recipe_path(args.robot_recipe)
+        logger.info(f"Robot recipe: {recipe_path}")
 
     # Build (and validate) the robot config before connecting: the websocket
     # client blocks until the policy server answers.
