@@ -1,0 +1,8 @@
+# Bench check: connect to TRON2, run the policy, print the actions instead of
+# sending them to the robot.
+#   python -m examples.tron2_rt.main --args.run dry-run --args.host <server>
+
+dry_run: true
+
+host: localhost
+port: 8000
