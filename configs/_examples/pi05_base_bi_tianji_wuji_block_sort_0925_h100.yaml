@@ -34,11 +34,11 @@ lr_schedule:
   peak_lr: 5.0e-05
   decay_steps: 60000
   decay_lr: 5.0e-07
-batch_size: 512
-num_workers: 96
+batch_size: 256
+num_workers: 64
 num_train_steps: 60000
-save_interval: 5000
-keep_period: 5000
+save_interval: 10000
+keep_period: 10000
 fsdp_devices: 8
 project_name: Tacxense-hubo
 strict_batch_order: false

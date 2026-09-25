@@ -1,0 +1,8 @@
+robot_recipe: block-sort
+host: localhost
+port: 8000
+dry_run: true
+reset_on_start: false
+runtime_hz: 30
+action_horizon: 50
+max_episode_steps: 100

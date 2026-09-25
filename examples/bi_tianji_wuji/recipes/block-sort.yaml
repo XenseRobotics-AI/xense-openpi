@@ -1,0 +1,52 @@
+# Based on lerobot-xensehand's Tianji/Wuji grasp_demo recording bench.
+# Verify camera serials, TCP and home pose against the actual training bench.
+robot:
+  type: tianji_arm_wuji
+  robot_ip: 192.168.50.190
+  connect_wuji: true
+  wuji_hand_type: both
+  wuji_left_ip: "192.168.50.110:7447"
+  wuji_right_ip: "192.168.50.111:7447"
+  wuji_kp: 3.0
+  wuji_kd: 0.1
+  wuji_current_limit: 1.5
+  wuji_command_hz: 500
+  wuji_return_to_zero_on_disconnect: false
+  go_home_on_connect: false
+  control_hz: 30
+  command_timeout_s: 0.5
+  native_planner_hz: 300
+  native_io_hz: 1000
+  max_tcp_linear_velocity_m_s: 0.5
+  max_tcp_angular_velocity_rad_s: 1.0
+  left_tool_kine: &tool_kine [0.0, 0.0, -80.0, 0.0, 0.0, 0.0]
+  right_tool_kine: *tool_kine
+  left_tool_dyn: &tool_dyn
+    [1.0508684980857583, 15.455999474038974, -17.47255150800114, 156.2427762185974,
+     0.05683711399900849, 0.0, 0.0, 0.05875079306738924, 0.0, 0.0014650212761514636]
+  right_tool_dyn: *tool_dyn
+  cameras:
+    head:
+      type: intelrealsense
+      serial_number_or_name: "834412071827"
+      fps: 30
+      width: 640
+      height: 480
+      warmup_s: 1
+      use_depth: false
+    left_wrist:
+      type: intelrealsense
+      serial_number_or_name: "262622275268"
+      fps: 30
+      width: 640
+      height: 480
+      warmup_s: 1
+      use_depth: false
+    right_wrist:
+      type: intelrealsense
+      serial_number_or_name: "262622270932"
+      fps: 30
+      width: 640
+      height: 480
+      warmup_s: 1
+      use_depth: false
