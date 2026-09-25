@@ -1,3 +1,4 @@
+import math
 import time
 from typing import override
 
@@ -21,7 +22,11 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
         host: str = "0.0.0.0",
         port: int | None = None,
         api_key: str | None = None,
+        request_timeout_s: float | None = None,
     ) -> None:
+        if request_timeout_s is not None and (not math.isfinite(request_timeout_s) or request_timeout_s <= 0):
+            raise ValueError("request_timeout_s must be finite and positive")
+        self._request_timeout_s = request_timeout_s
         self._uri = f"ws://{host}"
         if port is not None:
             self._uri += f":{port}"
@@ -43,7 +48,11 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
                     max_size=None,
                     additional_headers=headers,
                 )
-                metadata = msgpack_numpy.unpackb(conn.recv())
+                try:
+                    metadata = msgpack_numpy.unpackb(conn.recv(timeout=self._request_timeout_s))
+                except BaseException:
+                    conn.close()
+                    raise
                 return conn, metadata
             except ConnectionRefusedError:
                 logger.info("Still waiting for server...")
@@ -57,7 +66,12 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
 
         data = self._packer.pack(obs)
         self._ws.send(data)
-        response = self._ws.recv()
+        try:
+            response = self._ws.recv(timeout=self._request_timeout_s)
+        except TimeoutError:
+            # A late reply must never become the next observation's action.
+            self._ws.close()
+            raise
         if isinstance(response, str):
             # we're expecting bytes; if the server sends a string, it's an error.
             raise RuntimeError(f"Error in inference server:\n{response}")
@@ -66,3 +80,7 @@ class WebsocketClientPolicy(_base_policy.BasePolicy):
     @override
     def reset(self) -> None:
         pass
+
+    def disconnect(self) -> None:
+        """Close the transport."""
+        self._ws.close()

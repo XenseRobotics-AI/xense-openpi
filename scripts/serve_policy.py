@@ -103,7 +103,10 @@ def create_policy(args: Args) -> _policy.Policy:
 
 def main(args: Args) -> None:
     policy = create_policy(args)
-    policy_metadata = policy.metadata
+    policy_metadata = dict(policy.metadata)
+    if isinstance(args.policy, Checkpoint):
+        # Robot clients log this and refuse to run against the wrong training config.
+        policy_metadata.update(config=args.policy.config, checkpoint_dir=args.policy.dir)
 
     # Record the policy's behavior.
     if args.record:
