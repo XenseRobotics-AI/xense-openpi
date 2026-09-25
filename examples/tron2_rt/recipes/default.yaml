@@ -7,6 +7,11 @@
 #
 #   python -m examples.tron2_rt.main \
 #       --args.robot-recipe default --args.host <policy-server-ip>
+#
+# Requires the Tron2RT driver from XenseRobotics-AI/lerobot-tron2 branch
+# `feat/taccap_web` (not yet on main): `taccap_remote_url` and
+# `taccap_remote_auto_enable` below only exist there, and draccus rejects them
+# against the main-branch Tron2RTConfig.
 
 robot:
   type: tron2_rt

@@ -183,12 +183,15 @@ class Tron2RTEnvironment(_environment.Environment):
         return action_dict
 
     def disconnect(self) -> None:
-        if self.robot.is_connected:
-            # reset_on_disconnect (default True) returns the robot to the start pose.
-            logger.info("Disconnecting TRON2 RT...")
-            try:
-                self.robot.disconnect()
-                time.sleep(0.5)
-                logger.info("TRON2 RT disconnected")
-            except Exception as e:
-                logger.warn(f"Error during disconnect: {e}")
+        # Not gated on robot.is_connected: that aggregate is False as soon as a
+        # camera or gripper is unhealthy, which is exactly when the arm still
+        # needs its safe reset and RT shutdown. Tron2RT.disconnect() is a no-op
+        # when nothing is connected. reset_on_disconnect (default True) returns
+        # the robot to the start pose.
+        logger.info("Disconnecting TRON2 RT...")
+        try:
+            self.robot.disconnect()
+            time.sleep(0.5)
+            logger.info("TRON2 RT disconnected")
+        except Exception as e:
+            logger.warn(f"Error during disconnect: {e}")

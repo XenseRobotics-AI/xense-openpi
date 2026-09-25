@@ -8,6 +8,10 @@ the recipe selected by ``--args.robot-recipe`` (robot IP, Bridge camera host,
 start joints, TacCap grippers); the flags below override the few knobs that
 change between runs. With no recipe, ``Tron2RTConfig`` defaults are used.
 
+Requires the ``Tron2RT`` driver from the ``feat/taccap_web`` branch of
+XenseRobotics-AI/lerobot-tron2 (the shipped recipe uses its TacCap remote
+fields, which the driver's main branch does not have yet).
+
 --args.run picks a run YAML from runs/, which presets any of the flags below.
 Flags still override the file. See examples/run_config.py.
 
