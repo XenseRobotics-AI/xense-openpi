@@ -55,6 +55,60 @@ class CheckpointWeightLoader(WeightLoader):
 
 
 @dataclasses.dataclass(frozen=True)
+class WujiWeightLoader(WeightLoader):
+    """Loads a full checkpoint except the action projections, which keep the model's random init.
+
+    The released pi0/pi05 checkpoints are trained with action_dim=32. The Tianji/Wuji
+    robot needs action_dim=58, which changes the shape of both `action_in_proj`
+    (action_dim -> width) and `action_out_proj` (width -> action_dim). Those weights are
+    dropped from the checkpoint and handed back unloaded, so `train.py` fills them from
+    the model's own initializer. Every other weight - VLM, action expert, time MLPs - is
+    loaded unchanged.
+
+    Any other shape mismatch between checkpoint and model raises, so a checkpoint that
+    disagrees in more than the action width is not loaded silently.
+
+    Compatible with:
+      released checkpoints:
+        example: "gs://openpi-assets/checkpoints/pi05_base/params"
+    """
+
+    params_path: str
+    # Flat param paths (joined with "/") that are re-initialised instead of loaded.
+    reinit_regex: str = "action_(in|out)_proj/.*"
+
+    def load(self, params: at.Params) -> at.Params:
+        loaded_params = _model.restore_params(download.maybe_download(self.params_path), restore_type=np.ndarray)
+        flat_loaded = flax.traverse_util.flatten_dict(loaded_params, sep="/")
+        flat_ref = flax.traverse_util.flatten_dict(params, sep="/")
+
+        pattern = re.compile(self.reinit_regex)
+        reinit_keys = sorted(k for k in flat_ref if pattern.fullmatch(k))
+        if not reinit_keys:
+            raise ValueError(f"reinit_regex {self.reinit_regex!r} matches no model parameter.")
+        for key in reinit_keys:
+            flat_loaded.pop(key, None)
+
+        mismatched = [
+            f"{k}: checkpoint {v.shape} vs model {flat_ref[k].shape}"
+            for k, v in flat_loaded.items()
+            if k in flat_ref and v.shape != flat_ref[k].shape
+        ]
+        if mismatched:
+            raise ValueError(
+                f"Checkpoint {self.params_path} does not match the model outside {self.reinit_regex!r}:\n  "
+                + "\n  ".join(mismatched)
+            )
+
+        logger.info("Re-initialising %d params instead of loading them: %s", len(reinit_keys), reinit_keys)
+        return _merge_params(
+            flax.traverse_util.unflatten_dict(flat_loaded, sep="/"),
+            params,
+            missing_regex=f"(?:{self.reinit_regex})|(?:.*lora.*)",
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class PaliGemmaWeightLoader(WeightLoader):
     """Loads weights from the official PaliGemma checkpoint.
 

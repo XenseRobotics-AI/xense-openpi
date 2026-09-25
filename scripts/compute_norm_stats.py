@@ -42,6 +42,7 @@ import openpi.transforms as transforms
 logger = logging.getLogger(__name__)
 
 _STATE_ACTION_TRANSFORM_TYPES = (
+    transforms.TruncateState,
     transforms.DeltaActions,
     transforms.SubsampleActions,
 )

@@ -22,6 +22,7 @@ import openpi.models.pi0_config as pi0_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.bi_flexiv_policy as bi_flexiv_policy
+import openpi.policies.bi_tianji_wuji_policy as bi_tianji_wuji_policy
 import openpi.policies.dobot_nova5_policy as dobot_nova5_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.xtac_umi_policy as xtac_umi_policy
@@ -99,6 +100,10 @@ class DataConfig:
     # and account for ~38% of per-sample video decode time, while every current repack
     # transform discards them. Turn on for models that actually consume tactile images.
     tactile: bool = False
+    # If true, depth camera streams (video keys containing "depth") are decoded by the data
+    # loader. Default false for the same reason as `tactile`: the Tianji/Wuji datasets record
+    # a depth stream next to each of their three RGB views, and no repack transform uses them.
+    depth: bool = False
 
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
@@ -473,6 +478,61 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
             # Dual-arm Cartesian: 18 TCP dims (left 0-8 + right 9-17, all delta) + 2 gripper dims (absolute)
             # Dataset ordering: [left_tcp(0-8), right_tcp(9-17), left_gripper(18), right_gripper(19)]
             delta_action_mask = _transforms.make_bool_mask(18, -1, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBiTianjiWujiDataConfig(LeRobotBiFlexivDataConfig):
+    """
+    Data config for Tianji dual arms with two 20-DoF Wuji hands in LeRobot format.
+
+    Action format (58D), recorded state (86D):
+        left_tcp.{x, y, z, r1-r6} (dims 0-8) + right_tcp.{x, y, z, r1-r6} (dims 9-17)
+        + left fingers (dims 18-37) + right fingers (dims 38-57)
+    The recorded state is the same 58D prefix followed by 28 arm joint positions/velocities,
+    which `TruncateState(58)` drops before anything else - including the norm stats.
+
+    Cameras are the BiFlexiv three (head, left_wrist, right_wrist), so the repack map is
+    inherited. The dataset also records a depth stream per view; `DataConfig.depth` keeps
+    them undecoded.
+
+    The model's action_dim must be at least 58. Pretrained pi0/pi05 checkpoints use 32, so
+    pair this with `WujiWeightLoader`, which re-initialises the action projections.
+    Compatible with Xense/TW-block-sort-0918.
+    """
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        if model_config.action_dim < bi_tianji_wuji_policy.ACTION_DIM:
+            raise ValueError(
+                f"LeRobotBiTianjiWujiDataConfig needs model.action_dim >= {bi_tianji_wuji_policy.ACTION_DIM}, "
+                f"got {model_config.action_dim}."
+            )
+
+        data_transforms = _transforms.Group(
+            inputs=[
+                _transforms.TruncateState(bi_tianji_wuji_policy.ACTION_DIM),
+                bi_tianji_wuji_policy.BiTianjiWujiInputs(),
+            ],
+            outputs=[bi_tianji_wuji_policy.BiTianjiWujiOutputs()],
+        )
+
+        if self.use_delta_cartesian_actions:
+            # 18 TCP dims (left 0-8 + right 9-17) delta, 40 finger dims (18-57) absolute.
+            delta_action_mask = _transforms.make_bool_mask(18, -40)
             data_transforms = data_transforms.push(
                 inputs=[_transforms.DeltaActions(delta_action_mask)],
                 outputs=[_transforms.AbsoluteActions(delta_action_mask)],

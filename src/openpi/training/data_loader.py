@@ -178,6 +178,9 @@ class FakeDataset(Dataset):
 # after its lerobot camera key (see examples/bi_flexiv_rizon4_rt/recorder.py), so this has
 # to match whatever that repo emitted at record time.
 TACTILE_KEY_MARKER = "tactile"
+# Video keys whose name contains this marker are depth streams (e.g. the Tianji/Wuji
+# recorder's `observation.images.head_depth`). Same substring rule as tactile.
+DEPTH_KEY_MARKER = "depth"
 
 
 class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
@@ -223,18 +226,28 @@ def _repack_source_keys(data_config: _config.DataConfig) -> set[str]:
 
 def _resolve_decode_video_keys(data_config: _config.DataConfig, video_keys: Sequence[str]) -> frozenset[str]:
     """Decide which video streams to decode, and fail loudly on a config that needs more."""
-    if data_config.tactile:
+    # (marker, config field) for every stream kind that is only decoded on request.
+    skipped_kinds = [
+        (marker, field)
+        for marker, field, enabled in (
+            (TACTILE_KEY_MARKER, "tactile", data_config.tactile),
+            (DEPTH_KEY_MARKER, "depth", data_config.depth),
+        )
+        if not enabled
+    ]
+    if not skipped_kinds:
         return frozenset(video_keys)
 
-    decode_keys = frozenset(key for key in video_keys if TACTILE_KEY_MARKER not in key)
+    decode_keys = frozenset(key for key in video_keys if not any(marker in key for marker, _ in skipped_kinds))
+    disabled = ", ".join(f"{field}=False" for _, field in skipped_kinds)
     if skipped := sorted(set(video_keys) - decode_keys):
-        logging.info(
-            f"tactile=False: skipping video decode for {len(skipped)} of {len(video_keys)} stream(s): {skipped}"
-        )
+        logging.info(f"{disabled}: skipping video decode for {len(skipped)} of {len(video_keys)} stream(s): {skipped}")
     if missing := sorted((_repack_source_keys(data_config) & set(video_keys)) - decode_keys):
+        fields = sorted({field for key in missing for marker, field in skipped_kinds if marker in key})
         raise ValueError(
-            f"repack_transforms reads video stream(s) {missing}, but tactile=False disabled their decode. "
-            "Set `tactile: true` under the data config's `base_config` to decode them."
+            f"repack_transforms reads video stream(s) {missing}, but {disabled} disabled their decode. "
+            f"Set {', '.join(f'`{field}: true`' for field in fields)} under the data config's `base_config` "
+            "to decode them."
         )
     return decode_keys
 

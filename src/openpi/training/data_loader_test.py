@@ -304,3 +304,48 @@ def test_torch_data_loader_keeps_an_explicit_sampler():
 
     # The PyTorch DDP path passes its own DistributedSampler; we must not override it.
     assert loader.torch_loader.sampler is sampler
+
+
+_TIANJI_WUJI_VIDEO_KEYS = [
+    "observation.images.head",
+    "observation.images.head_depth",
+    "observation.images.left_wrist",
+    "observation.images.left_wrist_depth",
+    "observation.images.right_wrist",
+    "observation.images.right_wrist_depth",
+]
+
+
+def test_resolve_decode_video_keys_skips_depth_by_default():
+    decode_keys = _data_loader._resolve_decode_video_keys(
+        _bi_flexiv_data_config(tactile=False), _TIANJI_WUJI_VIDEO_KEYS
+    )
+
+    assert decode_keys == {
+        "observation.images.head",
+        "observation.images.left_wrist",
+        "observation.images.right_wrist",
+    }
+
+
+def test_resolve_decode_video_keys_keeps_depth_when_enabled():
+    data_config = dataclasses.replace(_bi_flexiv_data_config(tactile=False), depth=True)
+
+    decode_keys = _data_loader._resolve_decode_video_keys(data_config, _TIANJI_WUJI_VIDEO_KEYS)
+
+    assert decode_keys == set(_TIANJI_WUJI_VIDEO_KEYS)
+
+
+def test_resolve_decode_video_keys_rejects_repack_that_needs_depth():
+    data_config = _config.DataConfig(
+        repack_transforms=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {"images": {"head": "observation.images.head_depth"}, "state": "observation.state"}
+                )
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match=re.escape("`depth: true`")):
+        _data_loader._resolve_decode_video_keys(data_config, _TIANJI_WUJI_VIDEO_KEYS)

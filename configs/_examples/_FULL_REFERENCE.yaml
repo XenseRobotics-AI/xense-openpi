@@ -82,6 +82,8 @@ data:
                                      #   (4 of 7 streams on Xense bi_flexiv datasets, ~38%
                                      #   of decode time, discarded by the repack anyway).
                                      #   Set true only for models that consume tactile images.
+    depth: false                     # false ⇒ never decode video keys named *depth* (the
+                                     #   Tianji/Wuji datasets record one per RGB view).
     # Most users only need prompt_from_task here. Other DataConfig fields:
     # use_quantile_norm: false       # auto-true for non-pi0 models; rarely override
     # action_sequence_keys: [actions]
@@ -119,6 +121,16 @@ data:
   # action_sequence_keys: [action]
   # repack_transforms is built from use_head_camera and cannot be overridden here.
 
+  # ---- LeRobotBiTianjiWujiDataConfig-specific (uncomment when used) ----
+  # Tianji dual arms + two 20-DoF Wuji hands. 58D action:
+  # [left_tcp(0-8), right_tcp(9-17), left_fingers(18-37), right_fingers(38-57)].
+  # The 86D recorded state is truncated to that 58D prefix (norm stats included).
+  # Same cameras / repack as LeRobotBiFlexivDataConfig. Needs model.action_dim >= 58,
+  # so pair it with WujiWeightLoader.
+  # use_delta_cartesian_actions: true  # delta-encode TCP dims 0-17; keep 40 finger dims absolute
+  # default_prompt: "..."
+  # action_sequence_keys: [action]
+
   # ---- LeRobotDobotNova5DataConfig-specific (uncomment when used) ----
   # Single right-arm Dobot Nova5 DH. 10D state/action order:
   # [tcp.x, tcp.y, tcp.z, tcp.r1-r6, gripper.pos]. The dataset camera columns
@@ -154,11 +166,18 @@ data:
 # ---------------------------------------------------------------------------
 
 weight_loader:
-  type: CheckpointWeightLoader              # ← NoOpWeightLoader | CheckpointWeightLoader | PaliGemmaWeightLoader
+  type: CheckpointWeightLoader              # ← NoOpWeightLoader | CheckpointWeightLoader | WujiWeightLoader | PaliGemmaWeightLoader
   params_path: gs://openpi-assets/checkpoints/pi05_base/params
   # ^^^ REQUIRED for CheckpointWeightLoader.
   # Use a gs:// URL or shared path. Do NOT commit machine-local paths
   # like /home/<you>/... to configs/_examples/ — those break for everyone else.
+
+# Alternative: load a checkpoint but re-initialise the action projections, for a
+# model whose action_dim differs from the checkpoint's (e.g. 58 for Tianji/Wuji).
+# weight_loader:
+#   type: WujiWeightLoader
+#   params_path: gs://openpi-assets/checkpoints/pi05_base/params
+#   reinit_regex: action_(in|out)_proj/.*   # default; any other shape mismatch raises
 
 # Alternative: load nothing (train from scratch)
 # weight_loader:

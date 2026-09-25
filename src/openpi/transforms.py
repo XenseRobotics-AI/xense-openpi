@@ -201,6 +201,26 @@ class SubsampleActions(DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class TruncateState(DataTransformFn):
+    """Keeps the first `dim` state dims and drops the rest.
+
+    For datasets whose recorded state carries extra trailing dims the model should
+    not see. Works on single samples and on batches (only the last axis is sliced),
+    so `scripts/compute_norm_stats.py` applies it on its parquet fast path too and
+    the stored state stats match what the model is trained on.
+    """
+
+    dim: int
+
+    def __call__(self, data: DataDict) -> DataDict:
+        state = np.asarray(data["state"])
+        if state.shape[-1] < self.dim:
+            raise ValueError(f"TruncateState({self.dim}) got a state with only {state.shape[-1]} dims")
+        data["state"] = state[..., : self.dim]
+        return data
+
+
+@dataclasses.dataclass(frozen=True)
 class DeltaActions(DataTransformFn):
     """Repacks absolute actions into delta action space."""
 

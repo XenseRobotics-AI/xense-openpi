@@ -27,6 +27,7 @@ MODELS: dict[str, type] = {
 WEIGHT_LOADERS: dict[str, type] = {
     "NoOpWeightLoader": _weight_loaders.NoOpWeightLoader,
     "CheckpointWeightLoader": _weight_loaders.CheckpointWeightLoader,
+    "WujiWeightLoader": _weight_loaders.WujiWeightLoader,
     "PaliGemmaWeightLoader": _weight_loaders.PaliGemmaWeightLoader,
 }
 
@@ -74,6 +75,7 @@ def _populate_data_configs() -> None:
             "LeRobotDROIDDataConfig": _config.LeRobotDROIDDataConfig,
             "RLDSDroidDataConfig": _config.RLDSDroidDataConfig,
             "LeRobotBiFlexivDataConfig": _config.LeRobotBiFlexivDataConfig,
+            "LeRobotBiTianjiWujiDataConfig": _config.LeRobotBiTianjiWujiDataConfig,
             "LeRobotDobotNova5DataConfig": _config.LeRobotDobotNova5DataConfig,
             "LeRobotXtacUmiDataConfig": _config.LeRobotXtacUmiDataConfig,
             # SimpleDataConfig deliberately omitted: it carries lambdas (data_transforms)
