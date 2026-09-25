@@ -1,0 +1,44 @@
+model:
+  type: Pi0Config
+  pi05: true
+  discrete_state_input: true
+  # 58D Tianji/Wuji action space. pi05_base was trained at 32, so the action
+  # projections are re-initialised by WujiWeightLoader below.
+  action_dim: 58
+  action_horizon: 50
+  # Prompt + 58 discretised state values measure 182-236 tokens over all 141,718
+  # frames of Xense/TW-block-sort-0918 (p99 231).
+  max_token_len: 256
+  enable_training_time_rtc: false
+  batch_image_views: true
+weight_loader:
+  type: WujiWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+  # action_in_proj / action_out_proj change shape at action_dim 58; every other
+  # weight comes from pi05_base.
+  reinit_regex: action_(in|out)_proj/.*
+ema_decay: null
+data:
+  type: LeRobotBiTianjiWujiDataConfig
+  repo_id: Xense/TW-block-sort-0918
+  base_config:
+    prompt_from_task: true
+    # The dataset records a depth stream next to each RGB view; the model uses RGB only.
+    depth: false
+    tactile: false
+  use_delta_cartesian_actions: true
+  default_prompt: Sort and place the blocks on the tabletop.
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 5.0e-05
+  decay_steps: 60000
+  decay_lr: 5.0e-07
+batch_size: 512
+num_workers: 96
+num_train_steps: 60000
+save_interval: 5000
+keep_period: 5000
+fsdp_devices: 8
+project_name: Tacxense-hubo
+strict_batch_order: false

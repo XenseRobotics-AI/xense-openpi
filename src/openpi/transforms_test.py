@@ -119,3 +119,17 @@ def test_extract_prompt_from_task():
 
     with pytest.raises(ValueError, match="task_index=2 not found in task mapping"):
         transform({"task_index": 2})
+
+
+def test_truncate_state_slices_last_axis_of_batches():
+    batch = {"state": np.arange(2 * 86).reshape(2, 86), "actions": np.zeros((2, 3, 58))}
+
+    result = _transforms.TruncateState(58)(batch)
+
+    np.testing.assert_array_equal(result["state"], np.arange(2 * 86).reshape(2, 86)[:, :58])
+    assert result["actions"].shape == (2, 3, 58)
+
+
+def test_truncate_state_rejects_short_state():
+    with pytest.raises(ValueError, match="only 20 dims"):
+        _transforms.TruncateState(58)({"state": np.zeros(20)})
