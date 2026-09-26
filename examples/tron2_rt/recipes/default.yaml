@@ -1,0 +1,85 @@
+# Inference recipe — LimX TRON2 dual-arm native RT controller.
+#
+# This file describes the physical bench.  Policy-server and runtime tuning
+# belongs in examples/tron2_rt/runs/ or on the command line.  The values below
+# mirror Tron2RTConfig's current deployment defaults; update the IPs and pose
+# when this recipe is used on a different bench.
+#
+#   python -m examples.tron2_rt.main \
+#       --args.robot-recipe default --args.host <policy-server-ip>
+#
+# Requires the Tron2RT driver from XenseRobotics-AI/lerobot-tron2 branch
+# `feat/taccap_web` (not yet on main): `taccap_remote_url` and
+# `taccap_remote_auto_enable` below only exist there, and draccus rejects them
+# against the main-branch Tron2RTConfig.
+
+robot:
+  type: tron2_rt
+
+  # ── LimX connection ───────────────────────────────────────────────────────
+  robot_ip: 10.192.1.2
+  robot_port: 5000
+  camera_host: 10.192.1.4
+
+  # ── Control/observation schema ────────────────────────────────────────────
+  # The OpenPI policy uses two Cartesian TCP poses plus two normalized grippers.
+  control_mode: cartesian
+  observe_tcp: true
+  observe_joints: false
+  use_head: false
+  use_grippers: true
+  left_use_gripper: true
+  right_use_gripper: true
+
+  # ── Startup and shutdown pose ─────────────────────────────────────────────
+  # Arm joints are in radians, ordered left J1..J7 then right J1..J7.
+  init_joints:
+    [
+      0.026899,
+      0.2612,
+      -0.02709991,
+      -1.5477003,
+      0.265,
+      0.0180999,
+      -0.0614999,
+      0.008999,
+      -0.269,
+      0.02069998,
+      -1.5567001,
+      -0.254,
+      -0.02309972,
+      0.06469989,
+    ]
+  # Head is [pitch, yaw] in radians.  It is retained for reset even though
+  # this policy does not expose a head action.
+  init_head: [1.0, 0.0]
+  go_to_start: true
+  reset_on_disconnect: true
+  start_move_time_s: 3.0
+
+  # The training data and policy actions use the calibrated TCP frame.  When
+  # omitted, the driver looks for tool_tcp.yaml in its normal calibration dir.
+  use_tool_calibration: true
+
+  # ── Bridge camera ──────────────────────────────────────────────────────────
+  # Tron2RTConfig supplies the fixed top/head stream:
+  #   /camera/top/color/image_raw/compressed @ 640x480, 60 Hz
+  # TacCap injects left_wrist/right_wrist (and optional tactile) streams below.
+  # Keep `camera_host` above in sync with the Bridge machine.
+
+  # ── TacCap gripper pair ────────────────────────────────────────────────────
+  # One shared block is cloned for left/right and stamped with the physical side
+  # by Tron2RTConfig.  The .4 service owns the USB devices and camera streams.
+  gripper:
+    type: taccap_follower
+    kp: 8.0
+    kd: 1.0
+    feedforward_torque: 0.0
+    control_hz: 100
+    init_open: true
+    require_calibrated: true
+    auto_discover_cameras: true
+    enable_tactile: false
+    # The top-level endpoint below is copied into both side-specific followers.
+  taccap_remote_url: http://10.192.1.4:8765
+  taccap_remote_auto_enable: true

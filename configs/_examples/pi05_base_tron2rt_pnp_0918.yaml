@@ -1,0 +1,50 @@
+# Launch template (8xH100, hb-openpi env). XLA_FLAGS must be set before Python/JAX
+# starts and therefore cannot be injected by a TrainConfig YAML. The flags below measured
+# -3.5% step time on 2026-09-04 (FSDP collective combining + pipelined collectives); see
+# docs/training-optimization.md for the performance results and numerical validation.
+#   env -u LD_LIBRARY_PATH python scripts/check_cuda_stack.py
+#   env -u LD_LIBRARY_PATH \
+#   XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
+#     --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
+#     --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
+#     --xla_gpu_all_reduce_combine_threshold_bytes=1073741824 \
+#     --xla_gpu_enable_pipelined_all_gather=true \
+#     --xla_gpu_enable_pipelined_reduce_scatter=true \
+#     --xla_gpu_enable_while_loop_double_buffering=true" \
+#   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+#   python scripts/train.py pi05_base_tron2rt_pnp_0918 \
+#     --exp-name=<experiment-name>
+model:
+  type: Pi0Config
+  # Match the H100 template; token length has not been scanned for this dataset.
+  max_token_len: 128
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: False
+  # Encode all three visual views in one SigLIP call.
+  batch_image_views: true
+  use_cudnn_attention: true
+  cudnn_attention_dtype: float16
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotTron2DataConfig
+  # Uses the local LeRobot cache under ~/.cache/huggingface/lerobot/.
+  repo_id: Xense/tron2rt-pnp-0918
+  use_delta_cartesian_actions: true
+  base_config:
+    prompt_from_task: true
+    # The four tactile streams are not consumed by this policy.
+    tactile: false
+  default_prompt: Put the block into the box
+batch_size: 256
+num_workers: 64
+num_train_steps: 80000
+# Whole-model grad/parameter norms are computed only on these logging steps.
+log_interval: 100
+save_interval: 10000
+keep_period: 10000
+fsdp_devices: 8
+strict_batch_order: false
