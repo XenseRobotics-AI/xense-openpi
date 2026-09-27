@@ -38,6 +38,11 @@ class Counters:
     transitions: int = 0
     critic_updates: int = 0
     actor_updates: int = 0
+    # Labeled phases committed and their executed steps (for the warm-up estimate).
+    phases: int = 0
+    phase_steps: int = 0
+    # Chunks executed (the per-chunk logging axis).
+    chunks: int = 0
 
 
 class Learner:
@@ -78,14 +83,19 @@ class Learner:
     def actor_module(self) -> mlp_policy.Actor:
         return nnx.merge(self._actor_def, self.actor)
 
-    def act(self, features: dict[str, np.ndarray]) -> np.ndarray:
-        """Collection action: a sampled normalized chunk ``(C, A)``, decoded to absolute robot actions."""
+    def act(self, features: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+        """Collection action: a sampled normalized chunk ``(C, A)`` and its absolute robot actions."""
         self._rng, rng = jax.random.split(self._rng)
-        return np.asarray(self._act(self.actor, _obs(features), rng))
+        normalized, absolute = jax.device_get(self._act(self.actor, _obs(features), rng))
+        return normalized, absolute
+
+    def mean(self, features: dict[str, np.ndarray]) -> np.ndarray:
+        """The actor's deterministic normalized chunk (logging only; draws no randomness)."""
+        return np.asarray(self._act(self.actor, _obs(features), None)[0])
 
     def _act_impl(self, actor_state, obs, rng):
         normalized = nnx.merge(self._actor_def, actor_state)(obs, noise_rng=rng)
-        return self.space.decode(normalized, obs["state"])[0]
+        return normalized[0], self.space.decode(normalized, obs["state"])[0]
 
     # ----- training -----
 
@@ -157,9 +167,33 @@ class Learner:
                 reference_dropout_prob=self.config.reference_dropout_prob,
             )
 
-        (_, info), grads = jax.value_and_grad(loss_fn, has_aux=True)(actor)
+        # The two objective terms' gradients separately (they sum to the loss gradient): how hard
+        # BC and Q pull, and whether they pull together.
+        def bc_term(actor):
+            _, info = loss_fn(actor)
+            return info["weighted_bc"], info
+
+        (_, info), bc_grads = jax.value_and_grad(bc_term, has_aux=True)(actor)
+        q_grads = jax.grad(lambda actor: -loss_fn(actor)[1]["weighted_q"])(actor)
+        grads = jax.tree.map(jax.numpy.add, bc_grads, q_grads)
         updates, opt = self._actor_tx.update(grads, opt, actor)
-        return optax.apply_updates(actor, updates), opt, {**info, "actor_grad_norm": optax.global_norm(grads)}
+        flat_bc, flat_q = (jax.numpy.concatenate([x.ravel() for x in jax.tree.leaves(g)]) for g in (bc_grads, q_grads))
+        head_bias = grads["net"]["linears"][len(self.config.actor_hidden_dims)]["bias"]
+        gripper = head_bias.value.reshape(self.config.num_action_chunks, -1)[:, list(self.space.gripper_dims)]
+        return (
+            optax.apply_updates(actor, updates),
+            opt,
+            {
+                **info,
+                "actor_grad_norm": optax.global_norm(grads),
+                "weighted_bc_grad_norm": jax.numpy.linalg.norm(flat_bc),
+                "weighted_q_grad_norm": jax.numpy.linalg.norm(flat_q),
+                "bc_q_grad_cosine": flat_bc
+                @ flat_q
+                / (jax.numpy.linalg.norm(flat_bc) * jax.numpy.linalg.norm(flat_q) + 1e-12),
+                "gripper_head_bias_grad_norm": jax.numpy.linalg.norm(gripper),
+            },
+        )
 
     # ----- checkpointing -----
 
@@ -195,8 +229,7 @@ class Learner:
         """Load a checkpoint written by ``save``; returns it (for the caller's extra entries)."""
         with open(directory / "learner.pkl", "rb") as f:
             state = pickle.load(f)
-        if state["config"] != dataclasses.asdict(self.config):
-            raise ValueError(f"RL checkpoint {directory} was written under a different `rl` config.")
+        _check_contract(state["config"], self.config, directory)
         current = self._state()
         for key in ("actor", "critic", "target_critic", "actor_opt", "critic_opt"):
             restored = jax.tree.map(np.asarray, state[key])
@@ -209,6 +242,24 @@ class Learner:
         return state
 
 
+def _check_contract(saved: dict, config: _rlt_config.RLConfig, directory: pathlib.Path) -> None:
+    """Refuse a checkpoint whose training-relevant settings differ; operational ones may change."""
+    saved = {k: tuple(v) if isinstance(v, list) else v for k, v in saved.items() if k not in config.OPERATIONAL_FIELDS}
+    current = config.training_contract()
+    if changed := sorted(k for k in current.keys() | saved.keys() if saved.get(k) != current.get(k)):
+        raise ValueError(f"RL checkpoint {directory} was trained with different {', '.join(changed)}.")
+
+
+def save_round(learner: Learner, rl_dir: pathlib.Path, extra: dict) -> None:
+    """Save ``rl_dir/<round>`` and delete older rounds except multiples of ``keep_period``."""
+    learner.save(rl_dir / str(learner.counters.rounds), extra)
+    keep = learner.config.keep_period
+    rounds = sorted((p for p in rl_dir.iterdir() if p.name.isdigit()), key=lambda p: int(p.name))
+    for old in rounds[:-1]:
+        if keep is None or int(old.name) % keep:
+            shutil.rmtree(old)
+
+
 def _obs(features: dict[str, np.ndarray]) -> dict[str, jax.Array]:
     return {key: jax.numpy.asarray(features[key])[None] for key in ("z_rl", "state", "proprio", "ref_chunk")}
 
@@ -219,8 +270,7 @@ def load_actor(
     """The trained actor of a ``Learner.save`` checkpoint, plus the checkpoint's binding metadata."""
     with open(directory / "learner.pkl", "rb") as f:
         state = pickle.load(f)
-    if state["config"] != dataclasses.asdict(config):
-        raise ValueError(f"RL checkpoint {directory} was written under a different `rl` config.")
+    _check_contract(state["config"], config, directory)
     actor = mlp_policy.Actor(
         config, z_dim=z_dim, state_dim=space.state_dim, action_dim=space.action_dim, rngs=nnx.Rngs(0)
     )

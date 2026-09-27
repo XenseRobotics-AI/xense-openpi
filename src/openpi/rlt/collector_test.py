@@ -1,4 +1,5 @@
 import dataclasses
+import json
 
 import numpy as np
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from openpi.rlt import action_space_test
 from openpi.rlt import collector as _collector
 from openpi.rlt import config as _rlt_config
+from openpi.rlt import diagnostics
 from openpi.rlt import learner as _learner
 from openpi.rlt import replay as _replay
 
@@ -174,8 +176,10 @@ def test_actor_drives_only_open_windows_after_warm_up(tmp_path):
     # The two in-window chunks execute the actor's decoded chunk; the others the VLA reference.
     chunks = [m["actions"] for m in robot.requests[before:] if m["op"] == "chunk"]
     assert len(acted) == 2
-    np.testing.assert_array_equal(chunks[1], acted[0])
-    np.testing.assert_array_equal(chunks[2], acted[1])
+    np.testing.assert_array_equal(chunks[1], acted[0][1])
+    np.testing.assert_array_equal(chunks[2], acted[1][1])
+    sources = [m["source"] for m in robot.requests[before:] if m["op"] == "chunk"]
+    assert sources == ["vla", "actor", "actor", "vla"]
 
     learner.counters.rounds = 3
     learner.save(tmp_path / "3")
@@ -185,13 +189,54 @@ def test_actor_drives_only_open_windows_after_warm_up(tmp_path):
     assert len(restored.replay) == len(learner.replay)
     features = collector.extractor.extract(robot._obs())
     learner._rng = restored._rng
-    np.testing.assert_allclose(restored.act(features), learner.act(features), atol=1e-6)
+    np.testing.assert_allclose(restored.act(features)[1], learner.act(features)[1], atol=1e-6)
     np.testing.assert_equal(restored.replay.sample(4), learner.replay.sample(4))
 
 
-def test_restore_refuses_another_config(tmp_path):
+def test_resume_allows_operational_changes_only(tmp_path):
     _, _, learner = _setup([])
     learner.save(tmp_path / "0")
-    other = _learner.Learner(dataclasses.replace(_CONFIG, q_weight=0.3), learner.space, z_dim=Z)
-    with pytest.raises(ValueError, match="different"):
+    operational = dataclasses.replace(_CONFIG, total_rounds=900, listen="0.0.0.0:9000", save_interval=3)
+    _learner.Learner(operational, learner.space, z_dim=Z).restore(tmp_path / "0")
+    other = _learner.Learner(dataclasses.replace(_CONFIG, q_weight=0.3, warm_up=8), learner.space, z_dim=Z)
+    with pytest.raises(ValueError, match="q_weight, warm_up"):
         other.restore(tmp_path / "0")
+
+
+def test_checkpoint_retention(tmp_path):
+    _, _, learner = _setup([])
+    learner.config = dataclasses.replace(_CONFIG, keep_period=4)
+    for rounds in range(1, 10):
+        learner.counters.rounds = rounds
+        _learner.save_round(learner, tmp_path, {})
+    assert sorted(int(p.name) for p in tmp_path.iterdir()) == [4, 8, 9]
+
+
+def test_stride_must_divide_the_chunk():
+    with pytest.raises(ValueError, match="must divide"):
+        dataclasses.replace(_CONFIG, replay_stride=3)
+
+
+def test_round_logs_chunks_and_dumps_transitions(tmp_path):
+    collector, _, _ = _setup(_PLAN)
+    collector.logger = diagnostics.RunLogger(None, tmp_path)
+    collector.dump_dir = tmp_path
+    result = collector.run_round()
+    events = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    assert [e["step"] for e in events] == [1, 2, 3, 4]
+    assert all("shadow/residual_position_mm_mean" in e for e in events)  # the VLA drove every chunk
+    assert (tmp_path / "initial_actions_round1.npz").exists()
+    assert result["phase_steps"] == [10]
+    diagnostics.dump_transitions(tmp_path / "round.npz", result["rows"])
+    dump = np.load(tmp_path / "round.npz")
+    assert dump["executed_actions"].shape == (4, C, 20)
+    assert dump["ref_exec"].shape == (4, R, 20)
+    np.testing.assert_array_equal(dump["curr_obs_z_rl"][:, 0], [4, 6, 8, 10])
+
+
+def test_training_reports_gradient_diagnostics():
+    collector, _, learner = _setup(_PLAN)
+    learner.commit(collector.run_round()["rows"])
+    actor_infos = [info for info in learner.train() if "actor_loss" in info]
+    for key in ("bc_q_grad_cosine", "weighted_bc_grad_norm", "weighted_q_grad_norm", "gripper_head_bias_grad_norm"):
+        assert all(np.isfinite(info[key]) for info in actor_infos)
