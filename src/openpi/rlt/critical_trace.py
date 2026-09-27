@@ -65,9 +65,6 @@ class CriticalTrace:
         """Keep a raw observation so features at ``index`` can be computed after labeling."""
         self._observations[index] = observation
 
-    def wants_observation(self, index: int) -> bool:
-        return index % self.stride == 0 and index not in self._features
-
     def set_terminal_reward(self, reward: float) -> None:
         """The label's reward lands on the last executed step."""
         if not self._rewards:
@@ -85,6 +82,9 @@ class CriticalTrace:
     def missing_feature_indices(self) -> list[int]:
         needed = {i for a in self.anchors() for i in (a, a + self.horizon)}
         return sorted(needed - self._features.keys())
+
+    def has_observation(self, index: int) -> bool:
+        return index in self._observations
 
     def observation(self, index: int) -> dict:
         if index not in self._observations:

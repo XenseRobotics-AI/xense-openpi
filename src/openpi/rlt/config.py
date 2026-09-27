@@ -144,6 +144,23 @@ class RLConfig:
     # Critic updates earned per committed transition.
     utd: int = 5
 
+    # Online collection.
+    # Phase-one token checkpoint (step dir or token/ run dir); None = this run's own token/ dir.
+    token_checkpoint: str | None = None
+    # Budget in operator rounds (reset -> round end).
+    total_rounds: int = 300
+    # Address the server listens on; the robot host dials in.
+    listen: str = "0.0.0.0:8000"
+    # Denoising steps of the frozen VLA's reference sampling.
+    num_steps: int = 10
+    # Frozen-VLA batch when a labeled phase computes its sliding-window features (wall clock only).
+    replay_feature_batch_size: int = 16
+    # A held Pico grip becomes a takeover once a controller moves this far from where it was pressed.
+    takeover_position_m: float = 0.005
+    takeover_rotation_deg: float = 3.0
+    # Checkpoint (weights, optimizers, replay) every this many rounds, and at the end.
+    save_interval: int = 10
+
     def __post_init__(self) -> None:
         for name in ("actor_hidden_dims", "critic_hidden_dims"):  # YAML gives lists
             object.__setattr__(self, name, tuple(getattr(self, name)))
@@ -184,6 +201,10 @@ class RLTConfig:
     @property
     def token_checkpoint_dir(self) -> pathlib.Path:
         return self.checkpoint_dir / "token"
+
+    @property
+    def rl_checkpoint_dir(self) -> pathlib.Path:
+        return self.checkpoint_dir / "rl"
 
     def __post_init__(self) -> None:
         if self.resume and self.overwrite:

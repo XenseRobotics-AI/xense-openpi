@@ -88,6 +88,7 @@ class FeatureExtractor:
         seed: int = 0,
     ):
         self.space = space
+        self.z_dim = token.rl_token.value.shape[-1]
         self._ref_len = ref_num_action_chunks
         self._input_transform = input_transform
         self._output_transform = output_transform
