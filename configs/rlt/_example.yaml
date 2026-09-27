@@ -1,8 +1,9 @@
 # RLT (RL token + online RL) - every field with its default. Copy to configs/rlt/<name>.yaml.
 #
-#   uv run scripts/rlt/precompute_prefix.py <name>                   # frozen VLA -> prefix cache
-#   uv run scripts/rlt/train_token.py <name> --exp-name <run>        # cache -> token encoder-decoder
-#   uv run scripts/rlt/train_rl.py <name> --exp-name <run>           # online RL with the robot
+#   mamba activate lerobot-xense
+#   python scripts/rlt/precompute_prefix.py <name>                   # frozen VLA -> prefix cache
+#   python scripts/rlt/train_token.py <name> --exp-name <run>        # cache -> token encoder-decoder
+#   python scripts/rlt/train_rl.py <name> --exp-name <run>           # online RL with the robot
 #
 # The training run deletes the cache once it reaches num_train_steps
 # (--no-delete-cache-on-finish keeps it). Files starting with "_" are docs, not configs.

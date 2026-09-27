@@ -6,7 +6,8 @@ phases collected round by round (see ``openpi.rlt.collector``). This process
 listens on ``rl.listen``; the robot host dials in with the RLT mode of
 ``examples/bi_flexiv_rizon4_rt``.
 
-    uv run scripts/rlt/train_rl.py <rlt_config> --exp-name <run> [--resume | --overwrite]
+    mamba activate lerobot-xense
+    python scripts/rlt/train_rl.py <rlt_config> --exp-name <run> [--resume | --overwrite]
 
 Outputs under ``<checkpoint_base_dir>/<config>/<exp-name>/``:
 

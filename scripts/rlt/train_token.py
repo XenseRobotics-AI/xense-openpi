@@ -11,7 +11,8 @@ reaches ``num_train_steps``: phase two computes features live and never reads
 it. Pass ``--no-delete-cache-on-finish`` to keep it, e.g. to train again with
 other hyperparameters. An interrupted run never deletes it.
 
-    uv run scripts/rlt/train_token.py <rlt_config> --exp-name <run> [--resume | --overwrite]
+    mamba activate lerobot-xense
+    python scripts/rlt/train_token.py <rlt_config> --exp-name <run> [--resume | --overwrite]
 
 Checkpoints: ``<checkpoint_base_dir>/<config>/<exp-name>/token/<step>/`` with
 ``params/`` (the encoder-decoder), ``train_state/`` and ``assets/rlt_token.json``
