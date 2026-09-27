@@ -68,7 +68,8 @@ def _init_train_state(config: _rlt_config.RLTConfig, input_dim: int, mesh: jax.s
 
 def _train_step(state: training_utils.TrainState, batch: dict) -> tuple[training_utils.TrainState, dict]:
     model = nnx.merge(state.model_def, state.params)
-    (loss, z_rl), grads = nnx.value_and_grad(lambda m: m(batch["hidden"], batch["mask"]), has_aux=True)(model)
+    hidden = prefix_cache.as_bfloat16(batch["hidden"])
+    (loss, z_rl), grads = nnx.value_and_grad(lambda m: m(hidden, batch["mask"]), has_aux=True)(model)
     updates, opt_state = state.tx.update(grads, state.opt_state, state.params)
     params = optax.apply_updates(state.params, updates)
     info = {

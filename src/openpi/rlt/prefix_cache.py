@@ -25,6 +25,8 @@ import pathlib
 import shutil
 from typing import Any
 
+import jax
+import jax.numpy as jnp
 import ml_dtypes
 import numpy as np
 
@@ -147,6 +149,8 @@ class CacheWriter:
 class PrefixCacheDataset:
     """Map-style dataset over a complete cache, trimmed to ``max_valid_len``.
 
+    Items are ``{"hidden": uint16 (seq_len, D) bfloat16 bits, "mask": bool (seq_len,)}``.
+
     Trailing slots that are padding in every frame are dropped; the token model
     gives identical results with or without them (see ``token_model``).
     """
@@ -172,9 +176,16 @@ class PrefixCacheDataset:
             self._hidden = np.memmap(self.root / "hidden.bin", dtype=_DTYPE, mode="r", shape=self._shape)
             self._mask = np.load(self.root / "mask.npy", mmap_mode="r")
         return {
-            "hidden": np.array(self._hidden[index, : self.seq_len]),
+            # The bfloat16 bit pattern as uint16: the training data loader ships samples as torch
+            # tensors, which cannot hold numpy bfloat16. `as_bfloat16` restores it on device.
+            "hidden": np.array(self._hidden[index, : self.seq_len]).view(np.uint16),
             "mask": np.array(self._mask[index, : self.seq_len]),
         }
+
+
+def as_bfloat16(bits):
+    """Reinterpret the uint16 ``hidden`` bits from ``PrefixCacheDataset`` as bfloat16 (no copy in jit)."""
+    return jax.lax.bitcast_convert_type(bits, jnp.bfloat16)
 
 
 def delete(root: pathlib.Path | str) -> int:
