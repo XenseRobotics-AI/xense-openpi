@@ -98,6 +98,15 @@ def test_pi05_extract_prefix_hidden():
     single, _ = extract(jax.tree.map(lambda x: x[1:], obs))
     assert jnp.allclose(single[0], hidden[1], atol=1e-5)
 
+    # Sampling returns the same prefix from its own forward, and the same actions as sample_actions.
+    key = jax.random.key(1)
+    actions, sampled_hidden, sampled_mask = nnx_utils.module_jit(model.sample_actions_with_prefix)(
+        key, obs, num_steps=2
+    )
+    assert jnp.allclose(sampled_hidden, hidden, atol=1e-5)
+    assert (sampled_mask == mask).all()
+    assert jnp.allclose(actions, nnx_utils.module_jit(model.sample_actions)(key, obs, num_steps=2), atol=1e-6)
+
 
 def test_pi0_fast_model():
     key = jax.random.key(0)

@@ -378,6 +378,41 @@ class Pi0(_model.BaseModel):
         noise: at.Float[at.Array, "b ah ad"] | None = None,
         **kwargs: Unpack[_model.ActionSelectKwargs],
     ) -> _model.Actions:
+        return self._sample_actions(rng, observation, num_steps=num_steps, noise=noise, **kwargs)[0]
+
+    def training_time_rtc_sample_actions(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+        **kwargs: Unpack[_model.ActionSelectKwargs],
+    ) -> _model.Actions:
+        return self._training_time_rtc_sample_actions(rng, observation, num_steps=num_steps, noise=noise, **kwargs)[0]
+
+    def sample_actions_with_prefix(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, *, num_steps: int | at.Int[at.Array, ""] = 10
+    ) -> tuple[_model.Actions, at.Float[at.Array, "b s emb"], at.Bool[at.Array, "b s"]]:
+        """Sample a chunk and return the prefix hidden states and mask of the same forward.
+
+        The sampler is the one serving uses: the training-time-RTC sampler (with no
+        frozen prefix) for RTC-trained checkpoints. The hidden states are zeroed at
+        padded slots, exactly as ``extract_prefix_hidden`` returns them.
+        """
+        sample = self._training_time_rtc_sample_actions if self._enable_training_time_rtc else self._sample_actions
+        actions, prefix_out, prefix_mask = sample(rng, observation, num_steps=num_steps)
+        return actions, jnp.where(prefix_mask[..., None], prefix_out, 0), prefix_mask
+
+    def _sample_actions(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+        **kwargs: Unpack[_model.ActionSelectKwargs],
+    ) -> tuple[_model.Actions, at.Float[at.Array, "b s emb"], at.Bool[at.Array, "b s"]]:
         observation = _model.preprocess_observation(None, observation, train=False)
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
@@ -387,7 +422,7 @@ class Pi0(_model.BaseModel):
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
         # first fill KV cache with a forward pass of the prefix
-        _, prefix_mask, kv_cache = self._prefix_forward(observation)
+        prefix_out, prefix_mask, kv_cache = self._prefix_forward(observation)
 
         def get_v_t(x_t, time, obs):  # equivalent to denoise_step in PyTorch
             suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
@@ -432,7 +467,7 @@ class Pi0(_model.BaseModel):
             return time >= -dt / 2
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
-        return x_0
+        return x_0, prefix_out, prefix_mask
 
     def _log_rtc_prefix_diagnostics(
         self,
@@ -465,7 +500,7 @@ class Pi0(_model.BaseModel):
             me=mean_diff,
         )
 
-    def training_time_rtc_sample_actions(
+    def _training_time_rtc_sample_actions(
         self,
         rng: at.KeyArrayLike,
         observation: _model.Observation,
@@ -473,7 +508,7 @@ class Pi0(_model.BaseModel):
         num_steps: int | at.Int[at.Array, ""] = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
         **kwargs: Unpack[_model.ActionSelectKwargs],
-    ) -> _model.Actions:
+    ) -> tuple[_model.Actions, at.Float[at.Array, "b s emb"], at.Bool[at.Array, "b s"]]:
         observation = _model.preprocess_observation(None, observation, train=False)
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
@@ -531,7 +566,7 @@ class Pi0(_model.BaseModel):
         action_prefix_mask = jnp.arange(self.action_horizon)[None, :] < inference_delay[:, None]
 
         # first fill KV cache with a forward pass of the prefix
-        _, prefix_mask, kv_cache = self._prefix_forward(observation)
+        prefix_out, prefix_mask, kv_cache = self._prefix_forward(observation)
 
         def step(carry):
             x_t, time = carry
@@ -585,4 +620,4 @@ class Pi0(_model.BaseModel):
         # This host-print confirms whether drift is sampler-side (here) or
         # serialization-side (client).
         self._log_rtc_prefix_diagnostics(x_0, action_prefix, action_prefix_mask, inference_delay)
-        return x_0
+        return x_0, prefix_out, prefix_mask
