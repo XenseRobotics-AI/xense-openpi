@@ -32,6 +32,20 @@ class Checkpoint:
 
 
 @dataclasses.dataclass
+class RLT:
+    """Serve a trained RLT actor (openpi.policies.rlt_policy) on top of its frozen VLA."""
+
+    # RLT config name (configs/rlt/<name>.yaml).
+    config: str
+    # Run name the actor was trained under (train_rl.py --exp-name).
+    exp_name: str
+    # RL checkpoint round dir; default: the run's latest.
+    dir: str | None = None
+    # Start with the actor on; a request's `rlt_switch` kwarg changes it.
+    use_actor: bool = True
+
+
+@dataclasses.dataclass
 class Default:
     """Use the default policy for the given environment."""
 
@@ -53,7 +67,7 @@ class Args:
     record: bool = False
 
     # Specifies how to load the policy. If not provided, the default policy for the environment will be used.
-    policy: Checkpoint | Default = dataclasses.field(default_factory=Default)
+    policy: Checkpoint | RLT | Default = dataclasses.field(default_factory=Default)
 
 
 # Default checkpoints that should be used for each environment.
@@ -88,9 +102,15 @@ def create_default_policy(env: EnvMode, *, default_prompt: str | None = None) ->
     raise ValueError(f"Unsupported environment mode: {env}")
 
 
-def create_policy(args: Args) -> _policy.Policy:
+def create_policy(args: Args) -> _policy.BasePolicy:
     """Create a policy from the given arguments."""
     match args.policy:
+        case RLT():
+            from openpi.policies import rlt_policy
+            from openpi.rlt import config as _rlt_config
+
+            config = dataclasses.replace(_rlt_config.get_config(args.policy.config), exp_name=args.policy.exp_name)
+            return rlt_policy.create_rlt_policy(config, args.policy.dir, use_actor=args.policy.use_actor)
         case Checkpoint():
             return _policy_config.create_trained_policy(
                 _config.get_config(args.policy.config),

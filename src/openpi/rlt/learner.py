@@ -211,3 +211,21 @@ class Learner:
 
 def _obs(features: dict[str, np.ndarray]) -> dict[str, jax.Array]:
     return {key: jax.numpy.asarray(features[key])[None] for key in ("z_rl", "state", "proprio", "ref_chunk")}
+
+
+def load_actor(
+    directory: pathlib.Path, config: _rlt_config.RLConfig, space: _action_space.ActionSpace, *, z_dim: int
+) -> tuple[mlp_policy.Actor, dict]:
+    """The trained actor of a ``Learner.save`` checkpoint, plus the checkpoint's binding metadata."""
+    with open(directory / "learner.pkl", "rb") as f:
+        state = pickle.load(f)
+    if state["config"] != dataclasses.asdict(config):
+        raise ValueError(f"RL checkpoint {directory} was written under a different `rl` config.")
+    actor = mlp_policy.Actor(
+        config, z_dim=z_dim, state_dim=space.state_dim, action_dim=space.action_dim, rngs=nnx.Rngs(0)
+    )
+    graphdef, current = nnx.split(actor)
+    restored = jax.tree.map(jax.numpy.asarray, state["actor"])
+    if jax.tree.structure(restored) != jax.tree.structure(current):
+        raise ValueError(f"RL checkpoint {directory} actor does not match the configured architecture.")
+    return nnx.merge(graphdef, restored), state.get("binding", {})
