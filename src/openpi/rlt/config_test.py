@@ -9,6 +9,7 @@ def test_example_parses():
     config = _config.load(pathlib.Path(_config.__file__).resolve().parents[3] / "configs" / "rlt" / "_example.yaml")
     assert config.name == "_example"
     assert config.model == _config.RLTModelConfig()
+    assert config.rl == _config.RLConfig()
     assert config.token_training.frame_stride == 1
 
 
