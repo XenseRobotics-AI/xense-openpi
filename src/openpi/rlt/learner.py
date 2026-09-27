@@ -128,11 +128,16 @@ class Learner:
             )
             self.counters.critic_updates += 1
             if self.counters.critic_updates % self.config.critic_actor_ratio == 0:
+                config = self.config
+                # Counts actor updates, not critic updates, as in TacXense.
+                bc_weight, q_weight = config.actor_weight_schedule.weights(
+                    self.counters.actor_updates, bc_weight=config.bc_weight, q_weight=config.q_weight
+                )
                 self.actor, self.actor_opt, actor_info = self._actor_step(
-                    self.actor, self.actor_opt, self.critic, batch, actor_rng
+                    self.actor, self.actor_opt, self.critic, batch, actor_rng, bc_weight, q_weight
                 )
                 self.counters.actor_updates += 1
-                info = {**info, **actor_info}
+                info = {**info, **actor_info, "bc_weight": bc_weight, "q_weight": q_weight}
             infos.append({key: float(value) for key, value in jax.device_get(info).items()})
         return infos
 
@@ -154,7 +159,7 @@ class Learner:
         target = optax.incremental_update(critic, target, self.config.tau)
         return critic, target, opt, {**info, "critic_grad_norm": optax.global_norm(grads)}
 
-    def _actor_step_impl(self, actor, opt, critic, batch, rng):
+    def _actor_step_impl(self, actor, opt, critic, batch, rng, bc_weight, q_weight):
         def loss_fn(actor):
             return td.actor_loss(
                 nnx.merge(self._actor_def, actor),
@@ -162,20 +167,17 @@ class Learner:
                 self.space,
                 batch,
                 rng,
-                q_weight=self.config.q_weight,
-                bc_weight=self.config.bc_weight,
+                q_weight=q_weight,
+                bc_weight=bc_weight,
                 reference_dropout_prob=self.config.reference_dropout_prob,
+                smooth_weight=self.config.smooth_weight,
+                smooth_order_weights=self.config.smooth_order_weights,
             )
 
-        # The two objective terms' gradients separately (they sum to the loss gradient): how hard
-        # BC and Q pull, and whether they pull together.
-        def bc_term(actor):
-            _, info = loss_fn(actor)
-            return info["weighted_bc"], info
-
-        (_, info), bc_grads = jax.value_and_grad(bc_term, has_aux=True)(actor)
+        (_, info), grads = jax.value_and_grad(loss_fn, has_aux=True)(actor)
+        # The BC and Q terms' gradients separately: how hard each pulls, and whether they agree.
+        bc_grads = jax.grad(lambda actor: loss_fn(actor)[1]["weighted_bc"])(actor)
         q_grads = jax.grad(lambda actor: -loss_fn(actor)[1]["weighted_q"])(actor)
-        grads = jax.tree.map(jax.numpy.add, bc_grads, q_grads)
         updates, opt = self._actor_tx.update(grads, opt, actor)
         flat_bc, flat_q = (jax.numpy.concatenate([x.ravel() for x in jax.tree.leaves(g)]) for g in (bc_grads, q_grads))
         head_bias = grads["net"]["linears"][len(self.config.actor_hidden_dims)]["bias"]
@@ -196,6 +198,17 @@ class Learner:
         )
 
     # ----- checkpointing -----
+
+    def snapshot(self, path: pathlib.Path, extra: dict | None = None) -> None:
+        """Weights only (actor, critic, target critic) plus counters and config, loadable by ``load_actor``."""
+        state = {
+            **(extra or {}),
+            **jax.device_get({k: v for k, v in self._state().items() if k in ("actor", "critic", "target_critic")}),
+            "counters": dataclasses.asdict(self.counters),
+            "config": dataclasses.asdict(self.config),
+        }
+        with open(path, "wb") as f:
+            pickle.dump(state, f)
 
     def _state(self) -> dict:
         return {
@@ -267,8 +280,8 @@ def _obs(features: dict[str, np.ndarray]) -> dict[str, jax.Array]:
 def load_actor(
     directory: pathlib.Path, config: _rlt_config.RLConfig, space: _action_space.ActionSpace, *, z_dim: int
 ) -> tuple[mlp_policy.Actor, dict]:
-    """The trained actor of a ``Learner.save`` checkpoint, plus the checkpoint's binding metadata."""
-    with open(directory / "learner.pkl", "rb") as f:
+    """The trained actor of a ``Learner.save`` checkpoint dir or a ``snapshot`` file, plus its binding metadata."""
+    with open(directory / "learner.pkl" if directory.is_dir() else directory, "rb") as f:
         state = pickle.load(f)
     _check_contract(state["config"], config, directory)
     actor = mlp_policy.Actor(

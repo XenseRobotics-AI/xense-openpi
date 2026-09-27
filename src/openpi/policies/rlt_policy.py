@@ -66,7 +66,10 @@ class RLTPolicy(_base_policy.BasePolicy):
 def create_rlt_policy(
     config: _rlt_config.RLTConfig, rl_checkpoint: pathlib.Path | str | None = None, *, use_actor: bool = True
 ) -> RLTPolicy:
-    """Serve ``rl_checkpoint`` (default: the run's latest ``rl/<round>``) with the config's VLA and token model."""
+    """Serve ``rl_checkpoint`` - an ``rl/<round>`` dir (default: the latest) or a round's weight snapshot.
+
+    Uses the config's VLA and token model.
+    """
     rl = config.rl
     if rl_checkpoint is None:
         rounds = [p for p in config.rl_checkpoint_dir.iterdir() if p.name.isdigit()]

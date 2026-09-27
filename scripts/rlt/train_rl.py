@@ -12,7 +12,9 @@ Outputs under ``<checkpoint_base_dir>/<config>/<exp-name>/``:
 
 - ``rl/<round>/learner.pkl``: checkpoints (weights, optimizers, replay), pruned by ``rl.keep_period``;
 - ``transitions/``: with ``rl.dump_transitions``, each round's committed transitions
-  (``round_<n>.npz``), first-chunk diagnostics, and ``events.jsonl`` mirroring the W&B metrics.
+  (``round_<n>.npz``), the actor/critic weights after each round that trained
+  (``actor_critic_round<n>.pkl``, servable with ``serve_policy.py policy:rlt --policy.dir``),
+  first-chunk diagnostics, and ``events.jsonl`` mirroring the W&B metrics.
 
 W&B logs three axes: ``round/*``, ``update/*`` (every gradient update) and ``chunk/*`` (every
 executed chunk, with the actor's output - or, while the VLA drives, its shadow proposal -
@@ -189,6 +191,11 @@ def main() -> None:
             for index, info in enumerate(infos, start=first_update + 1):
                 logger.log("update", index, info)
             learner.counters.rounds += 1
+            if dump_dir is not None and infos:
+                # The weights right after this round's training, to replay the actor at any point.
+                learner.snapshot(
+                    dump_dir / f"actor_critic_round{learner.counters.rounds:05d}.pkl", {"binding": binding}
+                )
             if dump_dir is not None:
                 _diagnostics.dump_transitions(
                     dump_dir / f"round_{learner.counters.rounds:05d}.npz",

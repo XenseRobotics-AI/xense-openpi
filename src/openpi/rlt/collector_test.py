@@ -240,3 +240,19 @@ def test_training_reports_gradient_diagnostics():
     actor_infos = [info for info in learner.train() if "actor_loss" in info]
     for key in ("bc_q_grad_cosine", "weighted_bc_grad_norm", "weighted_q_grad_norm", "gripper_head_bias_grad_norm"):
         assert all(np.isfinite(info[key]) for info in actor_infos)
+
+
+def test_schedule_and_snapshot(tmp_path):
+    schedule = _rlt_config.ActorWeightSchedule(enable=True, warmup_updates=2, warmup_bc_weight=9.0, warmup_q_weight=0.0)
+    collector, _, learner = _setup(_PLAN)
+    learner.config = dataclasses.replace(_CONFIG, actor_weight_schedule=schedule, smooth_weight=0.01)
+    learner.commit(collector.run_round()["rows"])
+    actor_infos = [info for info in learner.train() if "actor_loss" in info]
+    assert [info["bc_weight"] for info in actor_infos] == [9.0, 9.0, 2.5, 2.5]
+    assert all(info["smooth_loss"] > 0 for info in actor_infos)
+
+    learner.snapshot(tmp_path / "snap.pkl", {"binding": {"vla": "v"}})
+    actor, binding = _learner.load_actor(tmp_path / "snap.pkl", learner.config, learner.space, z_dim=Z)
+    assert binding == {"vla": "v"}
+    features = collector.extractor.extract({"state": np.zeros(20), "t": 0})
+    np.testing.assert_allclose(learner.mean(features), actor(_learner._obs(features))[0], atol=1e-6)
