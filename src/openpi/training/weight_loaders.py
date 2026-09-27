@@ -80,6 +80,48 @@ class PaliGemmaWeightLoader(WeightLoader):
         return _merge_params(loaded_params, params, missing_regex=".*")
 
 
+@dataclasses.dataclass(frozen=True)
+class CascadeInitWeightLoader(CheckpointWeightLoader):
+    """Load pi05, preserving new cascade parameters (or optionally copying action).
+
+    Existing tactile-expert checkpoint weights always take precedence. This
+    option belongs to the loader so copying happens AFTER loading pi05_base.
+    """
+
+    missing_regex: str = r".*tactile.*|.*_tac/.*|.*(?:/|^)\w+_2/.*"
+    tactile_expert_init: str = "random"
+
+    def __post_init__(self):
+        if self.tactile_expert_init not in ("random", "copy_action"):
+            raise ValueError("tactile_expert_init must be random or copy_action")
+
+    def load(self, params: at.Params) -> at.Params:
+        loaded = _model.restore_params(download.maybe_download(self.params_path), restore_type=np.ndarray)
+        if self.tactile_expert_init == "copy_action":
+            loaded = _copy_action_expert(loaded, params)
+        return _merge_params(loaded, params, missing_regex=self.missing_regex)
+
+
+def _copy_action_expert(loaded: at.Params, params: at.Params) -> at.Params:
+    flat = flax.traverse_util.flatten_dict(loaded, sep="/")
+    reference = flax.traverse_util.flatten_dict(params, sep="/")
+    projections = {"action_in_proj", "action_out_proj", "time_mlp_in", "time_mlp_out"}
+    for path, value in list(flat.items()):
+        segments = path.split("/")
+        if segments[0] in projections:
+            segments[0] += "_tac"
+        elif "llm" in segments and any(s.endswith("_1") for s in segments):
+            segments = [s[:-2] + "_2" if s.endswith("_1") else s for s in segments]
+        else:
+            continue
+        target = "/".join(segments)
+        if target in reference and target not in flat:
+            if reference[target].shape != value.shape:
+                raise ValueError(f"Cannot copy action expert into {target}: incompatible shapes")
+            flat[target] = value.copy()
+    return flax.traverse_util.unflatten_dict(flat, sep="/")
+
+
 def _merge_params(loaded_params: at.Params, params: at.Params, *, missing_regex: str) -> at.Params:
     """Merges the loaded parameters with the reference parameters.
 

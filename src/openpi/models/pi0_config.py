@@ -119,3 +119,10 @@ class Pi0Config(_model.BaseModelConfig):
         if not filters:
             return nnx.Nothing
         return nnx.All(*filters)
+
+    def expert_configs(self) -> tuple[list[_gemma.Config], list[bool]]:
+        """Transformer experts and their time-conditioning modes."""
+        return (
+            [_gemma.get_config(self.paligemma_variant), _gemma.get_config(self.action_expert_variant)],
+            [False, self.pi05],
+        )

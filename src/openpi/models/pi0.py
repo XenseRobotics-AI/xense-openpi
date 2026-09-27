@@ -86,12 +86,12 @@ class Pi0(_model.BaseModel):
     ):
         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
         self.pi05 = config.pi05
-        paligemma_config = _gemma.get_config(config.paligemma_variant)
-        action_expert_config = _gemma.get_config(config.action_expert_variant)
+        expert_configs, use_adarms = config.expert_configs()
+        paligemma_config, action_expert_config = expert_configs[:2]
         # TODO: rewrite gemma in NNX. For now, use bridge.
         llm = nnx_bridge.ToNNX(
             _gemma.Module(
-                configs=[paligemma_config, action_expert_config],
+                configs=expert_configs,
                 embed_dtype=config.dtype,
                 adarms=config.pi05,
                 use_cudnn_attention=config.use_cudnn_attention,
@@ -101,7 +101,7 @@ class Pi0(_model.BaseModel):
         llm.lazy_init(
             rngs=rngs,
             method="init",
-            use_adarms=[False, True] if config.pi05 else [False, False],
+            use_adarms=use_adarms,
         )
         img = nnx_bridge.ToNNX(
             _siglip.Module(

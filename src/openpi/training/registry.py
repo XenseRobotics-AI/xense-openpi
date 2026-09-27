@@ -12,6 +12,7 @@ are intentionally not registered and remain Python-only; see
 
 import openpi.models.pi0_config as _pi0_config
 import openpi.models.pi0_fast as _pi0_fast
+import openpi.models.pi0_tactile_expert_config as _pi0_tactile_expert_config
 import openpi.models.pi0_tactile_fastvit_config as _pi0_tactile_fastvit_config
 import openpi.training.optimizer as _optimizer
 import openpi.training.weight_loaders as _weight_loaders
@@ -21,6 +22,7 @@ import openpi.transforms as _transforms
 MODELS: dict[str, type] = {
     "Pi0Config": _pi0_config.Pi0Config,
     "Pi0FASTConfig": _pi0_fast.Pi0FASTConfig,
+    "Pi0TactileExpertConfig": _pi0_tactile_expert_config.Pi0TactileExpertConfig,
     "Pi0TactileFastVitConfig": _pi0_tactile_fastvit_config.Pi0TactileFastVitConfig,
 }
 
@@ -28,6 +30,7 @@ MODELS: dict[str, type] = {
 # Weight loaders (TrainConfig.weight_loader)
 WEIGHT_LOADERS: dict[str, type] = {
     "NoOpWeightLoader": _weight_loaders.NoOpWeightLoader,
+    "CascadeInitWeightLoader": _weight_loaders.CascadeInitWeightLoader,
     "CheckpointWeightLoader": _weight_loaders.CheckpointWeightLoader,
     "PaliGemmaWeightLoader": _weight_loaders.PaliGemmaWeightLoader,
 }

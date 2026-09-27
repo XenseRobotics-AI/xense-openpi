@@ -4,6 +4,41 @@
 
 参考实现：`/home/li/hubo/T-Rex`（Qwen3-VL + MoT 三专家）。本文档是把那套逻辑移植到本仓库 JAX 侧的设计方案。
 
+## 实现状态（2026-09-27）
+
+已实现 JAX `Pi0TactileExpertConfig` / `Pi0TactileExpert`，与原有
+`Pi0TactileFastVit` 并列保留。按本次需求，**默认 10 步，前 6 步 action expert、后 4 步 tactile expert**，
+覆盖下文 §6.1/§8 中建议的实验默认值 4。仅支持 pi05、标准同步去噪和全量训练。
+
+训练示例：`configs/_examples/pi05_base_bi_flexiv_tactile_expert_6_4.yaml`。
+准备好 FastViT Flax 权重和数据后运行：
+
+```bash
+uv run scripts/train.py pi05_base_bi_flexiv_tactile_expert_6_4 --exp-name=tactile-expert-6-4
+```
+
+实现细节与方案的修正：
+
+- `tactile_expert_init` 放在 **weight_loader** 下，默认 `random`；`copy_action`
+  在预训练权重加载后复制，已有第三专家 checkpoint 权重优先，避免覆盖训练结果。
+  使用 `CascadeInitWeightLoader` 的默认 `missing_regex`，同时保留 `tactile_*`、
+  `*_tac` 和第三专家 `*_2` 参数；仅写 `.*tactile.*` 不够。
+- 第三专家矩阵采用 Xavier 初始化，包括 adaRMS 的 Dense kernel；bias 保留零。
+  原 Gemma 的 adaRMS kernel 全零，会令新专家的残差 gate 全零，初始化时触觉编码器
+  收不到梯度。因此新专家单独初始化，不修改已有专家或 Gemma 通用实现。
+- `sample_actions` 不指定 `num_steps` 时采用 `cascade_total_steps`。支持 JIT 动态
+  `num_steps`，调用者须保证它为正且不小于 `cascade_split_step`；正式推理应与训练
+  使用相同总步数，否则分界时间也会变化。以整数循环保证恰好 S + (N-S) 步。
+- 训练日志包含 `loss_action` 和未乘权重的 `loss_tactile`；总 loss 是两者加权和。
+  前缀 KV 从主 loss 前向复用，独立噪声 rollout 和刷新 KV 均与触觉 loss 梯度隔离。
+  有效 prefix token 的 KV 与独立前向等价；完全 masked 的 padding query 在 explicit
+  attention 中可能得到不同的无效 KV，后续始终屏蔽这些 key，因此不影响输出。
+- §7 的“复制参数且无触觉 token 就近似等价”不是严格有效的断言：第三专家仍可读取
+  额外 action KV，且 RoPE 位置变化。验证改用全 action 退化对照、精确 6+4 步数与刷新
+  时间、触觉盲性、缺失触觉 mask、真实三专家梯度隔离及 checkpoint 加载测试。
+
+下文保留原设计讨论；训练效果与 H100 性能仍需服务器实测。
+
 ---
 
 ## 0. 范围与已定决策
