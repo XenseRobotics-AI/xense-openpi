@@ -41,7 +41,7 @@ class FakeExtractor:
             ref = np.asarray(self.space.decode(self.rng.uniform(-0.5, 0.5, (R, 20)).astype(np.float32), state))
             out.append(
                 {
-                    "z_rl": np.full(Z, obs["t"], np.float32),
+                    "z_rl": np.full(Z, obs["t"] if "t" in obs else obs["images"]["t"], np.float32),
                     "state": state,
                     "proprio": np.asarray(self.space.normalize_state(state)),
                     "ref_chunk": np.asarray(self.space.encode(ref, state)),
@@ -97,10 +97,14 @@ class FakeRobot:
                     "label": label,
                     "round_end": spec.get("end", False),
                     "discard": spec.get("discard", False),
-                    "recording_next": spec.get("next", recording and label is None),
                 }
             )
-        return {"segments": segments, "captures": captures}
+        last = spec
+        return {
+            "segments": segments,
+            "captures": captures,
+            "recording_next": last.get("next", recording and label is None),
+        }
 
     def status(self, text):
         pass

@@ -68,7 +68,9 @@ class Collector:
                     logging.info("Window closed without a label; dropping %d steps.", len(trace))
                     trace = None
                 human = np.asarray(segment["human"], bool)
-                executed = np.asarray(segment["executed"], np.float32).reshape(len(human), -1)
+                executed = np.asarray(segment["executed"], np.float32).reshape(
+                    len(human), self.learner.space.action_dim
+                )
                 tally["steps"] += len(human)
                 tally["human_steps"] += int(human.sum())
                 features = self.extractor.extract(segment["obs"])
@@ -92,7 +94,7 @@ class Collector:
                     tally[segment["label"]] += 1
                     trace = None
                 round_end = round_end or bool(segment["round_end"])
-            recording = bool(reply["segments"][-1]["recording_next"])
+            recording = bool(reply["recording_next"])
 
         metrics = {**{key: float(value) for key, value in tally.items()}, "rows": float(len(rows))}
         metrics["actor_chunk_ratio"] = tally["actor_chunks"] / max(tally["chunks"], 1)

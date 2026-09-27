@@ -15,18 +15,18 @@ Then the server drives, one msgpack frame per request and one per reply:
     human steps each, executed locally without a round trip; releasing the
     takeover ends the reply. Reply::
 
-        {"segments": [segment, ...], "captures": [{"step": int, "obs": obs}, ...]}
+        {"segments": [segment, ...], "captures": [{"step": int, "obs": obs}, ...], "recording_next": bool}
 
     where each segment is::
 
         {"obs": obs after the segment, "executed": (n, A) absolute actions, "human": (n,) bool,
          "recording": bool (window open while it ran), "label": None | "success" | "failure",
-         "round_end": bool, "discard": bool, "recording_next": bool}
+         "round_end": bool, "discard": bool}
 
     A label is reported by the first segment that completes all C steps after
-    the press, so the terminal window is always a whole unit. ``recording_next``
-    is the window state latched at the end of the reply: the next chunk runs
-    under it. ``captures`` are observations taken while a window is open, after
+    the press, so the terminal window is always a whole unit. A window requested
+    mid-segment opens at the next segment boundary; ``recording_next`` is the
+    window state latched at the end of the reply, which the next chunk runs under. ``captures`` are observations taken while a window is open, after
     every ``capture_stride``-th step counted from the step the window opened;
     the server computes window features from them after a label.
 

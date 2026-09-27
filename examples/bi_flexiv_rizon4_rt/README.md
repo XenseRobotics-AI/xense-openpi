@@ -128,8 +128,9 @@ mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
 
 #### Human intervention via Pico4 VR controllers
 
-Hold **both** Pico4 side (grip) buttons together to take over the robot from the
-policy mid-episode; release either grip to hand control back. While intervention
+Hold **either** Pico4 side (grip) button to take over the robot from the policy
+mid-episode (the other arm holds its pose and gripper); release both grips to hand
+control back. While intervention
 is active, policy inference is paused (no WebSocket round-trip to the server),
 and on release the `ActionChunkBroker` cache is cleared so the next step
 re-infers fresh from the current observation.
@@ -150,7 +151,7 @@ mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
 
 Recommended first-run flow:
 
-1. `--args.dry-run --args.pico4-intervention` — hold both grips and confirm the printed 20D
+1. `--args.dry-run --args.pico4-intervention` — hold a grip and confirm the printed 20D
    action tracks the controller pose; release and confirm the next log shows the
    `Clearing ActionChunkBroker cache (intervention released).` line.
 2. Real run with `--args.stiffness-ratio 0.1` — verify the handoff does not snap the
@@ -161,8 +162,8 @@ Control scheme (inherited from `BiPico4`):
 
 | Input | Effect |
 |---|---|
-| Left + right grip held together | Both arms follow controller pose (intervention ON) |
-| Either grip released | Intervention OFF; policy resumes from the next observation |
+| Either grip held | That arm follows its controller pose (intervention ON) |
+| Both grips released | Intervention OFF; policy resumes from the next observation |
 | Left / right trigger | Respective gripper position while intervention is on |
 
 While intervention is active, every step's action dict carries `is_intervention: True`
@@ -256,3 +257,27 @@ examples/bi_flexiv_rizon4_rt/
 ├── recorder.py     # LeRobot-format episode recorder subscriber
 └── intervention.py # Pico4 VR human-in-the-loop intervention wrappers
 ```
+
+#### Online RLT collection
+
+`--args.rlt` serves this bench to an RLT training server (`scripts/rlt/train_rl.py`) instead
+of querying a policy server; `--args.host/--args.port` point at the training server's
+`rl.listen` address. Pico4 is required:
+
+```bash
+mamba run -n lerobot-xense python -m examples.bi_flexiv_rizon4_rt.main \
+    --args.robot-recipe forward-05 \
+    --args.host <training server> --args.port 8000 \
+    --args.pico4-intervention --args.rlt
+```
+
+| Input | Effect |
+|---|---|
+| `A` | At the reset gate: start the round. During a round: end it (the arms home, the server trains) |
+| `B` | Open a recording window from the next chunk; pressed while one is open: label it **success** |
+| `Y` | Label the open window **failure** |
+| `X` | Discard the round's labeled data |
+| Grip held, then moved | Take over (the grip alone only arms it; the movement threshold comes from the server) |
+
+Only labeled windows become training data. Once replay has warmed up, the server executes the
+RL actor inside open windows and the VLA everywhere else.
