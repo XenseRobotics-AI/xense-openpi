@@ -1,6 +1,7 @@
 """The robot-side RLT session against the server-side collector, with fake hardware."""
 
 import numpy as np
+import pytest
 
 from examples.bi_flexiv_rizon4_rt import rlt_mode
 from openpi.rlt import collector_test
@@ -110,3 +111,19 @@ def test_window_needs_a_label_and_discard_drops_labeled_data():
     assert result["rows"] == []
     assert result["metrics"]["failure"] == 1
     assert result["metrics"]["discards"] == 1
+
+
+def test_robot_refuses_the_actor_outside_a_window():
+    env = FakeEnv()
+    session = rlt_mode.Session(env, FakeController(env, {}), step_dt=None, takeover_motion=lambda *m: m)
+    with pytest.raises(RuntimeError, match="outside an open recording window"):
+        session.chunk({"actions": np.zeros((C, 20)), "source": "actor"})
+    assert env.applied == []
+
+
+def test_usage_tally_separates_routing_from_driving():
+    env = FakeEnv()
+    session = rlt_mode.Session(env, FakeController(env, {}, takeover=range(1, 3)), step_dt=None, takeover_motion=tuple)
+    session.recording = True
+    session.chunk({"actions": np.zeros((C, 20)), "source": "actor"})
+    assert (session.tally.actor_chunks, session.tally.actor_steps, session.tally.overridden_steps) == (1, 1, 2)

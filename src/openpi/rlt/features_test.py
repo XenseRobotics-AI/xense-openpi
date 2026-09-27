@@ -109,3 +109,19 @@ def _gemma_width() -> int:
     import openpi.models.gemma as _gemma
 
     return _gemma.get_config("dummy").width
+
+
+def test_online_rlt_requires_a_default_prompt():
+    from openpi.rlt import vla as _vla
+
+    model_config = pi0_config.Pi0Config(paligemma_variant="dummy", action_expert_variant="dummy", pi05=True)
+    for prompt in (None, "insert the cable"):
+        data_config = _config.LeRobotBiFlexivDataConfig(repo_id="fake_rlt", default_prompt=prompt).create(
+            pathlib.Path("/nonexistent"), model_config
+        )
+        frozen = _vla.FrozenVLA(_config.get_config("debug_pi05"), pathlib.Path("/ckpt"), data_config)
+        if prompt is None:
+            with pytest.raises(ValueError, match="default_prompt"):
+                frozen.check_default_prompt()
+        else:
+            assert frozen.check_default_prompt() == prompt

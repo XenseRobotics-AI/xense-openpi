@@ -24,7 +24,7 @@ from __future__ import annotations
 import dataclasses
 import difflib
 import pathlib
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import flax.nnx as nnx
 from omegaconf import OmegaConf
@@ -160,6 +160,31 @@ class RLConfig:
     takeover_rotation_deg: float = 3.0
     # Checkpoint (weights, optimizers, replay) every this many rounds, and at the end.
     save_interval: int = 10
+    # Older checkpoints are deleted except rounds divisible by this (None keeps only the latest).
+    keep_period: int | None = 50
+    # Write every committed round's transitions (raw VLA reference, executed actions) and an event
+    # log under <run>/transitions for offline analysis; training never reads them.
+    dump_transitions: bool = True
+
+    # Fields that only steer collection or bookkeeping; everything else defines what the
+    # learner's weights, optimizer state and replay mean, and must not change on resume.
+    OPERATIONAL_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "token_checkpoint",
+            "total_rounds",
+            "listen",
+            "num_steps",
+            "replay_feature_batch_size",
+            "takeover_position_m",
+            "takeover_rotation_deg",
+            "save_interval",
+            "keep_period",
+            "dump_transitions",
+        }
+    )
+
+    def training_contract(self) -> dict:
+        return {k: v for k, v in dataclasses.asdict(self).items() if k not in self.OPERATIONAL_FIELDS}
 
     def __post_init__(self) -> None:
         for name in ("actor_hidden_dims", "critic_hidden_dims"):  # YAML gives lists
@@ -172,6 +197,12 @@ class RLConfig:
             raise ValueError("fixed_std must be positive.")
         if min(self.critic_actor_ratio, self.replay_stride, self.warm_up, self.utd) < 1:
             raise ValueError("critic_actor_ratio, replay_stride, warm_up and utd must be >= 1.")
+        if self.num_action_chunks % self.replay_stride:
+            # Windows start every replay_stride steps and span C steps; their ends are only
+            # observed (stride captures) when C is a multiple of the stride.
+            raise ValueError(
+                f"replay_stride {self.replay_stride} must divide num_action_chunks {self.num_action_chunks}."
+            )
         if self.buffer_size < self.warm_up:
             raise ValueError("buffer_size must cover warm_up transitions.")
 

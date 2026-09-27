@@ -64,7 +64,7 @@ rl:
   critic_actor_ratio: 2 # actor updates after every 2nd critic update
   batch_size: 256
   buffer_size: 6000 # transitions
-  replay_stride: 2 # labeled phases -> C-step windows every 2 env steps
+  replay_stride: 2 # labeled phases -> C-step windows every 2 env steps; must divide C
   warm_up: 250 # transitions before training starts and the actor drives open windows
   utd: 5 # critic updates per committed transition
   token_checkpoint: null # phase-one step dir or token/ run dir; null = this run's token/
@@ -75,3 +75,7 @@ rl:
   takeover_position_m: 0.005 # a held grip takes over once a controller moves this far...
   takeover_rotation_deg: 3.0 # ...or rotates this much
   save_interval: 10 # rounds between checkpoints (weights, optimizers, replay)
+  keep_period: 50 # older checkpoints are pruned except rounds divisible by this (null: latest only)
+  dump_transitions: true # per-round transitions + events.jsonl under <run>/transitions (analysis only)
+  # On --resume only the operational fields may change (token_checkpoint, total_rounds, listen,
+  # num_steps, replay_feature_batch_size, takeover_*, save_interval, keep_period, dump_transitions).

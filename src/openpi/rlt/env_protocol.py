@@ -10,8 +10,8 @@ Then the server drives, one msgpack frame per request and one per reply:
 ``{"op": "reset", "takeover_position_m", "takeover_rotation_deg", "capture_stride"}``
     Home, wait for the operator to start the round, reply ``{"obs", "recording"}``.
 
-``{"op": "chunk", "actions": (C, A) absolute}``
-    Execute the chunk. A human takeover continues as further segments of up to C
+``{"op": "chunk", "actions": (C, A) absolute, "source": "actor" | "vla"}``
+    Execute the chunk. The robot refuses actor commands outside an open window. A human takeover continues as further segments of up to C
     human steps each, executed locally without a round trip; releasing the
     takeover ends the reply. Reply::
 

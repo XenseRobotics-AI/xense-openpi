@@ -17,6 +17,8 @@ segment that completes all its steps, so a labeled phase always ends on a whole 
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import logging
 import math
 import time
@@ -62,6 +64,28 @@ class Operator:
         self.__init__()
 
 
+@dataclasses.dataclass
+class UsageTally:
+    """Per-round actor usage as the robot saw it: routed to the actor vs actually driven by it.
+
+    Only the robot sees both the routing and the human override, so this is where "the actor drove"
+    can be told apart from "the actor was allowed to drive".
+    """
+
+    chunks: int = 0
+    actor_chunks: int = 0
+    actor_steps: int = 0
+    overridden_steps: int = 0
+
+    def summary(self) -> str:
+        if not self.actor_chunks:
+            return f"Round actor usage: none - all {self.chunks} chunks ran the VLA (window closed or before warm_up)."
+        return (
+            f"Round actor usage: {self.actor_chunks}/{self.chunks} chunks routed to the actor; "
+            f"{self.actor_steps} steps executed as commanded, {self.overridden_steps} overridden by hand."
+        )
+
+
 class Session:
     """Executes server requests on the bench. ``env`` and ``controller`` are the hardware seams."""
 
@@ -78,6 +102,7 @@ class Session:
         self._capture_stride = 1
         self._last_gripper: np.ndarray | None = None
         self._homed = False
+        self.tally = UsageTally()
 
     def observe(self) -> dict[str, Any]:
         obs = self.env.get_observation()
@@ -108,6 +133,7 @@ class Session:
             time.sleep(0.05)
         self.operator.new_round()
         self.recording = False
+        self.tally = UsageTally()
         self._homed = False
         return {"obs": self.observe(), "recording": False}
 
@@ -120,8 +146,11 @@ class Session:
 
     def chunk(self, request: dict) -> dict:
         actions = np.asarray(request["actions"], np.float32)
+        from_actor = request["source"] == "actor"
         steps = len(actions)
         segments, captures = [], []
+        self.tally.chunks += 1
+        self.tally.actor_chunks += from_actor
         for index in range(_MAX_SEGMENTS):
             self._latch()
             recording = self.recording
@@ -137,6 +166,12 @@ class Session:
                 self._drain_buttons()
                 if op.round_end or op.discard or released:
                     break
+                if from_actor and not active and not recording:
+                    # The server only routes the actor into open windows; never run it anywhere else.
+                    raise RuntimeError("Refusing an actor command outside an open recording window.")
+                if from_actor:
+                    self.tally.actor_steps += not active
+                    self.tally.overridden_steps += active
                 action = self.controller.get_override_action() if active else actions[step]
                 self.env.apply_action({"actions": action})
                 self._last_gripper = np.asarray(action[-2:], np.float32).copy()
@@ -176,6 +211,7 @@ class Session:
             )
         self._latch()
         if segments[-1]["round_end"]:
+            logging.info("%s", self.tally.summary())
             self.home()  # home right away; the server trains meanwhile
         return {"segments": segments, "captures": captures, "recording_next": self.recording}
 
@@ -218,15 +254,25 @@ def run(args: Args, env, controller) -> None:
     session = Session(env, controller, step_dt=1.0 / args.runtime_hz)
     hello = {"protocol": PROTOCOL, "state_dim": STATE_DIM, "action_dim": ACTION_DIM}
     uri = f"ws://{args.host}:{args.port}"
-    while True:
-        try:
-            with websockets.sync.client.connect(uri, compression=None, max_size=None) as conn:
-                conn.send(msgpack_numpy.Packer().pack(hello))
-                logging.info("Connected to the RLT training server at %s.", uri)
-                serve(conn, session, msgpack_numpy)
-                return
-        except (ConnectionRefusedError, OSError):
-            logging.info("Waiting for the RLT training server at %s...", uri)
-            time.sleep(5)
-        except websockets.exceptions.ConnectionClosed as exc:
-            logging.warning("Connection to the training server lost (%s); reconnecting.", exc)
+    packer = msgpack_numpy.Packer()
+    conn = None
+    try:
+        while True:
+            try:
+                with websockets.sync.client.connect(uri, compression=None, max_size=None) as conn:
+                    conn.send(packer.pack(hello))
+                    logging.info("Connected to the RLT training server at %s.", uri)
+                    serve(conn, session, msgpack_numpy)
+                    return
+            except websockets.exceptions.ConnectionClosed as exc:
+                logging.warning("Connection to the training server lost (%s); reconnecting.", exc)
+            except OSError:
+                logging.info("Waiting for the RLT training server at %s...", uri)
+                time.sleep(5)
+    except KeyboardInterrupt:
+        # Tell the server why the connection drops: it discards the round and waits for a reconnect.
+        logging.info("Operator abort (Ctrl+C); notifying the training server.")
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.send(packer.pack({"error": "operator abort (Ctrl+C) on the robot host"}))
+                conn.close()

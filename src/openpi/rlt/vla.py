@@ -45,6 +45,20 @@ class FrozenVLA:
             ]
         )
 
+    def check_default_prompt(self) -> str:
+        """The prompt online RLT feeds the VLA; robot observations carry none, so the VLA config must."""
+        prompts = [
+            t.prompt
+            for t in self.data_config.model_transforms.inputs
+            if isinstance(t, _transforms.InjectDefaultPrompt) and t.prompt is not None
+        ]
+        if not prompts:
+            raise ValueError(
+                f"{self.train_config.name} sets no data.default_prompt. Robot observations carry no prompt, "
+                "so online RLT needs the task prompt there (the one the VLA was trained with)."
+            )
+        return prompts[0]
+
     def output_transforms(self) -> _transforms.DataTransformFn:
         """Model outputs -> absolute robot actions; the serving policy's output pipeline."""
         data_config = self.data_config
