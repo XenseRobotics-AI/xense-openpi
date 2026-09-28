@@ -2,9 +2,10 @@ model:
   type: Pi0Config
   pi05: true
   discrete_state_input: true
-  # 58D Tianji/Wuji action space. pi05_base was trained at 32, so the action
-  # projections are re-initialised by WujiWeightLoader below.
-  action_dim: 58
+  # Pad the 58D Tianji/Wuji state/actions to 64D; policy outputs keep only the
+  # first 58 action dims. pi05_base was trained at 32, so WujiWeightLoader
+  # re-initialises the action projections below.
+  action_dim: 64
   action_horizon: 50
   # Prompt + 58 discretised state values measure 182-236 tokens over all 141,718
   # frames of Xense/TW-block-sort-0918 (p99 231).
@@ -14,7 +15,7 @@ model:
 weight_loader:
   type: WujiWeightLoader
   params_path: gs://openpi-assets/checkpoints/pi05_base/params
-  # action_in_proj / action_out_proj change shape at action_dim 58; every other
+  # action_in_proj / action_out_proj change shape at action_dim 64; every other
   # weight comes from pi05_base.
   reinit_regex: action_(in|out)_proj/.*
 ema_decay: null
@@ -26,6 +27,7 @@ data:
     # The dataset records a depth stream next to each RGB view; the model uses RGB only.
     depth: false
     tactile: false
+  # Encode all 58 TCP/finger action dims relative to the current state.
   use_delta_cartesian_actions: true
   default_prompt: Sort and place the blocks on the tabletop.
 lr_schedule:
