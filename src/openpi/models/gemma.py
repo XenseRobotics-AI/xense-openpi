@@ -627,10 +627,13 @@ class Module(nn.Module):
     def init(self, use_adarms: Sequence[bool]):
         """Convenience method for initializing all parameters, necessary due to the quirks of linen."""
         self.embed(jnp.zeros((1, 1), dtype=jnp.int32))
+        # Two tokens per expert: the cuDNN training forward with a bias needs an even sequence
+        # length, and three experts at one token each would give 3. Param shapes don't depend on it.
+        seq_len = 2 * len(self.configs)
         self(
-            [jnp.zeros((1, 1, c.width)) for c in self.configs],
-            jnp.zeros((1, len(self.configs)), dtype=jnp.int32),
-            jnp.zeros((1, len(self.configs), len(self.configs)), dtype=bool),
+            [jnp.zeros((1, 2, c.width)) for c in self.configs],
+            jnp.zeros((1, seq_len), dtype=jnp.int32),
+            jnp.zeros((1, seq_len, seq_len), dtype=bool),
             adarms_cond=[jnp.zeros((1, c.width)) if u else None for u, c in zip(use_adarms, self.configs, strict=True)],
         )
 

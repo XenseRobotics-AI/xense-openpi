@@ -29,6 +29,7 @@ data:
   repo_id: Xense/insert-test-tube-0919
   base_config:
     prompt_from_task: true
+    tactile: true
   default_prompt: Grasp the test tube, adjust it, and insert it.
 
 lr_schedule:

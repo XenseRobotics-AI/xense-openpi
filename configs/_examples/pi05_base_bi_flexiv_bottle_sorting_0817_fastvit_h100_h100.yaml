@@ -56,6 +56,7 @@ data:
   repo_id: Xense/bottle-sorting-0810
   base_config:
     prompt_from_task: true
+    tactile: true
   default_prompt: Pick up the bottle, and place it in the far bin if it is heavy, or in the near bin if it is light.
 
 # The default CosineDecaySchedule decays over 30k steps, so with num_train_steps

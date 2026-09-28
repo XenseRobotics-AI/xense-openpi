@@ -16,6 +16,10 @@ from openpi.models import model as _model
 from openpi.models import pi0
 from openpi.models.tactile_encoders import build_tactile_encoder
 
+# Built once: nnx.Linear keeps kernel_init in its static graphdef, so a fresh function per
+# construction makes jax.eval_shape and the jitted init disagree on the train-state structure.
+_XAVIER_UNIFORM = nnx.initializers.xavier_uniform()
+
 
 class Pi0TactileExpert(pi0.Pi0):
     def __init__(self, config, rngs: nnx.Rngs):
@@ -33,7 +37,7 @@ class Pi0TactileExpert(pi0.Pi0):
             pretrained_path=config.tactile_pretrained_path,
             compute_dtype=jnp.dtype(config.tactile_compute_dtype),
         )
-        linear = {"rngs": rngs, "kernel_init": nnx.initializers.xavier_uniform()}
+        linear = {"rngs": rngs, "kernel_init": _XAVIER_UNIFORM}
         self.tactile_proj = nnx.Linear(self.tactile_encoder.feature_dim, width, **linear)
         self.action_in_proj_tac = nnx.Linear(config.action_dim, width, **linear)
         self.action_out_proj_tac = nnx.Linear(width, config.action_dim, **linear)
