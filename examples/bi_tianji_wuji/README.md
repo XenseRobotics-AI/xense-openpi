@@ -76,11 +76,14 @@ dry-run 仍连接并使能驱动：Wuji 底层会发送当前位置保持命令�
   与 `Xense/TW-block-sort-0918` 的 `action` 字段名逐一对应。
   采集时 86 维 state 末尾的 28 维机械臂关节位置／速度不传给模型
   （训练侧由 `TruncateState(58)` 丢弃）。
+- 与 `bi_flexiv_rizon4_rt` 一致，每步推理前读取的 state 均为实测值：TCP 取天机控制器反馈，
+  手指 40 维用 `wuji.get_measured_observation()` 读取最新关节状态帧，
+  而不是组合机器人默认返回的上一次手指命令。
 - 每只手顺序为 index、middle、pinky、ring、thumb，每指四关节，
   使用驱动具名字段；底层 SDK 的设备关节顺序由 Wuji 驱动处理。
 - 图像为三路（head、left_wrist、right_wrist）uint8 RGB，等比例补边至 224×224，发送 CHW。
-- 服务端完成归一化、离散状态 token 化、padding 裁剪及 TCP delta 到 absolute 的恢复
-  （`use_delta_cartesian_actions: true`，前 18 维 delta、手指 40 维 absolute）；
+- 服务端完成归一化、离散状态 token 化、delta 到 absolute 的恢复及 padding 裁剪
+  （`use_delta_cartesian_actions: true`，TCP 18 维与手指 40 维均相对当前 state 做 delta）；
   上位机直接发送返回的绝对目标，不做额外 delta 累加或手指 0–1 裁剪。
 - 每次换块先调用天机 `cancel()`，让机械臂保持最后命令、结束流式控制，
   双手由自身 worker 保持最后目标，然后读取新观测并等待推理。

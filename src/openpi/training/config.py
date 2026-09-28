@@ -511,6 +511,8 @@ class LeRobotBiTianjiWujiDataConfig(LeRobotBiFlexivDataConfig):
 
     The model's action_dim must be at least 58. Pretrained pi0/pi05 checkpoints use 32, so
     pair this with `WujiWeightLoader`, which re-initialises the action projections.
+    With use_delta_cartesian_actions enabled, all 58 TCP/finger action dims are
+    relative to the current state; outputs add that state back before trimming padding.
     Compatible with Xense/TW-block-sort-0918.
     """
 
@@ -531,8 +533,8 @@ class LeRobotBiTianjiWujiDataConfig(LeRobotBiFlexivDataConfig):
         )
 
         if self.use_delta_cartesian_actions:
-            # 18 TCP dims (left 0-8 + right 9-17) delta, 40 finger dims (18-57) absolute.
-            delta_action_mask = _transforms.make_bool_mask(18, -40)
+            # All 58 TCP/finger dims are relative to the current observation.
+            delta_action_mask = _transforms.make_bool_mask(bi_tianji_wuji_policy.ACTION_DIM)
             data_transforms = data_transforms.push(
                 inputs=[_transforms.DeltaActions(delta_action_mask)],
                 outputs=[_transforms.AbsoluteActions(delta_action_mask)],

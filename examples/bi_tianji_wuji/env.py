@@ -42,7 +42,11 @@ class TianjiWujiEnvironment:
             self.robot.cancel()
 
     def get_observation(self, prompt: str) -> dict:
+        # Like bi_flexiv_rizon4_rt, the policy sees measured state. Tianji TCPs are
+        # measured already; the composite's finger values are the last Wuji command,
+        # so replace them with the newest joint-state frame.
         raw = self.robot.get_observation()
+        raw.update(self.robot.wuji.get_measured_observation())
         images = {}
         for name in CAMERAS:
             frame = np.asarray(raw[name])
