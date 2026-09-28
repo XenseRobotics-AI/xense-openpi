@@ -93,3 +93,35 @@ def test_matches_tacxense_codec():
         atol=1e-5,
     )
     np.testing.assert_allclose(space.normalize_state(state), codec.normalize_proprio(t_state).numpy(), atol=1e-6)
+
+
+def test_diagnose_counts_what_encode_corrects():
+    space = bi_flexiv_space()
+    state = np.zeros(20, np.float32)
+    state[[3, 7, 12, 16]] = 1.0  # identity rotations
+    state[18:] = 0.5
+    actions = np.tile(state, (3, 1))  # hold the current pose: zero deltas, inside q01/q99
+    assert space.diagnose(actions, state) == {"out_of_range": 0, "gripper_clips": 0, "rot6d_fallbacks": 0}
+    actions[0, 18] = 1.5  # gripper beyond fully open
+    actions[1, 3:9] = 0.0  # degenerate rotation
+    actions[2, 0] = state[0] + 10 * (space.action_q99[0] - space.action_q01[0])  # far outside q01/q99
+    counts = space.diagnose(actions, state)
+    assert counts["gripper_clips"] == 1
+    assert counts["rot6d_fallbacks"] == 1
+    assert counts["out_of_range"] >= 1
+    assert space.diagnose(np.full((2, 20), 3.0), state, normalized=True)["out_of_range"] > 0
+
+
+def test_output_metrics_of_the_reference_itself_are_zero():
+    from openpi.rlt import diagnostics
+
+    space = bi_flexiv_space()
+    rng = np.random.default_rng(5)
+    state = _state(rng, 1)[0]
+    reference = rng.uniform(-0.8, 0.8, (4, 20)).astype(np.float32)
+    metrics = diagnostics.output_metrics(space, reference, reference, state)
+    for key in ("residual_position_mm_max", "residual_rotation_rad_max", "residual_gripper_max"):
+        assert metrics[key] < 1e-3, key
+    shifted = reference.copy()
+    shifted[:, 0] += 0.5
+    assert diagnostics.output_metrics(space, shifted, reference, state)["residual_position_mm_max"] > 1

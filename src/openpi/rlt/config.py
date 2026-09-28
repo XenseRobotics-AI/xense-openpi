@@ -24,7 +24,7 @@ from __future__ import annotations
 import dataclasses
 import difflib
 import pathlib
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import flax.nnx as nnx
 from omegaconf import OmegaConf
@@ -97,6 +97,37 @@ class TokenTrainingConfig:
 
 
 @dataclasses.dataclass(frozen=True)
+class ActorWeightSchedule:
+    """Optional BC/Q weight schedule over actor updates; when disabled, ``q_weight``/``bc_weight`` apply.
+
+    The warm-up weights hold for ``warmup_updates`` actor updates, then ramp linearly to the
+    online weights over ``ramp_updates`` (0 jumps straight there).
+    """
+
+    enable: bool = False
+    warmup_updates: int = 0
+    ramp_updates: int = 0
+    warmup_bc_weight: float = 7.0
+    warmup_q_weight: float = 0.05
+    online_bc_weight: float = 2.5
+    online_q_weight: float = 0.45
+
+    def weights(self, actor_update: int, *, bc_weight: float, q_weight: float) -> tuple[float, float]:
+        """``(bc_weight, q_weight)`` for the actor update with index ``actor_update`` (0-based)."""
+        if not self.enable:
+            return bc_weight, q_weight
+        if actor_update < self.warmup_updates:
+            return self.warmup_bc_weight, self.warmup_q_weight
+        if self.ramp_updates > 0:
+            progress = min(1.0, (actor_update - self.warmup_updates + 1) / self.ramp_updates)
+            return (
+                self.warmup_bc_weight + progress * (self.online_bc_weight - self.warmup_bc_weight),
+                self.warmup_q_weight + progress * (self.online_q_weight - self.warmup_q_weight),
+            )
+        return self.online_bc_weight, self.online_q_weight
+
+
+@dataclasses.dataclass(frozen=True)
 class RLConfig:
     """Phase two: online chunked-TD actor-critic on top of the frozen RL token.
 
@@ -133,6 +164,11 @@ class RLConfig:
     fixed_std: float = 0.002
     # Critic updates per actor update.
     critic_actor_ratio: int = 2
+    # Smoothness penalty on the actor's normalized chunk: smooth_weight * sum_k w_k * mean(diff^k^2)
+    # for k = 1..3 (velocity, acceleration, jerk). 0 disables it; independent of RTC.
+    smooth_weight: float = 0.0
+    smooth_order_weights: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    actor_weight_schedule: ActorWeightSchedule = dataclasses.field(default_factory=ActorWeightSchedule)
 
     batch_size: int = 256
     # Replay capacity in transitions (one transition = one C-step window).
@@ -144,8 +180,50 @@ class RLConfig:
     # Critic updates earned per committed transition.
     utd: int = 5
 
+    # Online collection.
+    # Phase-one token checkpoint (step dir or token/ run dir); None = this run's own token/ dir.
+    token_checkpoint: str | None = None
+    # Budget in operator rounds (reset -> round end).
+    total_rounds: int = 300
+    # Address the server listens on; the robot host dials in.
+    listen: str = "0.0.0.0:8000"
+    # Denoising steps of the frozen VLA's reference sampling.
+    num_steps: int = 10
+    # Frozen-VLA batch when a labeled phase computes its sliding-window features (wall clock only).
+    replay_feature_batch_size: int = 16
+    # A held Pico grip becomes a takeover once a controller moves this far from where it was pressed.
+    takeover_position_m: float = 0.005
+    takeover_rotation_deg: float = 3.0
+    # Checkpoint (weights, optimizers, replay) every this many rounds, and at the end.
+    save_interval: int = 10
+    # Older checkpoints are deleted except rounds divisible by this (None keeps only the latest).
+    keep_period: int | None = 50
+    # Write every committed round's transitions (raw VLA reference, executed actions) and an event
+    # log under <run>/transitions for offline analysis; training never reads them.
+    dump_transitions: bool = True
+
+    # Fields that only steer collection or bookkeeping; everything else defines what the
+    # learner's weights, optimizer state and replay mean, and must not change on resume.
+    OPERATIONAL_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "token_checkpoint",
+            "total_rounds",
+            "listen",
+            "num_steps",
+            "replay_feature_batch_size",
+            "takeover_position_m",
+            "takeover_rotation_deg",
+            "save_interval",
+            "keep_period",
+            "dump_transitions",
+        }
+    )
+
+    def training_contract(self) -> dict:
+        return {k: v for k, v in dataclasses.asdict(self).items() if k not in self.OPERATIONAL_FIELDS}
+
     def __post_init__(self) -> None:
-        for name in ("actor_hidden_dims", "critic_hidden_dims"):  # YAML gives lists
+        for name in ("actor_hidden_dims", "critic_hidden_dims", "smooth_order_weights"):  # YAML gives lists
             object.__setattr__(self, name, tuple(getattr(self, name)))
         if self.num_action_chunks > self.ref_num_action_chunks:
             raise ValueError("num_action_chunks must be <= ref_num_action_chunks.")
@@ -155,6 +233,14 @@ class RLConfig:
             raise ValueError("fixed_std must be positive.")
         if min(self.critic_actor_ratio, self.replay_stride, self.warm_up, self.utd) < 1:
             raise ValueError("critic_actor_ratio, replay_stride, warm_up and utd must be >= 1.")
+        if self.num_action_chunks % self.replay_stride:
+            # Windows start every replay_stride steps and span C steps; their ends are only
+            # observed (stride captures) when C is a multiple of the stride.
+            raise ValueError(
+                f"replay_stride {self.replay_stride} must divide num_action_chunks {self.num_action_chunks}."
+            )
+        if self.smooth_weight < 0 or len(self.smooth_order_weights) != 3 or min(self.smooth_order_weights) < 0:
+            raise ValueError("smooth_weight and the three smooth_order_weights must be >= 0.")
         if self.buffer_size < self.warm_up:
             raise ValueError("buffer_size must cover warm_up transitions.")
 
@@ -184,6 +270,10 @@ class RLTConfig:
     @property
     def token_checkpoint_dir(self) -> pathlib.Path:
         return self.checkpoint_dir / "token"
+
+    @property
+    def rl_checkpoint_dir(self) -> pathlib.Path:
+        return self.checkpoint_dir / "rl"
 
     def __post_init__(self) -> None:
         if self.resume and self.overwrite:

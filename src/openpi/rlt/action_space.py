@@ -94,6 +94,29 @@ class ActionSpace:
     def canonicalize(self, normalized: jax.Array, state: jax.Array) -> jax.Array:
         return self.encode(self.decode(normalized, state), state)
 
+    def diagnose(self, actions: np.ndarray, state: np.ndarray, *, normalized: bool = False) -> dict[str, int]:
+        """What ``encode`` (or, for ``normalized`` actor output, ``decode``) silently corrects (for logging).
+
+        ``out_of_range``: normalized values beyond the actor's [-1, 1], i.e. outside the VLA's
+        q01/q99; ``gripper_clips``: openings outside [0, 1]; ``rot6d_fallbacks``: degenerate
+        rotations replaced by the current pose.
+        """
+        actions = np.asarray(actions, np.float32)
+        base = np.asarray(state, np.float32)[..., None, : self.action_dim]
+        if normalized:
+            actions = _unnormalize(actions, self.action_q01, self.action_q99) + base * self.delta_mask
+        grippers = actions[..., list(self.gripper_dims)]
+        fallbacks = sum(
+            int((~np.asarray(_gram_schmidt(jnp.asarray(actions[..., a:b]))[1])).sum()) for a, b in self.rot6d_blocks
+        )
+        projected = np.asarray(self._project(jnp.asarray(actions), jnp.asarray(base)))
+        normalized = _normalize(projected - base * self.delta_mask, self.action_q01, self.action_q99)
+        return {
+            "out_of_range": int((np.abs(normalized) > 1.0).sum()),
+            "gripper_clips": int(((grippers < 0) | (grippers > 1)).sum()),
+            "rot6d_fallbacks": fallbacks,
+        }
+
     def _base(self, state: jax.Array) -> jax.Array:
         """Current state as a ``(..., 1, A)`` broadcast against action chunks."""
         return jax.lax.stop_gradient(state[..., None, : self.action_dim])

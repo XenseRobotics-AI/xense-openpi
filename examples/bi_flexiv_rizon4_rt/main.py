@@ -52,7 +52,7 @@ Example usage:
         --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 \\
         --args.subscribe --args.subscribe-url ws://192.168.2.50:9100 --args.subscribe-hz 10
 
-    # Inference with Pico4 human intervention (both grips held → teleop takes over)
+    # Inference with Pico4 human intervention (either grip held → teleop takes over)
     python -m examples.bi_flexiv_rizon4_rt.main \\
         --args.robot-recipe forward-05 --args.host 192.168.2.100 --args.port 8000 --args.pico4-intervention
 """
@@ -80,6 +80,7 @@ import examples.bi_flexiv_rizon4_rt.env as _env
 import examples.bi_flexiv_rizon4_rt.intervention as _intervention
 import examples.bi_flexiv_rizon4_rt.recipe as _recipe
 import examples.bi_flexiv_rizon4_rt.recorder as _recorder
+import examples.bi_flexiv_rizon4_rt.rlt_mode as _rlt_mode
 import examples.bi_flexiv_rizon4_rt.subscribe as _subscribe
 import examples.run_config as _run_config
 
@@ -281,10 +282,38 @@ class Args:
     record_root: str | None = None  # local save path, defaults to ~/.cache/huggingface/lerobot
     task: str = "pack 6 cosmetic bottles into the carton"
 
-    # Pico4 human-in-the-loop intervention (hold both grips to take over)
+    # Pico4 human-in-the-loop intervention (hold either grip to take over)
     pico4_intervention: bool = False
     pico4_pos_sensitivity: float = 1.0
     pico4_ori_sensitivity: float = 1.0
+
+    # Online RLT collection: serve this bench to scripts/rlt/train_rl.py at --host/--port instead of
+    # querying a policy server. Needs --pico4-intervention (grips take over, face buttons label).
+    rlt: bool = False
+
+
+def _run_rlt(args: Args, robot_config) -> None:
+    """Online RLT: serve this bench to the training server at --host/--port (see rlt_mode.py)."""
+    if not args.pico4_intervention:
+        raise SystemExit("--args.rlt is driven from the Pico4 controllers; add --args.pico4-intervention.")
+    base_environment = _env.BiFlexivRizon4RTEnvironment(
+        robot_config=robot_config,
+        render_height=args.render_height,
+        render_width=args.render_width,
+        setup_robot=True,
+    )
+    controller = None
+    try:
+        teleop = BiPico4(
+            BiPico4Config(pos_sensitivity=args.pico4_pos_sensitivity, ori_sensitivity=args.pico4_ori_sensitivity)
+        )
+        controller = _intervention.Pico4InterventionController(teleop, base_environment)
+        controller.start()
+        _rlt_mode.run(args, base_environment, controller)
+    finally:
+        if controller is not None:
+            controller.disconnect()
+        base_environment.disconnect()
 
 
 def main(args: Args) -> None:
@@ -335,6 +364,10 @@ def main(args: Args) -> None:
         f"(left={robot_config.left_robot_sn}, right={robot_config.right_robot_sn}, "
         f"gripper={robot_config.gripper.type if robot_config.gripper else None})"
     )
+
+    if args.rlt:
+        _run_rlt(args, robot_config)
+        return
 
     ws_client_policy = _websocket_client_policy.WebsocketClientPolicy(
         host=args.host,

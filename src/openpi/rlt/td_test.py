@@ -145,3 +145,40 @@ def test_matches_tacxense():
     ref_loss, ref_info = rlt.actor_loss(t_batch, reference, q_weight=0.1, bc_weight=5.0, codec=codec)
     np.testing.assert_allclose(loss, ref_loss.item(), rtol=1e-4)
     np.testing.assert_allclose(info["bc_loss"], ref_info["bc_loss"], rtol=1e-4)
+
+
+def test_smoothness_and_weight_schedule_match_tacxense():
+    torch = pytest.importorskip("torch")
+    rlt = tacxense_reference.import_tacxense()
+    rng = np.random.default_rng(3)
+    chunk = rng.normal(size=(5, C + 3, A)).astype(np.float32)
+    orders = (1.0, 0.5, 0.25)
+    ours = td.smoothness(jnp.asarray(chunk), orders)
+    # TacXense's actor_loss term with every step valid (no RTC): sum over masked diffs / (count * A).
+    expected = 0.0
+    t = torch.from_numpy(chunk)
+    for order, weight in enumerate(orders, start=1):
+        diffs = t.diff(n=order, dim=1)
+        expected += weight * diffs.square().sum().item() / (diffs.shape[0] * diffs.shape[1] * A)
+    np.testing.assert_allclose(ours, expected, rtol=1e-5)
+
+    schedule = _config.ActorWeightSchedule(
+        enable=True, warmup_updates=3, ramp_updates=4, warmup_bc_weight=2.0, warmup_q_weight=0.0
+    )
+    reference = rlt.ActorWeightSchedule(
+        rlt.ActorWeightScheduleConfig(**dataclasses.asdict(schedule)), bc_weight=5.0, q_weight=0.1
+    )
+    for step in range(10):
+        np.testing.assert_allclose(schedule.weights(step, bc_weight=5.0, q_weight=0.1), reference.weights(step))
+    assert _config.ActorWeightSchedule().weights(7, bc_weight=5.0, q_weight=0.1) == (5.0, 0.1)
+
+
+def test_smooth_weight_adds_to_the_actor_loss():
+    space = action_space_test.bi_flexiv_space()
+    actor, critic = _heads()
+    batch = _batch(space)
+    kwargs = {"q_weight": 0.1, "bc_weight": 5.0, "reference_dropout_prob": 0.0}
+    base, _ = td.actor_loss(actor, critic, space, batch, jax.random.key(0), **kwargs)
+    smoothed, info = td.actor_loss(actor, critic, space, batch, jax.random.key(0), smooth_weight=0.5, **kwargs)
+    np.testing.assert_allclose(smoothed - base, 0.5 * info["smooth_loss"], atol=1e-6)
+    assert info["smooth_loss"] > 0

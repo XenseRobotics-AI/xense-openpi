@@ -10,7 +10,8 @@ params are replicated. Interrupted runs resume where they stopped; a cache
 built from a different VLA checkpoint, norm stats or dataset is refused
 (``--overwrite`` rebuilds it).
 
-    uv run scripts/rlt/precompute_prefix.py <rlt_config> [--batch-size 64]
+    mamba activate lerobot-xense
+    python scripts/rlt/precompute_prefix.py <rlt_config> [--batch-size 64]
 """
 
 import argparse

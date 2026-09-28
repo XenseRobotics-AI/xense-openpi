@@ -1,7 +1,9 @@
-# RLT phase one (RL-token) - every field with its default. Copy to configs/rlt/<name>.yaml.
+# RLT (RL token + online RL) - every field with its default. Copy to configs/rlt/<name>.yaml.
 #
-#   uv run scripts/rlt/precompute_prefix.py <name>                   # frozen VLA -> prefix cache
-#   uv run scripts/rlt/train_token.py <name> --exp-name <run>        # cache -> token encoder-decoder
+#   mamba activate lerobot-xense
+#   python scripts/rlt/precompute_prefix.py <name>                   # frozen VLA -> prefix cache
+#   python scripts/rlt/train_token.py <name> --exp-name <run>        # cache -> token encoder-decoder
+#   python scripts/rlt/train_rl.py <name> --exp-name <run>           # online RL with the robot
 #
 # The training run deletes the cache once it reaches num_train_steps
 # (--no-delete-cache-on-finish keeps it). Files starting with "_" are docs, not configs.
@@ -40,3 +42,55 @@ token_training:
   save_interval: 1000
   keep_period: 5000
   log_interval: 50
+
+# Phase two: online RL on the real robot (scripts/rlt/train_rl.py). Defaults are TacXense's
+# tuned real-robot values. The robot host runs examples/bi_flexiv_rizon4_rt/main.py --args.rlt.
+rl:
+  num_action_chunks: 20 # C: executed steps per transition and TD bootstrap horizon
+  ref_num_action_chunks: 50 # VLA reference length fed to the actor (first C steps used)
+  actor_hidden_dims: [256, 256]
+  critic_hidden_dims: [256, 256]
+  num_q_heads: 2
+  actor_layer_norm: false
+  critic_layer_norm: true
+  actor_lr: 3.0e-4
+  critic_lr: 3.0e-4
+  max_grad_norm: 10.0 # per network
+  gamma: 0.99 # per step; bootstrap discount gamma**C
+  tau: 0.005 # target critic soft update, every critic step
+  q_weight: 0.1 # actor: -q_weight * Q1 + bc_weight * BC
+  bc_weight: 5.0
+  reference_dropout_prob: 0.5
+  fixed_std: 0.002 # Gaussian actor exploration std (normalized space)
+  critic_actor_ratio: 2 # actor updates after every 2nd critic update
+  # Smoothness penalty on the actor's normalized chunk (velocity/acceleration/jerk); independent of
+  # RTC. TacXense's insert_ethernet_0917 real-robot config used 0.003.
+  smooth_weight: 0.0
+  smooth_order_weights: [1.0, 1.0, 1.0]
+  # BC/Q weights per actor update: warm-up weights, then a linear ramp to the online weights.
+  # Disabled: q_weight/bc_weight above apply throughout.
+  actor_weight_schedule:
+    enable: false
+    warmup_updates: 0
+    ramp_updates: 0
+    warmup_bc_weight: 7.0
+    warmup_q_weight: 0.05
+    online_bc_weight: 2.5
+    online_q_weight: 0.45
+  batch_size: 256
+  buffer_size: 6000 # transitions
+  replay_stride: 2 # labeled phases -> C-step windows every 2 env steps; must divide C
+  warm_up: 250 # transitions before training starts and the actor drives open windows
+  utd: 5 # critic updates per committed transition
+  token_checkpoint: null # phase-one step dir or token/ run dir; null = this run's token/
+  total_rounds: 300
+  listen: 0.0.0.0:8000 # the robot host dials this address
+  num_steps: 10 # VLA denoising steps for the reference
+  replay_feature_batch_size: 16 # VLA batch when a labeled phase computes window features
+  takeover_position_m: 0.005 # a held grip takes over once a controller moves this far...
+  takeover_rotation_deg: 3.0 # ...or rotates this much
+  save_interval: 10 # rounds between checkpoints (weights, optimizers, replay)
+  keep_period: 50 # older checkpoints are pruned except rounds divisible by this (null: latest only)
+  dump_transitions: true # per-round transitions + events.jsonl under <run>/transitions (analysis only)
+  # On --resume only the operational fields may change (token_checkpoint, total_rounds, listen,
+  # num_steps, replay_feature_batch_size, takeover_*, save_interval, keep_period, dump_transitions).

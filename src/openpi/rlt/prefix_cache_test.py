@@ -1,8 +1,10 @@
+import jax.numpy as jnp
 import ml_dtypes
 import numpy as np
 import pytest
 
 from openpi.rlt import prefix_cache
+import openpi.training.data_loader as _data_loader
 
 _IDENTITY = {
     "vla_config": "cfg",
@@ -54,10 +56,15 @@ def test_roundtrip_resume_and_trim(tmp_path):
     assert len(dataset) == 6
     item = dataset[0]
     assert item["hidden"].shape == (10, _DIM)
-    assert item["hidden"].dtype == ml_dtypes.bfloat16
     np.testing.assert_array_equal(item["mask"], m1[0, :10])
     expected = np.where(m1[0, :10, None], h1[0, :10], 0).astype(ml_dtypes.bfloat16)
-    np.testing.assert_array_equal(item["hidden"], expected)
+    np.testing.assert_array_equal(item["hidden"].view(ml_dtypes.bfloat16), expected)
+
+    # Through the training loader's collate (torch shared-memory tensors) and back to bfloat16.
+    batch = _data_loader._collate_fn([dataset[0], dataset[1]])
+    hidden = np.asarray(prefix_cache.as_bfloat16(jnp.asarray(batch["hidden"].numpy())))
+    assert hidden.dtype == ml_dtypes.bfloat16
+    np.testing.assert_array_equal(hidden[0], expected)
 
 
 def test_trailing_padding_is_not_stored(tmp_path):

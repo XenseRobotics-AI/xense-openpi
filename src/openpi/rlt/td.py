@@ -6,8 +6,8 @@ executed actions (normalized), per-step rewards, ``next_obs`` C steps later and
 
     sum_l gamma**l r_l + gamma**C * (1 - terminated) * min_i Q'_i(s', canon(pi(s')))
 
-and the actor minimizes ``-q_weight * Q1(s, canon(pi(s))) + bc_weight * MSE``
-against the training reference: the VLA reference, with human actions at
+and the actor minimizes ``-q_weight * Q1(s, canon(pi(s))) + bc_weight * MSE`` (plus an
+optional smoothness penalty on its chunk) against the training reference: the VLA reference, with human actions at
 intervened steps. Replay keeps the raw VLA reference; the substitution happens
 here, and the same tensor is both the actor's input and its BC target.
 """
@@ -30,6 +30,20 @@ def training_reference(batch: dict) -> jax.Array:
     num_chunks = batch["actions"].shape[1]
     head = jnp.where(batch["intervention_mask"][..., None], batch["actions"], ref[:, :num_chunks])
     return jnp.concatenate([head, ref[:, num_chunks:]], axis=1)
+
+
+def smoothness(chunk: jax.Array, order_weights: tuple[float, float, float]) -> jax.Array:
+    """``sum_k w_k * mean(diff^k(chunk)**2)`` over the chunk axis: velocity, acceleration, jerk.
+
+    Measured in the normalized action space the actor emits, over the whole chunk.
+    """
+    total = jnp.zeros((), chunk.dtype)
+    diffs = chunk
+    for weight in order_weights:
+        diffs = jnp.diff(diffs, axis=1)
+        if weight > 0:
+            total = total + weight * jnp.mean(jnp.square(diffs))
+    return total
 
 
 def critic_loss(
@@ -69,9 +83,11 @@ def actor_loss(
     batch: dict,
     rng: jax.Array,
     *,
-    q_weight: float,
-    bc_weight: float,
+    q_weight: float | jax.Array,
+    bc_weight: float | jax.Array,
     reference_dropout_prob: float,
+    smooth_weight: float = 0.0,
+    smooth_order_weights: tuple[float, float, float] = (1.0, 1.0, 1.0),
 ) -> tuple[jax.Array, dict[str, jax.Array]]:
     curr_obs = batch["curr_obs"]
     reference = training_reference(batch)
@@ -86,13 +102,16 @@ def actor_loss(
     # Only Q1 drives the actor, as in RLinf.
     q_pi = critic(curr_obs, pi)[:, 0].mean()
     bc = jnp.mean(jnp.square(pi - reference[:, : pi.shape[1]]))
-    loss = -q_weight * q_pi + bc_weight * bc
+    smooth = smoothness(pi, smooth_order_weights)
+    loss = -q_weight * q_pi + bc_weight * bc + smooth_weight * smooth
     return loss, {
         "actor_loss": loss,
         "q_pi": q_pi,
         "bc_loss": bc,
         "weighted_q": q_weight * q_pi,
         "weighted_bc": bc_weight * bc,
+        "smooth_loss": smooth,
+        "weighted_smooth": smooth_weight * smooth,
         "action_projection_abs_mean": jnp.abs(pi - raw).mean(),
         "human_mask_ratio": batch["intervention_mask"].mean(),
     }
