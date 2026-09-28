@@ -13,6 +13,9 @@ server's threshold), and the face buttons are the operator's controls:
 
 A label pressed mid-chunk lets the chunk run out: it is reported by the first
 segment that completes all its steps, so a labeled phase always ends on a whole unit.
+The server confirms each label (transitions added, or why the phase was dropped) and each
+discard on this terminal. Presses made while the server trains are ignored: only an A
+pressed at the reset gate starts the next round.
 """
 
 from __future__ import annotations
@@ -102,6 +105,7 @@ class Session:
         self._capture_stride = 1
         self._last_gripper: np.ndarray | None = None
         self._homed = False
+        self._home_after_reply = False
         self.tally = UsageTally()
 
     def observe(self) -> dict[str, Any]:
@@ -125,6 +129,11 @@ class Session:
         self._capture_stride = int(request["capture_stride"])
         if not self._homed:
             self.home()
+        # Presses queued while the server trained (nobody reads the buttons then) are stale: a stray A
+        # must not start the round before the operator has reset the scene.
+        stale = self.controller.consume_button_events()
+        if stale:
+            logging.info("Ignoring Pico4 presses made before the reset gate: %s", ", ".join(stale))
         logging.info("Arms homed. Press Pico4 A to start the round.")
         self.operator.round_end = False
         while not self.operator.round_end:  # A at the gate starts the round
@@ -136,6 +145,12 @@ class Session:
         self.tally = UsageTally()
         self._homed = False
         return {"obs": self.observe(), "recording": False}
+
+    def after_reply(self) -> None:
+        """Runs once the reply is sent: a round end homes the arms while the server trains."""
+        if self._home_after_reply:
+            self._home_after_reply = False
+            self.home()
 
     def _latch(self) -> None:
         """Apply a requested window at a segment boundary, never mid-segment."""
@@ -212,7 +227,7 @@ class Session:
         self._latch()
         if segments[-1]["round_end"]:
             logging.info("%s", self.tally.summary())
-            self.home()  # home right away; the server trains meanwhile
+            self._home_after_reply = True
         return {"segments": segments, "captures": captures, "recording_next": self.recording}
 
 
@@ -241,6 +256,7 @@ def serve(conn, session: Session, msgpack_numpy) -> None:
             conn.send(packer.pack({"error": traceback.format_exc()}))
             raise
         conn.send(packer.pack(reply))
+        session.after_reply()
 
 
 def run(args: Args, env, controller) -> None:

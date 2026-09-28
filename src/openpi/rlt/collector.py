@@ -127,16 +127,25 @@ class Collector:
                         if step in captures:
                             trace.add_observation(step, captures[step])
                 if segment["discard"]:
-                    logging.info("Operator discarded the round's data (%d rows).", len(rows))
+                    self.env.status(f"Discard: dropped this round's {len(rows)} labeled transitions.")
                     rows.clear()
                     phase_steps.clear()
                     trace = None
                     tally["discards"] += 1
                 elif segment["label"] is not None and trace is not None:
-                    phase_rows = self._close_phase(trace, segment["label"])
+                    phase_rows, dropped = self._close_phase(trace, segment["label"])
                     if phase_rows:
                         rows += phase_rows
                         phase_steps.append(len(trace))
+                    # Confirm on the operator's terminal what the label produced, before the next chunk.
+                    self.env.status(
+                        f"{segment['label'].capitalize()} labeled: {len(trace)}-step phase -> "
+                        + (
+                            f"dropped ({dropped})"
+                            if dropped
+                            else f"+{len(phase_rows)} transitions ({len(rows)} this round)"
+                        )
+                    )
                     tally[segment["label"]] += 1
                     trace = None
                 round_end = round_end or bool(segment["round_end"])
@@ -183,13 +192,16 @@ class Collector:
                 use_actor=use_actor,
             )
 
-    def _close_phase(self, trace: _critical_trace.CriticalTrace, label: str) -> list[dict]:
-        """Turn a labeled phase into replay rows (terminal reward 1 for success, 0 for failure)."""
+    def _close_phase(self, trace: _critical_trace.CriticalTrace, label: str) -> tuple[list[dict], str | None]:
+        """Turn a labeled phase into replay rows (terminal reward 1 for success, 0 for failure).
+
+        Returns the rows and, when the phase yields none, why.
+        """
         trace.set_terminal_reward(float(label == "success"))
         missing = trace.missing_feature_indices()
         if any(not trace.has_observation(i) for i in missing):
             logging.warning("Labeled phase is missing stride captures; dropped.")
-            return []
+            return [], "stride captures missing"
         batch = self.config.replay_feature_batch_size
         for start in range(0, len(missing), batch):
             indices = missing[start : start + batch]
@@ -198,11 +210,9 @@ class Collector:
                 trace.add_features(index, features)
         windows = trace.windows()
         if not windows:
-            logging.warning(
-                "Labeled phase of %d steps is shorter than one %d-step window; dropped.", len(trace), trace.horizon
-            )
+            return [], f"shorter than one {trace.horizon}-step window"
         space = self.learner.space
-        return [
+        rows = [
             {
                 "curr_obs": window.features,
                 "next_obs": window.next_features,
@@ -222,6 +232,7 @@ class Collector:
             }
             for window in windows
         ]
+        return rows, None
 
 
 def _prefixed(prefix: str, values: dict) -> dict:

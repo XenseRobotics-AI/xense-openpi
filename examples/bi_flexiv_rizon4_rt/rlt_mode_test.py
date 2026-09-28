@@ -29,13 +29,17 @@ class FakeEnv:
 
 
 class FakeController:
-    """Buttons by env step (pressed before that step executes); takeover over a step range."""
+    """Buttons by env step (pressed before that step executes); takeover over a step range.
 
-    def __init__(self, env, buttons, takeover=()):
+    ``stale`` presses sit queued from before the reset gate; buttons at t=0 are pressed at the gate.
+    """
+
+    def __init__(self, env, buttons, takeover=(), stale=()):
         self.env, self.buttons, self.takeover = env, dict(buttons), takeover
+        self.stale = list(stale)
         self.was_active = False
         self.release = False
-        self.gate_presses = 0
+        self.gate_polls = 0
 
     def set_takeover_motion(self, motion):
         self.motion = motion
@@ -44,9 +48,14 @@ class FakeController:
         self.was_active = False
 
     def poll_buttons(self):
-        pass
+        self.gate_polls += 1
 
     def consume_button_events(self):
+        if self.stale:
+            stale, self.stale = self.stale, []
+            return stale
+        if self.env.t == 0 and not self.gate_polls:
+            return []  # the gate press has not happened yet
         return [self.buttons.pop(self.env.t)] if self.env.t in self.buttons else []
 
     def poll_and_decide(self, gripper_command=None):
@@ -68,17 +77,21 @@ class Direct:
 
     def __init__(self, session):
         self.session = session
+        self.log = []  # (kind, text): request ops and status lines, in wire order
 
     def request(self, message):
-        return getattr(self.session, message["op"])(message)
+        reply = getattr(self.session, message["op"])(message)
+        self.log.append(("reply", message["op"]))
+        self.session.after_reply()  # as serve() does once the reply is on the wire
+        return reply
 
     def status(self, text):
-        pass
+        self.log.append(("status", text))
 
 
-def _run(buttons, takeover=()):
+def _run(buttons, takeover=(), stale=()):
     env = FakeEnv()
-    controller = FakeController(env, {0: "A", **buttons}, takeover)
+    controller = FakeController(env, {0: "A", **buttons}, takeover, stale)
     session = rlt_mode.Session(env, controller, step_dt=None, takeover_motion=lambda *motion: motion)
     collector, _, _ = collector_test._setup([])
     collector.env = Direct(session)
@@ -127,3 +140,44 @@ def test_usage_tally_separates_routing_from_driving():
     session.recording = True
     session.chunk({"actions": np.zeros((C, 20)), "source": "actor"})
     assert (session.tally.actor_chunks, session.tally.actor_steps, session.tally.overridden_steps) == (1, 1, 2)
+
+
+def test_round_end_replies_before_homing():
+    env = FakeEnv()
+    homes = []
+    env.reset = lambda: homes.append(env.t)
+    controller = FakeController(env, {0: "A", 2: "A"})
+    session = rlt_mode.Session(env, controller, step_dt=None, takeover_motion=lambda *m: m)
+    direct = Direct(session)
+    direct.request({"op": "reset", "takeover_position_m": 0.005, "takeover_rotation_deg": 3.0, "capture_stride": 2})
+    homes.clear()
+    reply = session.chunk({"actions": np.zeros((C, 20)), "source": "vla"})
+    assert reply["segments"][-1]["round_end"]
+    assert homes == []  # the reply goes out first, so the server can start training
+    session.after_reply()
+    assert homes == [2]
+
+
+def test_presses_queued_before_the_gate_are_ignored():
+    # A stray A (and B) pressed while the server trained must not start the round or open a window.
+    buttons = {1: "B", 13: "B", 18: "A"}
+    result, _ = _run(buttons, stale=["A", "B"])
+    clean, _ = _run(buttons)
+    assert result["metrics"] == clean["metrics"]
+    starts = [int(row["curr_obs"]["z_rl"][0]) for row in result["rows"]]
+    assert starts == [int(row["curr_obs"]["z_rl"][0]) for row in clean["rows"]] == [4, 6, 8, 10, 12]
+
+
+def test_labels_and_discards_are_confirmed_to_the_operator():
+    env = FakeEnv()
+    controller = FakeController(env, {0: "A", 1: "B", 6: "Y", 9: "B", 14: "B", 17: "X", 21: "A"})
+    session = rlt_mode.Session(env, controller, step_dt=None, takeover_motion=lambda *m: m)
+    collector, _, _ = collector_test._setup([])
+    collector.env = direct = Direct(session)
+    collector.run_round()
+    statuses = [text for kind, text in direct.log if kind == "status"]
+    assert statuses == [
+        "Failure labeled: 4-step phase -> +1 transitions (1 this round)",
+        "Success labeled: 4-step phase -> +1 transitions (2 this round)",
+        "Discard: dropped this round's 2 labeled transitions.",
+    ]
