@@ -76,9 +76,10 @@ dry-run 仍连接并使能驱动：Wuji 底层会发送当前位置保持命令�
   与 `Xense/TW-block-sort-0918` 的 `action` 字段名逐一对应。
   采集时 86 维 state 末尾的 28 维机械臂关节位置／速度不传给模型
   （训练侧由 `TruncateState(58)` 丢弃）。
-- 与 `bi_flexiv_rizon4_rt` 一致，每步推理前读取的 state 均为实测值：TCP 取天机控制器反馈，
-  手指 40 维用 `wuji.get_measured_observation()` 读取最新关节状态帧，
-  而不是组合机器人默认返回的上一次手指命令。
+- 与 `bi_flexiv_rizon4_rt` 一致，每步直接调用 `TianjiArmWuji.get_observation()` 读取实测 state：
+  TCP 为天机关节反馈经 FK 得到的位姿，手指 40 维为 Wuji 反馈线程缓存的最新关节状态帧，
+  而不是上一次发送的命令。需要 lerobot-xensehand ≥ `fa4445c`（fix(wuji): separate measured feedback
+  from command state），更早的版本手指返回的是 500 Hz 插值命令。
 - 每只手顺序为 index、middle、pinky、ring、thumb，每指四关节，
   使用驱动具名字段；底层 SDK 的设备关节顺序由 Wuji 驱动处理。
 - 图像为三路（head、left_wrist、right_wrist）uint8 RGB，等比例补边至 224×224，发送 CHW。
