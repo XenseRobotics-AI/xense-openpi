@@ -34,23 +34,31 @@ def fake_robot():
     raw = dict(reversed(list(zip(ACTION_KEYS, state, strict=True))))
     raw.update({name: np.full((24, 32, 3), (20, 40, 60), dtype=np.uint8) for name in CAMERAS})
     raw["left_joint_1.pos"] = 999  # diagnostic fields must not leak into state
-    # The composite reports the last finger command; the Wuji driver reads the measured joints.
-    measured = {key: raw[key] + 0.05 for key in ACTION_KEYS[18:]}
     return Mock(
         action_features=dict.fromkeys(ACTION_KEYS, float),
         get_observation=Mock(side_effect=lambda: dict(raw)),
-        wuji=Mock(get_measured_observation=Mock(return_value=measured)),
         wait_for_reset_completion=Mock(return_value=True),
     )
 
 
-def test_state_uses_measured_tcp_and_fingers():
+def test_state_is_read_fresh_from_robot_not_last_action():
     robot = fake_robot()
-    state = TianjiWujiEnvironment(robot, dry_run=True).get_observation("sort")["state"]
-    expected = valid_chunk(1)[0]
-    np.testing.assert_array_equal(state[:18], expected[:18])
-    np.testing.assert_allclose(state[18:], expected[18:] + 0.05)
-    robot.wuji.get_measured_observation.assert_called_once()
+    measured = valid_chunk(1)[0]
+    readings = iter([measured, measured + 0.05])
+    robot.get_observation = Mock(
+        side_effect=lambda: {
+            **dict(zip(ACTION_KEYS, next(readings), strict=True)),
+            **{name: np.zeros((24, 32, 3), dtype=np.uint8) for name in CAMERAS},
+        }
+    )
+    environment = TianjiWujiEnvironment(robot, dry_run=False)
+    np.testing.assert_array_equal(environment.get_observation("sort")["state"], measured)
+    commanded = measured.copy()
+    commanded[18:] += 1.0
+    environment.apply_action(commanded)
+    # The next state is the robot's new reading, not the command just sent.
+    np.testing.assert_allclose(environment.get_observation("sort")["state"], measured + 0.05)
+    assert robot.get_observation.call_count == 2
 
 
 def test_explicit_state_order_and_finger_targets():
