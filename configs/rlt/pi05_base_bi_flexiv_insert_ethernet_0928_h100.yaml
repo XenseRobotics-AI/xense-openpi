@@ -1,0 +1,44 @@
+# RLT phase one (prefix precompute + RL-token encoder-decoder training) for the
+# insert_ethernet_0928 SFT policy. Usage:
+#
+#   mamba activate lerobot-xense
+#   python scripts/rlt/precompute_prefix.py pi05_base_bi_flexiv_insert_ethernet_0928_h100
+#   python scripts/rlt/train_token.py pi05_base_bi_flexiv_insert_ethernet_0928_h100 --exp-name <run>
+#
+# The VLA config sets max_token_len=128 (longest prompt on this dataset is 116),
+# so the prefix is 3 * 256 image tokens + 128 prompt tokens = 896. The rl:
+# section is omitted: phase-two defaults (TacXense's tuned real-robot values)
+# apply when scripts/rlt/train_rl.py is run with this file.
+
+project_name: xense-openpi-hubo
+
+model:
+  embed_dim: 2048
+  prefix_seq_len: 896 # 3 cameras * 256 image tokens + max_token_len 128 from the VLA config
+  num_layers: 2
+  num_heads: 8
+  mlp_ratio: 4.0
+  dtype: bfloat16
+  remat: false
+
+token_training:
+  vla_config: pi05_base_bi_flexiv_insert_ethernet_0928_h100
+  # TODO: point at the actual SFT run's orbax step dir (params/ + assets/);
+  # the VLA config trains 60000 steps, so the final step dir is 59999.
+  vla_checkpoint: ./checkpoints/pi05_base_bi_flexiv_insert_ethernet_0928_h100/<exp-name>/59999
+  prefix_cache_dir: /data/rlt_cache/insert_ethernet_0928 # ~3.6 MB per cached frame; use fast local disk
+  repo_id: null # inherits Xense/insert-ethernet-above-desk-0916 from the VLA config
+  frame_stride: 1
+
+  batch_size: 256 # global, split across all local GPUs
+  num_train_steps: 20000
+  peak_lr: 1.0e-4 # AdamW(0.9, 0.95) + grad-norm clip 1.0, warmup then cosine decay to min_lr
+  min_lr: 2.5e-5
+  warmup_steps: 1000
+  num_workers: 8
+  fsdp_devices: 1
+
+  checkpoint_base_dir: ./checkpoints_rlt # run dir: <base>/<config name>/<exp-name>/token/<step>
+  save_interval: 1000
+  keep_period: 5000
+  log_interval: 50
