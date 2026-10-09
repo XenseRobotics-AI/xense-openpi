@@ -58,6 +58,7 @@ Example usage:
 """
 
 from dataclasses import dataclass
+import logging
 import os
 import pathlib
 import signal
@@ -317,6 +318,15 @@ def _run_rlt(args: Args, robot_config) -> None:
 
 
 def main(args: Args) -> None:
+    # The bench's loggers are spdlog (see lerobot.utils.robot_utils.get_logger), but rlt_mode and
+    # other helpers use the stdlib root logger; without this those INFO lines never reach the
+    # terminal (Python's last-resort handler only shows WARNING+).
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        format="[%(asctime)s.%(msecs)03d] [%(name)s] [%(levelname)s] %(message)s",
+        datefmt="%m/%d/%y %H:%M:%S",
+        force=True,
+    )
     logger.info(_run_config.describe(args, Args, RUNS_DIR))
     if args.robot_recipe is None:
         raise SystemExit(
