@@ -90,6 +90,7 @@ data:
     # filter_dict_path: null
 
   # ---- LeRobotBiFlexivDataConfig-specific ----
+  black_left_wrist: false          # true: replace left-wrist RGB with black, keep image_mask=True
   use_delta_cartesian_actions: true  # delta-encode 18 TCP dims, keep 2 grippers absolute
   default_prompt: "Describe the task in plain language."
   # action_sequence_keys: [action]

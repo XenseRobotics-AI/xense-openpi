@@ -59,3 +59,34 @@ def test_inputs_keep_head_unmasked_and_fill_missing_wrists():
     assert result["image_mask"]["right_wrist_0_rgb"] == np.True_
     # XTac-UMI does the opposite - wrists required, base masked out by default.
     assert xtac_umi_policy.XtacUmiInputs.EXPECTED_CAMERAS == ("left_wrist", "right_wrist")
+
+
+def test_black_left_wrist_preserves_other_inputs():
+    import copy
+
+    example = bi_flexiv_policy.make_bi_flexiv_example()
+    example["images"]["left_wrist"].fill(255)
+    example["actions"] = np.ones((50, 20))
+    baseline = bi_flexiv_policy.BiFlexivInputs()(copy.deepcopy(example))
+    result = bi_flexiv_policy.BiFlexivInputs(black_left_wrist=True)(copy.deepcopy(example))
+
+    left = result["image"]["left_wrist_0_rgb"]
+    assert left.dtype == np.uint8
+    assert left.shape == baseline["image"]["left_wrist_0_rgb"].shape
+    assert not left.any()
+    assert baseline["image"]["left_wrist_0_rgb"].min() == 255
+    assert result["image_mask"] == baseline["image_mask"]
+    assert result["image_mask"]["left_wrist_0_rgb"] == np.True_
+    for key in ("base_0_rgb", "right_wrist_0_rgb"):
+        np.testing.assert_array_equal(result["image"][key], baseline["image"][key])
+    for key in ("state", "actions"):
+        np.testing.assert_array_equal(result[key], baseline[key])
+    assert result["prompt"] == baseline["prompt"]
+
+
+def test_black_left_wrist_keeps_missing_camera_masked():
+    example = bi_flexiv_policy.make_bi_flexiv_example()
+    del example["images"]["left_wrist"]
+    result = bi_flexiv_policy.BiFlexivInputs(black_left_wrist=True)(example)
+    assert not result["image"]["left_wrist_0_rgb"].any()
+    assert result["image_mask"]["left_wrist_0_rgb"] == np.False_

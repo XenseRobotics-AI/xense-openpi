@@ -437,6 +437,8 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
     """
 
     use_delta_cartesian_actions: bool = True
+    # Replace left-wrist RGB with black while keeping its image mask valid.
+    black_left_wrist: bool = False
     # If provided, will be injected into the input data if the "prompt" key is not present.
     default_prompt: str | None = None
 
@@ -465,7 +467,7 @@ class LeRobotBiFlexivDataConfig(DataConfigFactory):
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
-            inputs=[bi_flexiv_policy.BiFlexivInputs()],
+            inputs=[bi_flexiv_policy.BiFlexivInputs(black_left_wrist=self.black_left_wrist)],
             outputs=[bi_flexiv_policy.BiFlexivOutputs()],
         )
 

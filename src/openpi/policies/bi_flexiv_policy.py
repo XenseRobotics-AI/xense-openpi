@@ -55,6 +55,9 @@ class BiFlexivInputs(transforms.DataTransformFn):
     # replaced with black images and the corresponding `image_mask` will be set to False.
     EXPECTED_CAMERAS: ClassVar[tuple[str, ...]] = ("head", "left_wrist", "right_wrist")
 
+    # Camera ablation: keep a valid left-wrist slot but replace its RGB with black.
+    black_left_wrist: bool = False
+
     def __call__(self, data: dict) -> dict:
         data = _decode_bi_flexiv(data)
 
@@ -79,7 +82,8 @@ class BiFlexivInputs(transforms.DataTransformFn):
         }
         for dest, source in extra_image_names.items():
             if source in in_images:
-                images[dest] = in_images[source]
+                image = in_images[source]
+                images[dest] = np.zeros_like(image) if source == "left_wrist" and self.black_left_wrist else image
                 image_masks[dest] = np.True_
             else:
                 images[dest] = np.zeros_like(head_image)

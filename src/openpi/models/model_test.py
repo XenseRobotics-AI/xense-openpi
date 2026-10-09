@@ -125,3 +125,24 @@ def test_model_restore():
 
     actions = model.sample_actions(key, obs, num_steps=10)
     assert actions.shape == (batch_size, model.action_horizon, model.action_dim)
+
+
+@pytest.mark.parametrize("train", [False, True])
+def test_preprocess_preserves_black_frames(monkeypatch, train):
+    import augmax
+    import numpy as np
+
+    # Make color jitter brighten every image, so the test cannot pass by chance.
+    monkeypatch.setattr(augmax.Chain, "__call__", lambda self, rng, image: image + 0.25)
+    frames = jnp.stack([jnp.full((240, 320, 3), -1.0), jnp.zeros((240, 320, 3))])
+    observation = _model.Observation(
+        images={key: frames for key in _model.IMAGE_KEYS},
+        image_masks={key: jnp.array([True, False]) for key in _model.IMAGE_KEYS},
+        state=jnp.zeros((2, 20)),
+    )
+    processed = _model.preprocess_observation(jax.random.key(0), observation, train=train)
+    for key in _model.IMAGE_KEYS:
+        assert processed.images[key].shape == (2, 224, 224, 3)
+        np.testing.assert_array_equal(processed.images[key][0], -1.0)
+        assert np.any(np.asarray(processed.images[key][1]) != -1.0)
+        np.testing.assert_array_equal(processed.image_masks[key], observation.image_masks[key])

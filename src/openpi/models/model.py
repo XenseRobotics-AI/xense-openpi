@@ -167,6 +167,9 @@ def preprocess_observation(
     out_images = {}
     for key in image_keys:
         image = observation.images[key]
+        # Preserve black camera-ablation/padding frames through resizing and color jitter.
+        # Images are normalized to [-1, 1], so black is exactly -1.
+        black_frame = jnp.all(image == -1.0, axis=(-3, -2, -1), keepdims=True)
         if image.shape[1:3] != image_resolution:
             logger.info(f"Resizing image {key} from {image.shape[1:3]} to {image_resolution}")
             image = image_tools.resize_with_pad(image, *image_resolution)
@@ -192,7 +195,7 @@ def preprocess_observation(
             # Back to [-1, 1].
             image = image * 2.0 - 1.0
 
-        out_images[key] = image
+        out_images[key] = jnp.where(black_frame, -1.0, image)
 
     # obtain mask
     out_masks = {}
