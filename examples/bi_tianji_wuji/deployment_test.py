@@ -145,6 +145,7 @@ def test_loop_exact_steps_fresh_observation_and_absolute_targets(monkeypatch):
         events.append("infer")
         chunk = valid_chunk()
         chunk[:, 0] = 0.42
+        chunk[:, 18:] = 0.1  # Within every physical finger limit.
         return {"actions": chunk}
 
     policy = Mock(infer=Mock(side_effect=infer))
@@ -154,6 +155,33 @@ def test_loop_exact_steps_fresh_observation_and_absolute_targets(monkeypatch):
     assert policy.infer.call_count == 2
     assert events == ["hold", "infer", "hold", "infer", "hold"]
     assert robot.send_action.call_args.args[0]["left_tcp.x"] == pytest.approx(0.42)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("step", [0, 49])
+def test_out_of_range_finger_rejects_whole_chunk(dry_run, step):
+    robot = fake_robot()
+    env = TianjiWujiEnvironment(robot, dry_run=dry_run)
+    chunk = valid_chunk()
+    chunk[:, 18:] = 0
+    chunk[step, 18] = 35
+    policy = Mock(infer=Mock(return_value={"actions": chunk}))
+    with pytest.raises(ValueError, match=f"step={step}, l_index_finger_mcp_flex.pos=35"):
+        run_episode(env, policy, Args(robot_recipe="block-sort", reset_on_start=False))
+    robot.send_action.assert_not_called()
+
+
+def test_chunk_limits_use_names_and_do_not_reject_velocity_or_rewrite():
+    from examples.bi_tianji_wuji.safety import ChunkLimits
+    from examples.bi_tianji_wuji.safety import load_finger_limits
+
+    guard = ChunkLimits()
+    chunk = valid_chunk(2)
+    limits = load_finger_limits()
+    for index, key in enumerate(ACTION_KEYS[18:], start=18):
+        lower, upper = limits[key.removesuffix(".pos")]
+        chunk[:, index] = [lower, upper]
+    np.testing.assert_array_equal(guard.validate(chunk), chunk)
 
 
 @pytest.mark.parametrize("failure", ["short", "late_nan", "timeout"])

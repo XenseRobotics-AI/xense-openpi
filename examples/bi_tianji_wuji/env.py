@@ -6,6 +6,7 @@ import time
 import numpy as np
 from xense_client import image_tools
 
+from examples.bi_tianji_wuji.safety import ChunkLimits
 from examples.bi_tianji_wuji.schema import ACTION_KEYS
 from examples.bi_tianji_wuji.schema import CAMERAS
 from examples.bi_tianji_wuji.schema import action_to_dict
@@ -20,6 +21,10 @@ class TianjiWujiEnvironment:
         self.dry_run = dry_run
         self.render_size = render_size
         self.reset_timeout_s = reset_timeout_s
+        self.chunk_limits = ChunkLimits()
+
+    def validate_chunk(self, actions: np.ndarray) -> np.ndarray:
+        return self.chunk_limits.validate(actions)
 
     def connect(self) -> None:
         if set(self.robot.action_features) != set(ACTION_KEYS):
