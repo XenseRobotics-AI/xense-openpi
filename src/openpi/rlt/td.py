@@ -7,9 +7,11 @@ executed actions (normalized), per-step rewards, ``next_obs`` C steps later and
     sum_l gamma**l r_l + gamma**C * (1 - terminated) * min_i Q'_i(s', canon(pi(s')))
 
 and the actor minimizes ``-q_weight * Q1(s, canon(pi(s))) + bc_weight * MSE``
-against the training reference: the VLA reference, with human actions at
-intervened steps. Replay keeps the raw VLA reference; the substitution happens
-here, and the same tensor is both the actor's input and its BC target.
+against the BC target: the VLA reference, with human actions at intervened
+steps. The actor's reference input is always the raw VLA reference - the same
+input it sees at inference - so intervened steps teach it to turn the VLA
+reference into the human correction. Replay keeps the raw VLA reference; the
+substitution happens here, at loss time, and only builds the BC target.
 """
 
 import jax
@@ -25,7 +27,11 @@ def discounted_chunk_rewards(rewards: jax.Array, gamma: float) -> jax.Array:
 
 
 def training_reference(batch: dict) -> jax.Array:
-    """Reference chunk with the first C steps replaced by the human action wherever intervened."""
+    """BC target: the VLA reference, first C steps replaced by the human action wherever intervened.
+
+    Only the BC target is substituted; the actor's reference input stays the raw
+    VLA reference (``curr_obs["ref_chunk"]``), matching what it sees at inference.
+    """
     ref = batch["curr_obs"]["ref_chunk"]
     num_chunks = batch["actions"].shape[1]
     head = jnp.where(batch["intervention_mask"][..., None], batch["actions"], ref[:, :num_chunks])
@@ -74,10 +80,11 @@ def actor_loss(
     reference_dropout_prob: float,
 ) -> tuple[jax.Array, dict[str, jax.Array]]:
     curr_obs = batch["curr_obs"]
-    reference = training_reference(batch)
+    # The BC target carries the human correction; the actor input stays the raw VLA reference.
+    bc_target = training_reference(batch)
     noise_rng, dropout_rng = jax.random.split(rng)
     raw = actor(
-        {**curr_obs, "ref_chunk": reference},
+        curr_obs,
         noise_rng=noise_rng,
         dropout_rng=dropout_rng,
         reference_dropout_prob=reference_dropout_prob,
@@ -85,7 +92,7 @@ def actor_loss(
     pi = space.canonicalize(raw, curr_obs["state"])
     # Only Q1 drives the actor, as in RLinf.
     q_pi = critic(curr_obs, pi)[:, 0].mean()
-    bc = jnp.mean(jnp.square(pi - reference[:, : pi.shape[1]]))
+    bc = jnp.mean(jnp.square(pi - bc_target[:, : pi.shape[1]]))
     loss = -q_weight * q_pi + bc_weight * bc
     return loss, {
         "actor_loss": loss,

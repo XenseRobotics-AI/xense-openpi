@@ -61,6 +61,23 @@ def test_training_reference_substitutes_human_steps():
     np.testing.assert_array_equal(ref[:, C:], batch["curr_obs"]["ref_chunk"][:, C:])
 
 
+def test_actor_input_keeps_the_vla_reference_on_intervened_steps():
+    """BC target follows the human action, but the actor input is the raw VLA reference, as at inference."""
+    space = action_space_test.bi_flexiv_space()
+    actor, critic = _heads(dataclasses.replace(_CONFIG, fixed_std=0.002))
+    batch = _batch(space)
+    key = jax.random.key(1)
+    _, info = td.actor_loss(actor, critic, space, batch, key, q_weight=0.1, bc_weight=5.0, reference_dropout_prob=0.0)
+    # Recompute the expected BC loss assuming the actor read the *raw* reference: any wiring that
+    # feeds the substituted reference to the actor changes pi and breaks this equality.
+    noise_rng, dropout_rng = jax.random.split(key)
+    raw = actor(batch["curr_obs"], noise_rng=noise_rng, dropout_rng=dropout_rng, reference_dropout_prob=0.0)
+    pi = space.canonicalize(raw, batch["curr_obs"]["state"])
+    target = td.training_reference(batch)
+    expected_bc = jnp.mean(jnp.square(pi - target[:, : pi.shape[1]]))
+    np.testing.assert_allclose(info["bc_loss"], expected_bc, rtol=1e-5)
+
+
 def test_reference_dropout_only_zeroes_the_reference():
     actor, _ = _heads()
     obs = _batch(action_space_test.bi_flexiv_space())["curr_obs"]

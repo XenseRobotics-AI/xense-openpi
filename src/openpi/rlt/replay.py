@@ -3,7 +3,8 @@
 A row is one window cut from a labeled critical phase (see ``critical_trace``):
 observations at both ends, the C executed actions in normalized space, per-step
 rewards, and provenance. ``curr_ref_chunk`` is the raw VLA reference even at
-intervened steps; ``td.training_reference`` swaps in the human actions.
+intervened steps; ``td.training_reference`` swaps in the human actions to build
+the BC target (the actor's reference input stays the raw VLA reference).
 """
 
 import copy
