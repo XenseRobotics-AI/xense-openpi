@@ -43,7 +43,8 @@ token_training:
 # Phase two: fixed-weight chunked-TD actor-critic
 # Fixed network structure and other settings use RLConfig defaults.
 rl:
-  num_action_chunks: 10 # C: executed steps per chunk and TD bootstrap horizon
+  token_checkpoint: /home/li/hubo/xense-openpi/checkpoints/ehernet_insertion/token_encoder/60000 # phase-one token step dir
+  num_action_chunks: 20 # C: executed steps per chunk and TD bootstrap horizon
   ref_num_action_chunks: 50 # VLA reference length; the actor consumes the first C steps
 
   actor_lr: 3.0e-4
