@@ -16,7 +16,6 @@ import numpy as np
 
 from examples import run_config
 from examples.bi_tianji_wuji.schema import ACTION_KEYS
-from examples.bi_tianji_wuji.schema import validate_actions
 
 logger = logging.getLogger(__name__)
 RUNS_DIR = Path(__file__).parent / "runs"
@@ -69,7 +68,7 @@ def run_episode(environment, policy, args: Args) -> None:
         observation = environment.get_observation(args.task)
         started = time.monotonic()
         result = policy.infer(observation)
-        actions = validate_actions(result["actions"])
+        actions = environment.validate_chunk(result["actions"])
         if len(actions) < args.action_horizon:
             raise ValueError(f"Server returned {len(actions)} steps, requested {args.action_horizon}")
         logger.info("Chunk: inference_ms=%.1f shape=%s", (time.monotonic() - started) * 1000, actions.shape)

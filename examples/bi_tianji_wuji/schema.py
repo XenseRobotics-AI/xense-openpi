@@ -42,7 +42,9 @@ def validate_actions(actions: np.ndarray) -> np.ndarray:
     if actions.ndim != 2 or actions.shape[0] == 0 or actions.shape[1] != 58 or not np.isfinite(actions).all():
         raise ValueError(f"Expected finite absolute actions with shape (horizon, 58), got {actions.shape}")
     for start in (3, 12):
-        first, second = actions[:, start : start + 3], actions[:, start + 3 : start + 6]
+        # Avoid float32 overflow masking a degenerate rotation during cross/norm.
+        first = actions[:, start : start + 3].astype(np.float64)
+        second = actions[:, start + 3 : start + 6].astype(np.float64)
         if np.any(np.linalg.norm(first, axis=-1) < 1e-6) or np.any(
             np.linalg.norm(np.cross(first, second), axis=-1) < 1e-6
         ):
