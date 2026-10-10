@@ -327,6 +327,8 @@ def main(args: Args) -> None:
         datefmt="%m/%d/%y %H:%M:%S",
         force=True,
     )
+    # WebSocket DEBUG logs dump binary observation/action frames on every exchange.
+    logging.getLogger("websockets").setLevel(logging.INFO)
     logger.info(_run_config.describe(args, Args, RUNS_DIR))
     if args.robot_recipe is None:
         raise SystemExit(
