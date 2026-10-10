@@ -165,6 +165,7 @@ class Learner:
                 q_weight=self.config.q_weight,
                 bc_weight=self.config.bc_weight,
                 reference_dropout_prob=self.config.reference_dropout_prob,
+                input_reference=self.config.input_reference,
             )
 
         (_, info), grads = jax.value_and_grad(loss_fn, has_aux=True)(actor)

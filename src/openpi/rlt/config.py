@@ -129,6 +129,8 @@ class RLConfig:
     bc_weight: float = 5.0
     # Probability of zeroing the actor's reference input during training.
     reference_dropout_prob: float = 0.5
+    # Actor training input: raw VLA proposal, or human-substituted reference.
+    input_reference: Literal["corrected", "proposal"] = "corrected"
     # Fixed std of the Gaussian actor in normalized action space.
     fixed_std: float = 0.002
     # Critic updates per actor update.
@@ -189,6 +191,8 @@ class RLConfig:
     def __post_init__(self) -> None:
         for name in ("actor_hidden_dims", "critic_hidden_dims"):  # YAML gives lists
             object.__setattr__(self, name, tuple(getattr(self, name)))
+        if self.input_reference not in ("corrected", "proposal"):
+            raise ValueError("input_reference must be corrected or proposal.")
         if self.num_action_chunks > self.ref_num_action_chunks:
             raise ValueError("num_action_chunks must be <= ref_num_action_chunks.")
         if self.num_q_heads < 2:

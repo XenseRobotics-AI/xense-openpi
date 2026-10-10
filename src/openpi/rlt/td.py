@@ -78,13 +78,17 @@ def actor_loss(
     q_weight: float,
     bc_weight: float,
     reference_dropout_prob: float,
+    input_reference: str = "corrected",
 ) -> tuple[jax.Array, dict[str, jax.Array]]:
     curr_obs = batch["curr_obs"]
-    # The BC target carries the human correction; the actor input stays the raw VLA reference.
+    # Human corrections always supervise BC; conditioning is selected independently.
     bc_target = training_reference(batch)
+    if input_reference not in ("corrected", "proposal"):
+        raise ValueError("input_reference must be corrected or proposal.")
+    actor_obs = {**curr_obs, "ref_chunk": bc_target} if input_reference == "corrected" else curr_obs
     noise_rng, dropout_rng = jax.random.split(rng)
     raw = actor(
-        curr_obs,
+        actor_obs,
         noise_rng=noise_rng,
         dropout_rng=dropout_rng,
         reference_dropout_prob=reference_dropout_prob,
