@@ -105,6 +105,25 @@ silent.
 | `--args.pico4-pos-sensitivity` | `1.0` | Position sensitivity passed to `BiPico4Config` when intervention is on |
 | `--args.pico4-ori-sensitivity` | `1.0` | Orientation sensitivity passed to `BiPico4Config` when intervention is on |
 
+#### Left-wrist black-image ablation
+
+For a model trained with `data.black_left_wrist: true`, such as
+`configs/_examples/pi05_base_bi_flexiv_insert_test_tube_1009_h100.yaml`, add
+`--args.black-left-wrist` to the client launch:
+
+```bash
+python -m examples.bi_flexiv_rizon4_rt.main \
+    --args.robot-recipe forward-05 \
+    --args.host 10.142.1.1 --args.port 8000 \
+    --args.black-left-wrist
+```
+
+This replaces the policy's processed `images.left_wrist` with an all-zero image
+while retaining the camera key and valid image mask, matching training. Head,
+right-wrist and raw recording images are unchanged. The flag defaults to false
+and works with synchronous, RTC, and decoupled inference. To preset it in a run
+YAML, set `black_left_wrist: true`.
+
 #### RTC (real-time correction) mode
 
 ```bash

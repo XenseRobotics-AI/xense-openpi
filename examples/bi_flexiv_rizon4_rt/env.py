@@ -64,6 +64,7 @@ class BiFlexivRizon4RTEnvironment(_environment.Environment):
         render_height: int = 224,
         render_width: int = 224,
         setup_robot: bool = True,
+        black_left_wrist: bool = False,
     ) -> None:
         self._env = _real_env.BiFlexivRizon4RTRealEnv(
             robot_config=robot_config,
@@ -71,6 +72,7 @@ class BiFlexivRizon4RTEnvironment(_environment.Environment):
         )
         self._render_height = render_height
         self._render_width = render_width
+        self._black_left_wrist = black_left_wrist
         self._step_count = 0
 
     @override
@@ -97,6 +99,11 @@ class BiFlexivRizon4RTEnvironment(_environment.Environment):
 
             batch = np.expand_dims(img, axis=0)
             resized = image_tools.resize_with_pad(batch, self._render_height, self._render_width)[0]
+            # Keep the camera key so BiFlexivInputs leaves its image mask valid,
+            # matching LeRobotBiFlexivDataConfig.black_left_wrist during training.
+            # Allocate a new array: resized may share memory with the raw frame.
+            if self._black_left_wrist and cam_name == "left_wrist":
+                resized = np.zeros_like(resized)
             # (H, W, C) -> (C, H, W) for OpenPI policy input
             processed_images[cam_name] = einops.rearrange(resized, "h w c -> c h w")
 

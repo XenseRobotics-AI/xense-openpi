@@ -224,6 +224,8 @@ class Args:
     # Image rendering
     render_height: int = 224
     render_width: int = 224
+    # Match training's left-wrist black-image ablation; keep the camera slot valid.
+    black_left_wrist: bool = False
 
     # Runtime settings
     runtime_hz: float = 30.0
@@ -347,7 +349,10 @@ def main(args: Args) -> None:
         render_height=args.render_height,
         render_width=args.render_width,
         setup_robot=True,
+        black_left_wrist=args.black_left_wrist,
     )
+    if args.black_left_wrist:
+        logger.info("Left-wrist policy image replaced with black (camera slot kept valid; raw recording unchanged)")
 
     if args.dry_run:
         logger.info("DRY RUN mode: actions will be printed, not executed")
