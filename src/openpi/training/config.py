@@ -69,6 +69,10 @@ class AssetsConfig:
 class DataConfig:
     # LeRobot repo id. If None, fake data will be created.
     repo_id: str | None = None
+    # Explicit local LeRobot dataset root. Avoids Hub synchronization of downloaded legacy caches.
+    dataset_root: str | None = None
+    # None uses LeRobot's default decoder; pyav avoids TorchCodec CUDA runtime dependencies.
+    video_backend: Literal["torchcodec", "pyav"] | None = None
     # Directory within the assets directory containing the data assets.
     asset_id: str | None = None
     # Contains precomputed normalization stats. If None, normalization will not be performed.
@@ -594,12 +598,24 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     Cameras: left_wrist, right_wrist, plus an optional head camera
     (`use_head_camera`). Without one, the model's base_0_rgb slot is a black
     image with image_mask=False - see xtac_umi_policy.XtacUmiInputs.
+
+    For 29D xtac_umi_g1 recordings, set drop_head_pose=True to train only the
+    hands. With use_head_camera=True, head_camera_key selects one headset eye
+    (e.g. observation.images.head_left) for base_0_rgb.
     """
 
     use_delta_cartesian_actions: bool = True
-    # If True, the dataset must have an observation.images.head column, which fills
+    # UMI policy interface: TCP actions as SE(3) poses relative to the current gripper frame
+    # (inv(T_t) @ T_{t+k}) and a gripper-only model state. Frame-independent, so handheld
+    # Pico4-world data deploys on a robot base frame. Requires use_delta_cartesian_actions=False.
+    use_relative_pose_actions: bool = False
+    # If True, the dataset must have the head_camera_key column, which fills
     # the base_0_rgb slot (image_mask=True). Default False: base_0_rgb is masked out.
     use_head_camera: bool = False
+    # G1 datasets have separate head_left/head_right streams; select one for base_0_rgb.
+    head_camera_key: str = "observation.images.head"
+    # G1 appends 9D headset pose to state/action. Explicitly discard it when training only the hands.
+    drop_head_pose: bool = False
     # If provided, will be injected into the input data if the "prompt" key is not present.
     default_prompt: str | None = None
 
@@ -609,9 +625,20 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
-            inputs=[xtac_umi_policy.XtacUmiInputs(use_head_camera=self.use_head_camera)],
+            inputs=[
+                xtac_umi_policy.XtacUmiStateActions(drop_head_pose=self.drop_head_pose),
+                xtac_umi_policy.XtacUmiInputs(use_head_camera=self.use_head_camera),
+            ],
             outputs=[xtac_umi_policy.XtacUmiOutputs()],
         )
+
+        if self.use_delta_cartesian_actions and self.use_relative_pose_actions:
+            raise ValueError("use_relative_pose_actions replaces use_delta_cartesian_actions; set the latter to false.")
+        if self.use_relative_pose_actions:
+            data_transforms = data_transforms.push(
+                inputs=[xtac_umi_policy.XtacUmiRelativeActions()],
+                outputs=[xtac_umi_policy.XtacUmiAbsoluteActions()],
+            )
 
         if self.use_delta_cartesian_actions:
             # Per-side-grouped: TCP dims (0-8, 10-18) become deltas w.r.t. the current
@@ -629,7 +656,7 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
             "right_wrist": "observation.images.right_wrist",
         }
         if self.use_head_camera:
-            images["head"] = "observation.images.head"
+            images["head"] = self.head_camera_key
 
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),

@@ -82,6 +82,7 @@ class Policy(BasePolicy):
         # Make a copy since transformations may modify the inputs in place.
         inputs = jax.tree.map(lambda x: x, obs)
         inputs = self._input_transform(inputs)
+        inference_context = inputs.pop(_transforms.INFERENCE_CONTEXT_KEY, None)
         rtc_inputs = None
 
         # RTC prefixes must live in the same action space the model was trained on.
@@ -164,6 +165,8 @@ class Policy(BasePolicy):
 
         # Keep a copy of the original actions before output transforms
         actions_original = outputs["actions"]
+        if inference_context is not None:
+            outputs[_transforms.INFERENCE_CONTEXT_KEY] = inference_context
 
         outputs = self._output_transform(outputs)
         outputs["actions_original"] = actions_original

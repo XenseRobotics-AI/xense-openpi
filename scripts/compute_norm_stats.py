@@ -34,6 +34,7 @@ except ImportError:
     _LEROBOT_HOME = None
 
 import openpi.models.model as _model
+import openpi.policies.xtac_umi_policy as xtac_umi_policy
 import openpi.shared.normalize as normalize
 import openpi.training.config as _config
 import openpi.training.data_loader as _data_loader
@@ -42,6 +43,8 @@ import openpi.transforms as transforms
 logger = logging.getLogger(__name__)
 
 _STATE_ACTION_TRANSFORM_TYPES = (
+    xtac_umi_policy.XtacUmiStateActions,
+    xtac_umi_policy.XtacUmiRelativeActions,
     transforms.DeltaActions,
     transforms.SubsampleActions,
 )
@@ -393,6 +396,8 @@ def main(
     root_override = dataset_root
     if root_override is None and os.environ.get("OPENPI_LEROBOT_DATASET_ROOT"):
         root_override = pathlib.Path(os.environ["OPENPI_LEROBOT_DATASET_ROOT"])
+    if root_override is None and data_config.dataset_root is not None:
+        root_override = pathlib.Path(data_config.dataset_root)
 
     if data_config.rlds_data_dir is not None:
         data_loader, num_batches = create_rlds_dataloader(

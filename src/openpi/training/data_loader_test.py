@@ -1,9 +1,11 @@
 import dataclasses
 import itertools
 import re
+from types import SimpleNamespace
 import unittest.mock
 
 import jax
+from lerobot.datasets.dataset_reader import DatasetReader
 import lerobot.datasets.lerobot_dataset as lerobot_dataset
 import pytest
 import torch
@@ -219,11 +221,11 @@ def test_resolve_decode_video_keys_rejects_repack_that_needs_tactile():
 
 
 def test_selective_video_dataset_filters_query_timestamps():
-    dataset = _data_loader.SelectiveVideoLeRobotDataset.__new__(_data_loader.SelectiveVideoLeRobotDataset)
+    dataset = _data_loader.SelectiveVideoDatasetReader.__new__(_data_loader.SelectiveVideoDatasetReader)
     dataset.decode_video_keys = frozenset({"observation.images.head"})
 
     with unittest.mock.patch.object(
-        lerobot_dataset.LeRobotDataset,
+        DatasetReader,
         "_get_query_timestamps",
         return_value={key: [0.0] for key in _XENSE_VIDEO_KEYS},
     ):
@@ -233,15 +235,52 @@ def test_selective_video_dataset_filters_query_timestamps():
 def test_selective_video_dataset_decodes_everything_by_default():
     # A construction site that forgets to set `decode_video_keys` must behave like a plain
     # LeRobotDataset, not silently decode nothing and hand the model missing images.
-    dataset = _data_loader.SelectiveVideoLeRobotDataset.__new__(_data_loader.SelectiveVideoLeRobotDataset)
+    dataset = _data_loader.SelectiveVideoDatasetReader.__new__(_data_loader.SelectiveVideoDatasetReader)
 
     all_timestamps = {key: [0.0] for key in _XENSE_VIDEO_KEYS}
     with unittest.mock.patch.object(
-        lerobot_dataset.LeRobotDataset,
+        DatasetReader,
         "_get_query_timestamps",
         return_value=all_timestamps,
     ):
         assert dataset._get_query_timestamps(0.0) == all_timestamps
+
+
+def test_resolve_decode_video_keys_skips_unused_head_eye():
+    config = _config.DataConfig(
+        repack_transforms=_transforms.Group(
+            inputs=[_transforms.RepackTransform({"images": {"head": "observation.images.head_left"}})]
+        )
+    )
+    assert _data_loader._resolve_decode_video_keys(
+        config, ["observation.images.head_left", "observation.images.head_right"]
+    ) == {"observation.images.head_left"}
+
+
+def test_selective_dataset_installs_reader_used_by_getitem(tmp_path):
+    """Filtering on the dataset itself is ignored by LeRobot 0.5's reader."""
+    dataset = _data_loader.SelectiveVideoLeRobotDataset.__new__(_data_loader.SelectiveVideoLeRobotDataset)
+    dataset.meta = SimpleNamespace(fps=30)
+    dataset.root = tmp_path
+    dataset.episodes = None
+    dataset.tolerance_s = 0.01
+    dataset._video_backend = "pyav"
+    dataset.delta_timestamps = None
+    dataset.image_transforms = None
+    dataset.decode_video_keys = frozenset({"observation.images.head"})
+    original = DatasetReader.__new__(DatasetReader)
+    original.hf_dataset = object()
+    original._absolute_to_relative_idx = {10: 0}
+    dataset.reader = original
+    with unittest.mock.patch.object(lerobot_dataset.LeRobotDataset, "_ensure_reader", lambda self: self.reader):
+        reader = dataset._ensure_reader()
+        assert isinstance(reader, _data_loader.SelectiveVideoDatasetReader)
+        assert reader.hf_dataset is original.hf_dataset
+        assert reader._absolute_to_relative_idx is original._absolute_to_relative_idx
+        assert reader.decode_video_keys == dataset.decode_video_keys
+        dataset.decode_video_keys = frozenset()
+        assert dataset._ensure_reader() is reader
+        assert reader.decode_video_keys == frozenset()
 
 
 def test_infinite_sampler_never_stops_and_permutes_each_pass():
