@@ -1,5 +1,6 @@
 model:
   type: Pi0Config
+  batch_image_views: true
   max_token_len: 200
   pi05: true
   discrete_state_input: true
@@ -12,6 +13,7 @@ data:
   type: LeRobotBiFlexivDataConfig
   repo_id: Xense/shoe_insole_retrieval_and_packing0515
   base_config:
+    tactile: false
     prompt_from_task: true
   default_prompt: Open the shoe tongue, take the insole out of the shoe, put the insole
     back into the shoe, and pack the shoe into the shoebox.
@@ -19,3 +21,8 @@ batch_size: 256
 num_workers: 64
 num_train_steps: 40000
 fsdp_devices: 8
+project_name: openpi
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false

@@ -188,9 +188,6 @@ model:
   paligemma_variant: gemma_2b
   action_expert_variant: gemma_300m
   enable_training_time_rtc: true
-  # Explicit attention is the default. For validated FP16 cuDNN training,
-  # see the configuration and validation notes below.
-  use_cudnn_attention: false
   max_delay: 10
 
 data:
@@ -243,33 +240,20 @@ env -u LD_LIBRARY_PATH \
 Do **not** prepend `$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH`. The supported
 environment uses the pip CUDA 12.8 stack installed by `lerobot-xense`, and JAX shares
 whichever cuDNN the torch wheel brings in (torch pins `nvidia-cudnn-cu12` exactly;
-`jax-cuda12-plugin` only asks for `>=9.1,<10`). The fused path needs cuDNN **>= 9.5**,
-because JAX caps the attention head dim at 128 below that and this model runs 256.
-Nothing newer is required. Before training,
-run `python scripts/check_cuda_stack.py`; it rejects mixed library sources and checks a
-real production-shape forward/backward for both the raw BF16 kernel and the FP16 custom
-VJP, including the fully-masked query rows.
+`jax-cuda12-plugin` only asks for `>=9.1,<10`). Before training, run
+`python scripts/check_cuda_stack.py`; it checks loaded CUDA library sources and versions,
+including mixed cuDNN dispatcher/engine libraries. Library checks do not validate training
+numerics or convergence.
 
-Full-layer cuDNN attention with the default `bfloat16` compute dtype is unsafe:
-it diverged from the explicit-attention baseline after roughly 1,000 steps.
-Either keep the explicit path (`use_cudnn_attention: false`) or use the
-3,000-step strict-order validated FP16 path:
+JAX Gemma attention uses the explicit implementation for training and inference.
+Existing checkpoint weights remain compatible. Remove the retired attention options from
+local training and serving YAMLs before upgrading; old options raise a configuration error.
+This implementation cleanup does not fix training NaNs.
 
-```yaml
-model:
-  use_cudnn_attention: true
-  cudnn_attention_dtype: float16
-```
-
-At startup, `scripts/train.py` logs `JAX cuDNN runtime version: <version>`; anything
-`>= 90500` clears the head-dim requirement. This number alone does not detect mixed
-dispatcher/engine libraries -- a 9.10.2 dispatcher over 9.14 engines still reports
-`91400` -- so the stack-check script is the required gate, and that mixed stack, not an
-old version, is what actually caused trouble. Use `--overwrite` only for a new run that may replace an
-existing experiment directory; use `--resume` to preserve and continue an
-existing run. See
+Use `--overwrite` only for a new run that may replace an existing experiment directory;
+use `--resume` to preserve and continue an existing run. See
 [`docs/training-optimization.md`](docs/training-optimization.md)
-for the numerical root cause, validation criteria, and fallback configuration.
+for configuration migration, retained optimizations, and performance validation.
 
 ⚠️ Before committing a YAML into `configs/_examples/`, scrub any machine-local
 absolute paths from `weight_loader.params_path` (e.g. `/home/<you>/...`). Use

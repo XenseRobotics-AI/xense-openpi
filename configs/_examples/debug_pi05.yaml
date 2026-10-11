@@ -1,6 +1,7 @@
 exp_name: debug_pi05
 model:
   type: Pi0Config
+  batch_image_views: true
   max_token_len: 200
   paligemma_variant: dummy
   action_expert_variant: dummy
@@ -10,3 +11,12 @@ batch_size: 2
 num_train_steps: 10
 overwrite: true
 wandb_enabled: false
+data:
+  type: FakeDataConfig
+  base_config:
+    tactile: false
+project_name: openpi
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false

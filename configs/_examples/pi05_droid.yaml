@@ -1,5 +1,6 @@
 model:
   type: Pi0Config
+  batch_image_views: true
   action_horizon: 15
   max_token_len: 200
   pi05: true
@@ -9,4 +10,10 @@ data:
   assets:
     asset_id: droid
   base_config:
+    tactile: false
     prompt_from_task: true
+project_name: openpi
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false

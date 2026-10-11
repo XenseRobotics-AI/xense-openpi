@@ -12,6 +12,7 @@
 # examples/xtac_umi_bi_flexiv_rizon4_rt and src/openpi/policies/xtac_umi_policy.py.
 model:
   type: Pi0Config
+  batch_image_views: true
   max_token_len: 200
   pi05: true
   discrete_state_input: true
@@ -26,6 +27,7 @@ data:
   use_delta_cartesian_actions: true
   # use_head_camera: true   # only for a bench that actually recorded one
   base_config:
+    tactile: false
     prompt_from_task: true
   # Only a fallback: prompt_from_task above means the dataset's own task string
   # is what actually reaches the model.
@@ -40,3 +42,8 @@ num_workers: 64
 # here; raise it only if the loss is still moving.
 num_train_steps: 30000
 fsdp_devices: 8
+project_name: openpi
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false

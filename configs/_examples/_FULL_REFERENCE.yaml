@@ -12,8 +12,9 @@
 #   1. Copy the closest real example from this directory to configs/<your_task>.yaml.
 #   2. Open this file alongside it to look up "what does field X do" or
 #      "what other classes can go into data.type".
-#   3. Override only the fields you need to change. Anything you omit takes
-#      the default shown here.
+#   3. Override the fields you need to change. Omitted fields use the Python
+#      defaults. Camera batching and checkpoint intervals below are explicit
+#      training settings; their Python defaults are noted alongside them.
 #
 # Schema rules:
 #   - Filename stem == config name. Do not put `name:` inside the YAML.
@@ -48,6 +49,7 @@ model:
   dtype: bfloat16              # bfloat16 or float32
 
   # ---- Pi0Config-specific ----
+  batch_image_views: true           # explicit training setting; Python default false; Pi0Config only
   paligemma_variant: gemma_2b       # gemma_2b | gemma_2b_lora | dummy
   action_expert_variant: gemma_300m # gemma_300m | gemma_300m_lora | gemma_2b | dummy
   # Setting either variant to a *_lora value triggers automatic LoRA freeze_filter
@@ -254,8 +256,8 @@ strict_batch_order: false     # false ⇒ hand batches over as workers finish th
 num_train_steps: 30000        # total gradient steps
 
 log_interval: 100             # how often to push metrics to wandb
-save_interval: 1000           # checkpoint cadence
-keep_period: 5000             # keep every Nth checkpoint forever; null = keep none past most recent
+save_interval: 10000          # explicit checkpoint cadence; Python default 1000
+keep_period: 10000            # keep every Nth checkpoint forever; Python default 5000; null = keep none
 
 overwrite: false              # true ⇒ wipe checkpoints/<name>/<exp> on start
 resume: false                 # true ⇒ resume from latest ckpt (mutex with overwrite)

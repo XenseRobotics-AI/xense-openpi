@@ -1,7 +1,28 @@
-# 训练优化与 cuDNN attention
+# 训练优化
 
-本文保留训练配置、实现约束和历史验证结论。详细实验脚本及排障过程可从本分支
-`72ace2a` 及更早的提交中查阅；下述性能数字来自历史实验，并非每台机器上的保证。
+JAX Gemma attention 在训练和推理中统一使用显式实现。cuDNN fused attention 的配置、
+FP16 custom VJP 和专用数值检查已移除；模型参数结构没有变化，旧 checkpoint 权重仍可加载。
+本次变更是实现清理，与 NaN 问题的修复分开处理。显式路径下也有训练发散记录，切换
+attention 实现不能作为 NaN 已解决的证据。
+
+## 配置迁移
+
+升级前，从所有用于训练或推理的 YAML 的 `model` 块中删除
+`use_cudnn_attention` 和 `cudnn_attention_dtype`，无论原值是 true、false 还是何种 dtype。
+也要删除 Python 模型构造调用和 CLI 中对应的参数。
+
+没有忽略旧字段的兼容层。YAML loader 直接构造配置对象，遗留字段会触发
+`TypeError: unexpected keyword argument`。迁移时需要检查：
+
+- 仓库中的共享 example YAML，以及各台训练机上被 gitignore 的 `configs/*.yaml`。
+- 线上推理服务和 TRON2 上机服务使用的 YAML。`serve_policy` 按配置名重新读取配置，
+  即使 checkpoint 权重兼容，旧 YAML 仍会导致服务启动失败。
+- 尚未合入的 `feature/rlt-*`、`feat/tac-rex`、`feature/tac-encoder-ltp`、`TianjiWuji`
+  和 `feat/insert-test-tube-*` 分支。rebase 或合并时清理配置字段及代码引用，避免重新引入。
+
+`config_yaml_test.py` 会加载所有共享 example YAML，并检查配置枚举；它不能覆盖
+其他机器上的私有配置。部署前应在实际训练和服务环境中确认所用配置可加载。
+历史诊断快照记录的是当时的配置，重新用作训练配置时也需要迁移。
 
 ## 生产配置
 
@@ -14,8 +35,6 @@ model:
   pi05: true
   max_token_len: 128
   batch_image_views: true
-  use_cudnn_attention: true
-  cudnn_attention_dtype: float16
 data:
   base_config:
     tactile: false
@@ -34,63 +53,47 @@ strict_batch_order: false
 - 训练结束显式关闭 DataLoader，回收 worker。
 - 梯度和参数范数仅在 `log_interval` 步计算，减少全模型归约；loss 每步计算。
 - `batch_image_views` 将多路相机按样本交错合批，只调用一次 SigLIP，然后还原各视角。
-- cuDNN FP16 fused attention 使用动态 loss scaling 和 custom VJP，复用前向残差。
+- 跳过未使用的触觉视频、乱序 batch 交付和无限 sampler。
 
-main 已包含的跳过未使用触觉视频、乱序 batch 交付和无限 sampler 继续保留。
 `strict_batch_order: false` 可避免队头阻塞，但交付顺序不保证跨运行一致；对比训练数值时设为 `true`。
 Gemma 与 SigLIP 保持默认的全量 rematerialization；历史 8×H100、batch 256 实验中，
 关闭 remat 或保存更多残差均超出显存容量。
 
-## cuDNN 数值约束
+## 历史性能与当前验证
 
-全层 BF16 cuDNN attention 曾在约 1000 步后偏离显式基线并发散，不能依据短跑有限就用于生产。
-当前显式路径仍是默认回退方案：`use_cudnn_attention: false`。
-启用 cuDNN 时使用 `cudnn_attention_dtype: float16`。
+历史实现和排障过程可通过 Git 提交查阅：`476babe` 引入 fused attention；
+`f42992e`、`ad08973`、`895811c` 记录生产验证和数值排障；`df9755f`、`3ea2b1c`
+引入并优化 FP16 custom VJP；`cf07bbe`、`cf03854`、`e13ac0f` 涉及其他优化及文档整理。
+这些提交同时涉及不同功能，本次只定向删除 attention 路径，保留其他优化。
 
-排障中发现两个独立问题：
+2026-09-04，旧 FP16 VJP 初版在 8×H100、全局 batch 256、固定 seed 和严格 batch 顺序下，
+从 pi05_base step 0 起跑，通过了当时的 3000 步验收。后续直接调用私有 forward/backward rule
+的版本另做过真实激活等价性检查和 400 步对照。这些结果仅描述已移除的历史实现。
 
-- 全空 attention mask 行可能产生 NaN query 梯度。实现将这些行的 query 梯度置零，保留原 mask。
-- peaked attention 行的 backward 对存储输出的舍入误差敏感。FP16 提供更多尾数位；
-  反向将余切按 2 的幂缩放后送入内核，再以 FP32 还原梯度，缓解 FP16 指数范围限制。
-
-当前 VJP 直接调用固定 JAX 0.5.3 的私有 cuDNN forward/backward rule。
-升级 JAX 或 CUDA/cuDNN 时必须复核接口、分片约束和训练收敛性。
-
-历史上的 9.14 NaN q-gradient 已由 `_stop_gradient_for_fully_masked_queries` 在代码层解决,
-bf16 发散由 float16 custom VJP 解决,两者都不依赖某个 cuDNN 版本。真正出过问题的是
-多来源混装(9.10.2 dispatcher 套 9.14 engine),那是 `check_cuda_stack.py` section 2 的职责。
-torch 上界跟随 lerobot:lerobot 才是真正使用 torch 的组件(数据集与机器人驱动),
-越过它的上界会让依赖无解。
-q/k/v 与 mask/bias 显式使用一致的 batch 分片，避免 cuDNN partitioner 编译失败。
-通过 `policy_config.create_trained_policy` 加载 JAX 推理策略时会关闭 cuDNN attention；
-带 KV cache 的 attention 也继续使用显式实现。
-
-## 历史验证与性能
-
-2026-09-04，8×H100、全局 batch 256、固定 seed 和严格 batch 顺序，从 pi05_base step 0
-起跑的 FP16 VJP 初版通过 3000 步验收。历史 BF16 分叉点附近，FP16 loss 与显式基线差小于
-0.5%，记录的梯度范数未超过比较基线同点的 1.3 倍。
-
-当前直接调用 forward/backward rule 的版本另做过真实激活等价性检查与 400 步对照：
-前向、dK/dV 逐位相同，dQ 差异与内核自身跨运行的原子累加差异同阶，loss 与初版逐点一致。
-这与初版的 3000 步训练验证是不同的验证范围。
-
-同日 H100 端到端实验中，FP16 基线为 1.328 s/step；token 长度 200→128 后为
+同日 H100 端到端实验中，旧 FP16 基线为 1.328 s/step；token 长度 200→128 后为
 1.246 s/step；单独加入下述 XLA 标志为 1.281 s/step；二者组合为 1.193 s/step，
 相对基线减少约 10.2%。口径为 400 步运行中 step 100 到 step 300 的日志墙钟差除以 200。
-这些实验使用同一配置和严格 batch 顺序，不能与其他机器、任务或 batch 的提速比例直接相乘。
+这些数字不是当前显式路径的吞吐，也不能直接推导删除后的性能变化。
 
-新的 attention 后端或 VJP 改动，应从 step 0 固定数据、seed、batch 顺序及超参跑满
-3000 次更新，与显式基线对比 loss 和梯度趋势；确认参数与 optimizer state 有限，
-梯度范数不超过基线同点的 3 倍后，再进入有 checkpoint 的受监控长跑。
-单次前后向、吞吐短跑或单步梯度距离不能替代收敛验证。
+删除后的 GPU 验证重点如下，实测前不宣称提速比例或 batch 512 已通过：
+
+- 吞吐：在同一机器固定模型、数据、seed、严格 batch 顺序、batch、token 长度、XLA 标志、
+  优化器及诊断逻辑，分别运行删除前后的版本。至少运行 400 步，按 step 100 到 300 的
+  墙钟差除以 200，比较显式路径与旧实现的步时。
+- 显存：H100 的 8 卡、全局 batch 256 已有显式路径运行经验；H200 耳机盒配置的
+  8 卡、全局 batch 512、token 200 需要单独实测峰值显存和训练情况，不能用 batch 256 推断。
+- 数值：检查 loss、梯度、参数和 optimizer state 是否有限，继续观察训练趋势。
+  短跑不替代收敛验证；非有限值防护和 NaN 排障属于独立工作。
 
 ## 环境与启动
 
 保持 pip CUDA 12.8 库来源一致，避免将 `$CONDA_PREFIX/lib` 加到 `LD_LIBRARY_PATH` 前面。
-cuDNN 由 torch wheel 精确 pin 带入(jax-cuda12-plugin 只要求 `>=9.1,<10`)。融合路径的硬性下界是 **9.5**:低于它 JAX 会把 attention head dim 限制在 128,而本模型是 256(见 `fused_attention_stablehlo` 的 `H_max`)。更高版本不是必需。训练启动时记录 JAX cuDNN runtime 版本。
-运行 `check_cuda_stack.py` 检查实际加载的库来源,以及生产 shape 下 BF16 内核与 FP16 custom VJP
-的前后向(含全空 mask 行的 dQ)。该检查只覆盖单次前后向数值,不替代 FP16 收敛验证。
+cuDNN 由 torch wheel 精确 pin 带入（jax-cuda12-plugin 只要求 `>=9.1,<10`）。
+显式 Gemma attention 不再使用 fused attention 的 head_dim=256 专属版本下限；
+CUDA 栈中的其他算子仍可能使用 cuDNN，库来源和版本一致性检查继续保留。
+
+运行 `check_cuda_stack.py` 检查实际加载的库来源、cuDNN 文件版本及运行时版本一致性，
+避免混装 dispatcher 和 engine。该脚本不再执行 attention 梯度比对，也不验证训练收敛性。
 
 ```bash
 env -u LD_LIBRARY_PATH python scripts/check_cuda_stack.py
@@ -107,5 +110,5 @@ env -u LD_LIBRARY_PATH \
   python scripts/train.py <config> --exp-name=<name>
 ```
 
-这些 XLA 标志作为整体做过验证，未逐项测量贡献。继续已有实验使用 `--resume`；
+这些 XLA 标志作为整体做过历史验证，未逐项测量贡献。继续已有实验使用 `--resume`；
 仅在确实需要覆盖目标实验目录时使用 `--overwrite`。
