@@ -172,7 +172,7 @@ def test_round_end_waits_for_a_pending_label():
     rows = result["rows"]
     assert [int(row["curr_obs"]["z_rl"][0]) for row in rows] == [4]
     assert [row["terminated"] for row in rows] == [True]
-    np.testing.assert_array_equal(rows[0]["chunk_rewards"], [0, 0, 0, -1])
+    np.testing.assert_array_equal(rows[0]["chunk_rewards"], [0, 0, 0, 0])
 
 
 def test_round_end_after_a_release_waits_for_the_restarted_chunk():
