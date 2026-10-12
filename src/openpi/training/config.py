@@ -21,6 +21,7 @@ import openpi.models.model as _model
 import openpi.models.pi0_config as pi0_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
+import openpi.policies.bi_elite_policy as bi_elite_policy
 import openpi.policies.bi_flexiv_policy as bi_flexiv_policy
 import openpi.policies.dobot_nova5_policy as dobot_nova5_policy
 import openpi.policies.droid_policy as droid_policy
@@ -525,6 +526,66 @@ class LeRobotTron2DataConfig(LeRobotBiFlexivDataConfig):
             ]
         )
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBiEliteDataConfig(DataConfigFactory):
+    """
+    Data config for the BiElite CS66 RT dual-arm robot in LeRobot format.
+
+    State/action format (20D, Cartesian with 6D rotation), per-side-grouped - the
+    order the lerobot driver emits:
+        left_tcp.{x, y, z, r1-r6} (dims 0-8) + left_gripper.pos (dim 9)
+        right_tcp.{x, y, z, r1-r6} (dims 10-18) + right_gripper.pos (dim 19)
+
+    Note this differs from `LeRobotBiFlexivDataConfig`, which groups both TCPs
+    first and both grippers last; see bi_elite_policy for the layout.
+
+    Cameras: head, left_wrist, right_wrist (tactile streams are not consumed).
+    Compatible with Xense/bi_elite_cs66_rt_egg_carton_to_tray and similar bi_elite datasets.
+    """
+
+    use_delta_cartesian_actions: bool = True
+    # If provided, will be injected into the input data if the "prompt" key is not present.
+    default_prompt: str | None = None
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[bi_elite_policy.BiEliteInputs()],
+            outputs=[bi_elite_policy.BiEliteOutputs()],
+        )
+
+        if self.use_delta_cartesian_actions:
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(bi_elite_policy.DELTA_ACTION_MASK)],
+                outputs=[_transforms.AbsoluteActions(bi_elite_policy.DELTA_ACTION_MASK)],
+            )
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": {
+                                "head": "observation.images.head",
+                                "left_wrist": "observation.images.left_wrist",
+                                "right_wrist": "observation.images.right_wrist",
+                            },
+                            "state": "observation.state",
+                            "actions": "action",
+                            "prompt": "task",
+                        }
+                    )
+                ]
+            ),
+            data_transforms=data_transforms,
+            model_transforms=ModelTransformFactory(default_prompt=self.default_prompt)(model_config),
+            action_sequence_keys=self.action_sequence_keys,
+        )
 
 
 @dataclasses.dataclass(frozen=True)

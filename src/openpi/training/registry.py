@@ -75,6 +75,7 @@ def _populate_data_configs() -> None:
             "RLDSDroidDataConfig": _config.RLDSDroidDataConfig,
             "LeRobotBiFlexivDataConfig": _config.LeRobotBiFlexivDataConfig,
             "LeRobotTron2DataConfig": _config.LeRobotTron2DataConfig,
+            "LeRobotBiEliteDataConfig": _config.LeRobotBiEliteDataConfig,
             "LeRobotDobotNova5DataConfig": _config.LeRobotDobotNova5DataConfig,
             "LeRobotXtacUmiDataConfig": _config.LeRobotXtacUmiDataConfig,
             # SimpleDataConfig deliberately omitted: it carries lambdas (data_transforms)

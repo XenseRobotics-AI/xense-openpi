@@ -34,17 +34,13 @@ except ImportError:
     _LEROBOT_HOME = None
 
 import openpi.models.model as _model
-import openpi.policies.xtac_umi_policy as xtac_umi_policy
 import openpi.shared.normalize as normalize
 import openpi.training.config as _config
-import openpi.training.data_loader as _data_loader
 import openpi.transforms as transforms
 
 logger = logging.getLogger(__name__)
 
 _STATE_ACTION_TRANSFORM_TYPES = (
-    xtac_umi_policy.XtacUmiStateActions,
-    xtac_umi_policy.XtacUmiRelativeActions,
     transforms.DeltaActions,
     transforms.SubsampleActions,
 )
@@ -318,7 +314,9 @@ def create_torch_dataloader(
     dataset_root: pathlib.Path | None = None,
     skip_hub_sync: bool = False,
     hub_data_meta_only: bool = False,
-) -> tuple[_data_loader.Dataset, int]:
+) -> tuple:
+    import openpi.training.data_loader as _data_loader
+
     if data_config.repo_id is None:
         raise ValueError("Data config must have a repo_id")
     logger.warning("Torch loader: slower; may access Hub via LeRobotDataset.")
@@ -358,7 +356,9 @@ def create_rlds_dataloader(
     action_horizon: int,
     batch_size: int,
     max_frames: int | None = None,
-) -> tuple[_data_loader.Dataset, int]:
+) -> tuple:
+    import openpi.training.data_loader as _data_loader
+
     dataset = _data_loader.create_rlds_dataset(data_config, action_horizon, batch_size, shuffle=False)
     dataset = _data_loader.IterableTransformedDataset(
         dataset,
@@ -396,8 +396,6 @@ def main(
     root_override = dataset_root
     if root_override is None and os.environ.get("OPENPI_LEROBOT_DATASET_ROOT"):
         root_override = pathlib.Path(os.environ["OPENPI_LEROBOT_DATASET_ROOT"])
-    if root_override is None and data_config.dataset_root is not None:
-        root_override = pathlib.Path(data_config.dataset_root)
 
     if data_config.rlds_data_dir is not None:
         data_loader, num_batches = create_rlds_dataloader(
