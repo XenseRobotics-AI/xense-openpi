@@ -103,14 +103,6 @@ class ReplayBuffer:
         if self._size == 0:
             raise ValueError("Cannot sample from an empty replay buffer.")
         indices = self._rng.choice(self._size, size=min(batch_size, self._size), replace=True)
-        return self.sample_indices(indices)
-
-    def row_field(self, name: str) -> np.ndarray:
-        """One stored field across all live rows (e.g. to build class masks for the Q gate)."""
-        return self._storage[name][: self._size]
-
-    def sample_indices(self, indices: np.ndarray) -> dict:
-        """Rows at the given indices, in the same dict shape as ``sample``."""
         batch: dict = {"curr_obs": {}, "next_obs": {}}
         for key, array in self._storage.items():
             side, _, obs_key = key.partition("_")

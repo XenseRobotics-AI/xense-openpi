@@ -47,13 +47,7 @@ def _latest(directory: pathlib.Path) -> pathlib.Path | None:
     return max(steps, key=lambda p: int(p.name), default=None)
 
 
-def _summary(
-    config: _rlt_config.RLConfig,
-    learner: _learner.Learner,
-    result: dict,
-    infos: list[dict],
-    gate_metrics: dict | None = None,
-) -> str:
+def _summary(config: _rlt_config.RLConfig, learner: _learner.Learner, result: dict, infos: list[dict]) -> str:
     """The operator's end-of-round block, one fact per line."""
     m, c = result["metrics"], learner.counters
     n = {key: int(m.get(key, 0)) for key in m.keys() | {"success", "failure", "discards", "steps", "human_steps"}}
@@ -80,21 +74,6 @@ def _summary(
             f"pending {learner.pending_updates()}"
         ),
     ]
-    if gate_metrics:
-        gate, gcfg = learner.gate, config.q_gate
-        if "q_gate/skipped" in gate_metrics:
-            lines.append(
-                f"q_gate  : skipped (success windows {int(gate_metrics['q_gate/success_windows'])}, "
-                f"need >= {gcfg.min_windows} per class and {gcfg.min_success_windows} successes)"
-            )
-        else:
-            lines.append(
-                f"q_gate  : {'OPEN' if gate.open else 'CLOSED'} | "
-                f"acc {gate_metrics['q_gate/rank_accuracy']:.2f}/{gcfg.min_rank_accuracy} | "
-                f"margin {gate_metrics['q_gate/margin_std']:.2f}/{gcfg.min_margin_std} | "
-                f"clean {gate_metrics['q_gate/clean_accuracy']:.2f}/{gcfg.min_clean_accuracy} | "
-                f"passes {gate.consecutive_passes}/{gcfg.sustain_evals}"
-            )
     if infos:
         lines.append("losses (mean over this round's updates):")
         for key in ("critic_loss", "actor_loss", "bc_loss", "q_pi", "q_data", "q_target", "bc_q_grad_cosine"):
@@ -212,11 +191,6 @@ def main() -> None:
             infos = learner.train()
             for index, info in enumerate(infos, start=first_update + 1):
                 logger.log("update", index, info)
-            gate_metrics, gate_event = learner.evaluate_gate()
-            if gate_event == "opened":
-                env.status("Q gate OPEN: critic ranks corrections above the VLA proposal; q_weight ramps up.")
-            elif gate_event == "closed":
-                env.status("Q gate CLOSED: critic ranking degraded; actor back to warmup weights.")
             learner.counters.rounds += 1
             if dump_dir is not None and infos:
                 # The weights right after this round's training, to replay the actor at any point.
@@ -239,7 +213,6 @@ def main() -> None:
                     **{f"total_{key}": value for key, value in totals.items()},
                     **dataclasses.asdict(learner.counters),
                     "replay_size": len(learner.replay),
-                    **(gate_metrics or {}),
                     "warmed_up": learner.warmed_up,
                     "pending_updates": learner.pending_updates(),
                     **{
@@ -248,7 +221,7 @@ def main() -> None:
                     },
                 },
             )
-            summary = _summary(rl, learner, result, infos, gate_metrics)
+            summary = _summary(rl, learner, result, infos)
             logging.info("\n%s", summary)
             env.status(summary)
             if learner.counters.rounds % rl.save_interval == 0:

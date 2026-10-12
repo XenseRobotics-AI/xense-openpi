@@ -41,21 +41,3 @@ def test_invalid_input_reference_fails():
         _config.loads(
             "token_training: {vla_config: a, vla_checkpoint: b, prefix_cache_dir: c}\nrl: {input_reference: typo}", "x"
         )
-
-
-def test_q_gate_yaml_defaults_and_training_contract():
-    config = _config.loads(
-        "token_training: {vla_config: a, vla_checkpoint: b, prefix_cache_dir: c}\nrl: {q_gate: {enable: true}}", "x"
-    )
-    assert config.rl.q_gate.enable
-    assert config.rl.q_gate == _config.QGateConfig(enable=True)
-    assert config.rl.training_contract()["q_gate"]["enable"] is True
-
-
-def test_q_gate_close_thresholds_must_not_exceed_open_thresholds():
-    with pytest.raises(ValueError, match="hysteresis"):
-        _config.loads(
-            "token_training: {vla_config: a, vla_checkpoint: b, prefix_cache_dir: c}\n"
-            "rl: {q_gate: {min_rank_accuracy: 0.5, close_rank_accuracy: 0.7}}",
-            "x",
-        )
