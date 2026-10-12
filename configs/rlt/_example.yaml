@@ -64,6 +64,29 @@ rl:
   reference_dropout_prob: 0.5
   fixed_std: 0.002 # Gaussian actor exploration std (normalized space)
   critic_actor_ratio: 2 # actor updates after every 2nd critic update
+  # Q gate: metrics are logged every round regardless; with enable: true the critic steers
+  # the actor (q_weight leaves warmup) only after it ranks human corrections above the VLA
+  # proposal on recent windows, sustained over sustain_evals evaluations. Hysteresis: any
+  # metric below its close_* threshold close_evals times in a row drops back to warmup.
+  q_gate:
+    enable: false
+    warmup_bc_weight: 7.0
+    warmup_q_weight: 0.05
+    online_bc_weight: 2.5
+    online_q_weight: 0.45
+    ramp_updates: 200 # actor updates from warmup to online weights after the gate opens
+    eval_windows: 64 # windows sampled per class (intervened / clean) per evaluation
+    recent_rounds: 5 # prefer windows from the latest rounds; falls back to all
+    min_windows: 8 # fewer windows per class -> the evaluation is skipped
+    min_success_windows: 20 # reward-signal prerequisite
+    min_rank_accuracy: 0.8 # open: Q(human-corrected) > Q(VLA proposal) fraction
+    min_margin_std: 0.5 # open: median Q difference / batch Q std
+    min_clean_accuracy: 0.9 # open: Q(executed) > Q(random) on clean windows
+    sustain_evals: 3
+    close_rank_accuracy: 0.6
+    close_margin_std: 0.2
+    close_clean_accuracy: 0.7
+    close_evals: 2
   batch_size: 256
   buffer_size: 6000 # transitions
   replay_stride: 2 # labeled phases -> C-step windows every 2 env steps; must divide C

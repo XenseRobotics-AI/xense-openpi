@@ -27,6 +27,7 @@ import optax
 from openpi.rlt import action_space as _action_space
 from openpi.rlt import config as _rlt_config
 from openpi.rlt import mlp_policy
+from openpi.rlt import q_gate as _q_gate
 from openpi.rlt import replay as _replay
 from openpi.rlt import td
 
@@ -77,6 +78,10 @@ class Learner:
         self._critic_step = jax.jit(self._critic_step_impl)
         self._actor_step = jax.jit(self._actor_step_impl)
         self._act = jax.jit(self._act_impl)
+        self.gate = _q_gate.QGate(config.q_gate)
+        self._eval_rng = np.random.default_rng(seed + 2)
+        self._gate_q_raw = jax.jit(self._gate_q_raw_impl)
+        self._gate_q_canon = jax.jit(self._gate_q_canon_impl)
 
     # ----- acting -----
 
@@ -128,13 +133,115 @@ class Learner:
             )
             self.counters.critic_updates += 1
             if self.counters.critic_updates % self.config.critic_actor_ratio == 0:
+                bc_weight, q_weight = self._actor_weights()
                 self.actor, self.actor_opt, actor_info = self._actor_step(
-                    self.actor, self.actor_opt, self.critic, batch, actor_rng
+                    self.actor, self.actor_opt, self.critic, batch, actor_rng, bc_weight, q_weight
                 )
                 self.counters.actor_updates += 1
                 info = {**info, **actor_info}
             infos.append({key: float(value) for key, value in jax.device_get(info).items()})
         return infos
+
+    # ----- Q gate -----
+
+    def _actor_weights(self) -> tuple[float, float]:
+        """``(bc_weight, q_weight)`` for the next actor update.
+
+        Default: the config's constant weights. With ``q_gate.enable``: warmup weights
+        while the gate is closed; once open, a linear ramp to the online weights over
+        ``q_gate.ramp_updates`` actor updates; a closed-again gate drops straight back.
+        """
+        cfg = self.config.q_gate
+        if not cfg.enable:
+            return self.config.bc_weight, self.config.q_weight
+        if not self.gate.open:
+            return cfg.warmup_bc_weight, cfg.warmup_q_weight
+        opened_at = self.gate.opened_at_update
+        if opened_at is None:
+            opened_at = self.counters.actor_updates
+        progress = (
+            min(1.0, (self.counters.actor_updates - opened_at + 1) / cfg.ramp_updates)
+            if cfg.ramp_updates > 0
+            else 1.0
+        )
+        return (
+            cfg.warmup_bc_weight + progress * (cfg.online_bc_weight - cfg.warmup_bc_weight),
+            cfg.warmup_q_weight + progress * (cfg.online_q_weight - cfg.warmup_q_weight),
+        )
+
+    def _gate_q_raw_impl(self, critic, obs, actions_a, actions_b):
+        """Q1 of two action sets on the same observations (Q1 is what drives the actor)."""
+        module = nnx.merge(self._critic_def, critic)
+        return module(obs, actions_a)[:, 0], module(obs, actions_b)[:, 0]
+
+    def _gate_q_canon_impl(self, critic, obs, actions_a, actions_b):
+        """Q1 with actions_b canonicalized first (random actions on clean windows)."""
+        actions_b = self.space.canonicalize(actions_b, obs["state"])
+        return self._gate_q_raw_impl(critic, obs, actions_a, actions_b)
+
+    def evaluate_gate(self) -> tuple[dict[str, float] | None, str | None]:
+        """One gate evaluation over recent replay windows: (``q_gate/`` metrics, event).
+
+        Metrics are computed whenever replay holds enough windows of both classes,
+        regardless of ``q_gate.enable`` - the flag only decides whether the state
+        machine runs and the actor weights react. ``event`` is "opened"/"closed" on
+        transitions. Intervened windows compare Q1 of the executed (human-corrected)
+        chunk against the VLA proposal; clean windows compare the executed chunk
+        against random actions.
+        """
+        cfg = self.config.q_gate
+        if len(self.replay) == 0:
+            return None, None
+        intervened = self.replay.row_field("intervention_mask").any(axis=1)
+        success_windows = int(self.replay.row_field("success").sum())
+        round_ids = self.replay.row_field("round_id")
+        max_round = int(round_ids.max())
+
+        def pick(mask: np.ndarray) -> np.ndarray | None:
+            idx = np.flatnonzero(mask)
+            recent = idx[round_ids[idx] > max_round - cfg.recent_rounds]
+            pool = recent if len(recent) >= cfg.min_windows else idx
+            if len(pool) < cfg.min_windows:
+                return None
+            return self._eval_rng.choice(pool, size=min(cfg.eval_windows, len(pool)), replace=False)
+
+        intervened_idx, clean_idx = pick(intervened), pick(~intervened)
+        if intervened_idx is None or clean_idx is None:
+            return {
+                "q_gate/skipped": 1.0,
+                "q_gate/success_windows": float(success_windows),
+                "q_gate/open": float(self.gate.open),
+            }, None
+
+        num_chunks = self.config.num_action_chunks
+        iv = self.replay.sample_indices(intervened_idx)
+        obs = jax.tree.map(jax.numpy.asarray, iv["curr_obs"])
+        proposal = iv["curr_obs"]["ref_chunk"][:, :num_chunks]
+        q_exec, q_proposal = self._gate_q_raw(
+            self.critic, obs, jax.numpy.asarray(iv["actions"]), jax.numpy.asarray(proposal)
+        )
+        cl = self.replay.sample_indices(clean_idx)
+        clean_obs = jax.tree.map(jax.numpy.asarray, cl["curr_obs"])
+        random = self._eval_rng.uniform(-1.0, 1.0, cl["actions"].shape).astype(np.float32)
+        q_clean, q_random = self._gate_q_canon(
+            self.critic, clean_obs, jax.numpy.asarray(cl["actions"]), jax.numpy.asarray(random)
+        )
+        q_exec, q_proposal, q_clean, q_random = (
+            np.asarray(x, np.float64) for x in jax.device_get((q_exec, q_proposal, q_clean, q_random))
+        )
+
+        std = float(np.std(np.concatenate([q_exec, q_proposal]))) + 1e-8
+        metrics = {
+            "rank_accuracy": float(np.mean(q_exec > q_proposal)),
+            "margin_std": float(np.median((q_exec - q_proposal) / std)),
+            "clean_accuracy": float(np.mean(q_clean > q_random)),
+            "success_windows": float(success_windows),
+        }
+        event = self.gate.observe(metrics, self.counters.actor_updates) if cfg.enable else None
+        out = {f"q_gate/{key}": value for key, value in metrics.items()}
+        out["q_gate/open"] = float(self.gate.open)
+        out["q_gate/evals"] = float(self.gate.evals)
+        return out, event
 
     def _critic_step_impl(self, critic, target, opt, actor, batch, rng):
         def loss_fn(critic):
@@ -154,7 +261,7 @@ class Learner:
         target = optax.incremental_update(critic, target, self.config.tau)
         return critic, target, opt, {**info, "critic_grad_norm": optax.global_norm(grads)}
 
-    def _actor_step_impl(self, actor, opt, critic, batch, rng):
+    def _actor_step_impl(self, actor, opt, critic, batch, rng, bc_weight, q_weight):
         def loss_fn(actor):
             return td.actor_loss(
                 nnx.merge(self._actor_def, actor),
@@ -162,8 +269,8 @@ class Learner:
                 self.space,
                 batch,
                 rng,
-                q_weight=self.config.q_weight,
-                bc_weight=self.config.bc_weight,
+                q_weight=q_weight,
+                bc_weight=bc_weight,
                 reference_dropout_prob=self.config.reference_dropout_prob,
                 input_reference=self.config.input_reference,
             )
@@ -181,6 +288,9 @@ class Learner:
             opt,
             {
                 **info,
+                "bc_weight": bc_weight,
+                "q_weight": q_weight,
+                "gate_open": float(self.gate.open),
                 "actor_grad_norm": optax.global_norm(grads),
                 "weighted_bc_grad_norm": jax.numpy.linalg.norm(flat_bc),
                 "weighted_q_grad_norm": jax.numpy.linalg.norm(flat_q),
@@ -212,6 +322,7 @@ class Learner:
             "actor_opt": self.actor_opt,
             "critic_opt": self.critic_opt,
             "rng": jax.random.key_data(self._rng),
+            "gate": self.gate.state_dict(),
         }
 
     def save(self, directory: pathlib.Path, extra: dict | None = None) -> None:
@@ -244,6 +355,8 @@ class Learner:
                 raise ValueError(f"RL checkpoint {key} does not match the current model structure.")
             setattr(self, key, jax.tree.map(jax.numpy.asarray, restored))
         self._rng = jax.random.wrap_key_data(state["rng"])
+        if "gate" in state:  # checkpoints older than the gate have none; the gate starts closed
+            self.gate.load_state_dict(state["gate"])
         self.counters = Counters(**state["counters"])
         self.replay.load_state_dict(state["replay"])
         return state

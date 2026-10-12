@@ -97,6 +97,59 @@ class TokenTrainingConfig:
 
 
 @dataclasses.dataclass(frozen=True)
+class QGateConfig:
+    """When the critic may steer the actor (when ``q_weight`` leaves its warmup value).
+
+    Gate metrics are computed and logged every round regardless of ``enable``; the flag
+    only decides whether the gate state drives the actor's weights. Opening requires all
+    of min_rank_accuracy / min_margin_std / min_clean_accuracy (plus enough success-labeled
+    windows) to hold for ``sustain_evals`` consecutive evaluations; once open, any metric
+    breaching its looser close threshold ``close_evals`` times in a row closes the gate
+    and drops the weights back to warmup. Hysteresis is deliberate: slow to open, quick
+    to close. While closed the actor trains with the warmup weights; after opening they
+    ramp linearly to the online weights over ``ramp_updates`` actor updates.
+    """
+
+    enable: bool = False
+    # Actor weights while the gate is closed / after it opens (ramped over ramp_updates).
+    warmup_bc_weight: float = 7.0
+    warmup_q_weight: float = 0.05
+    online_bc_weight: float = 2.5
+    online_q_weight: float = 0.45
+    ramp_updates: int = 200
+    eval_windows: int = 64  # windows sampled per class (intervened / clean) per evaluation
+    recent_rounds: int = 5  # prefer windows from this many latest rounds; falls back to all
+    min_windows: int = 8  # fewer windows per class -> the evaluation is skipped
+    min_success_windows: int = 20  # reward-signal prerequisite: success-labeled windows in replay
+    min_rank_accuracy: float = 0.8  # open: Q1(executed) > Q1(VLA proposal) on intervened windows
+    min_margin_std: float = 0.5  # open: median (Q1(executed) - Q1(proposal)) / batch Q std
+    min_clean_accuracy: float = 0.9  # open: Q1(executed) > Q1(random) on clean windows
+    sustain_evals: int = 3  # consecutive full passes to open
+    close_rank_accuracy: float = 0.6  # hysteresis: close when any metric falls below these...
+    close_margin_std: float = 0.2
+    close_clean_accuracy: float = 0.7
+    close_evals: int = 2  # ...for this many consecutive evaluations
+
+    def __post_init__(self) -> None:
+        counts = ("eval_windows", "recent_rounds", "min_windows", "min_success_windows", "sustain_evals", "close_evals")
+        if min(getattr(self, name) for name in counts) < 1:
+            raise ValueError(f"q_gate {', '.join(counts)} must be >= 1.")
+        thresholds = (
+            "min_rank_accuracy",
+            "min_margin_std",
+            "min_clean_accuracy",
+            "close_rank_accuracy",
+            "close_margin_std",
+            "close_clean_accuracy",
+        )
+        if min(getattr(self, name) for name in thresholds) < 0:
+            raise ValueError(f"q_gate {', '.join(thresholds)} must be >= 0.")
+        for name in ("rank_accuracy", "margin_std", "clean_accuracy"):
+            if getattr(self, f"close_{name}") > getattr(self, f"min_{name}"):
+                raise ValueError(f"q_gate close_{name} must not exceed min_{name} (hysteresis).")
+
+
+@dataclasses.dataclass(frozen=True)
 class RLConfig:
     """Phase two: online chunked-TD actor-critic on top of the frozen RL token.
 
@@ -135,6 +188,7 @@ class RLConfig:
     fixed_std: float = 0.002
     # Critic updates per actor update.
     critic_actor_ratio: int = 2
+    q_gate: QGateConfig = dataclasses.field(default_factory=QGateConfig)
 
     batch_size: int = 256
     # Replay capacity in transitions (one transition = one C-step window).
