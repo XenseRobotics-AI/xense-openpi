@@ -8,7 +8,6 @@ from typing import Literal, Protocol, SupportsIndex, TypeVar, override
 
 import jax
 import jax.numpy as jnp
-from lerobot.datasets.dataset_reader import DatasetReader
 import lerobot.datasets.lerobot_dataset as lerobot_dataset
 import numpy as np
 import torch
@@ -17,6 +16,13 @@ import openpi.models.model as _model
 import openpi.training.config as _config
 from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
+
+try:
+    from lerobot.datasets.dataset_reader import DatasetReader
+except ModuleNotFoundError as exc:
+    if exc.name != "lerobot.datasets.dataset_reader":
+        raise
+    DatasetReader = None
 
 T_co = TypeVar("T_co", covariant=True)
 
@@ -181,12 +187,10 @@ class FakeDataset(Dataset):
 TACTILE_KEY_MARKER = "tactile"
 
 
-class SelectiveVideoDatasetReader(DatasetReader):
-    """Filter at the reader used by LeRobot 0.5's actual get_item path.
+class _SelectiveVideoTimestamps:
+    """Filter video timestamps on either LeRobot's dataset or its separate reader.
 
-    `decode_video_keys` is copied from the dataset on reader access. It must
-    be a plain attribute (not a constructor arg) because the dataset is pickled to spawned
-    dataloader workers.
+    Keep the whitelist as a plain attribute for spawned dataloader workers.
 
     It defaults to `None`, meaning "no filtering": a construction site that forgets to set it
     behaves exactly like a plain `LeRobotDataset`. The alternative default (an empty
@@ -195,7 +199,6 @@ class SelectiveVideoDatasetReader(DatasetReader):
 
     decode_video_keys: frozenset[str] | None = None
 
-    @override
     def _get_query_timestamps(
         self,
         current_ts: float,
@@ -207,10 +210,22 @@ class SelectiveVideoDatasetReader(DatasetReader):
         return {key: ts for key, ts in query_timestamps.items() if key in self.decode_video_keys}
 
 
-class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
-    """LeRobot dataset that decodes only streams selected by the data config."""
+if DatasetReader is not None:
 
-    decode_video_keys: frozenset[str] | None = None
+    class SelectiveVideoDatasetReader(_SelectiveVideoTimestamps, DatasetReader):
+        """Filter video decode in LeRobot implementations with a separate reader."""
+
+else:
+    SelectiveVideoDatasetReader = None
+
+
+class SelectiveVideoLeRobotDataset(_SelectiveVideoTimestamps, lerobot_dataset.LeRobotDataset):
+    """Decode selected streams with both legacy and separate-reader LeRobot APIs.
+
+    lerobot-xense keeps timestamp queries on LeRobotDataset itself; newer
+    implementations delegate them to DatasetReader. Both can report version 0.5.1,
+    so use the available API rather than the package version to select the hook.
+    """
 
     @override
     def _ensure_reader(self) -> DatasetReader:
