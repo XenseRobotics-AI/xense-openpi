@@ -193,11 +193,11 @@ class Collector:
             )
 
     def _close_phase(self, trace: _critical_trace.CriticalTrace, label: str) -> tuple[list[dict], str | None]:
-        """Turn a labeled phase into replay rows (terminal reward 1 for success, 0 for failure).
+        """Turn a labeled phase into replay rows (terminal reward 1 for success, -1 for failure).
 
         Returns the rows and, when the phase yields none, why.
         """
-        trace.set_terminal_reward(float(label == "success"))
+        trace.set_terminal_reward(1.0 if label == "success" else -1.0)
         missing = trace.missing_feature_indices()
         if any(not trace.has_observation(i) for i in missing):
             logging.warning("Labeled phase is missing stride captures; dropped.")
