@@ -54,6 +54,9 @@ rl:
   actor_lr: 3.0e-4
   critic_lr: 3.0e-4
   gamma: 0.99 # per execution step; bootstrap discount is gamma**C
+  # mc: true discounted return to the phase end (no bootstrap); td: bootstrap; mix: mc_lambda blend
+  critic_target: mc
+  mc_lambda: 0.5
   q_weight: 0.1 # actor loss: -q_weight * Q1 + bc_weight * BC
   bc_weight: 5.0 # fixed weights; no weight schedule or smoothness penalty
   input_reference: corrected # proposal: raw VLA reference as actor training input

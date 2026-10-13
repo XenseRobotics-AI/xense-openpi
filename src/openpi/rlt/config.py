@@ -122,6 +122,13 @@ class RLConfig:
     max_grad_norm: float = 10.0
     # Per-step discount; the bootstrap is discounted by gamma**num_action_chunks.
     gamma: float = 0.99
+    # Critic target: "td" = bootstrap through the target critic (the default, historical
+    # behavior); "mc" = the true discounted return to the labeled phase end (computed at
+    # window creation, no bootstrap - the terminal reward does not have to propagate through
+    # the untrained critic); "mix" = the convex combination mc_lambda * mc + (1 - mc_lambda) * td.
+    critic_target: Literal["mc", "td", "mix"] = "td"
+    mc_lambda: float = 0.5  # MC weight when critic_target == "mix"
+
     # Target-critic soft-update rate, applied after every critic update.
     tau: float = 0.005
     # Actor objective: -q_weight * Q1(s, pi(s)) + bc_weight * MSE(pi(s), reference or human action).
@@ -193,6 +200,10 @@ class RLConfig:
             object.__setattr__(self, name, tuple(getattr(self, name)))
         if self.input_reference not in ("corrected", "proposal"):
             raise ValueError("input_reference must be corrected or proposal.")
+        if self.critic_target not in ("mc", "td", "mix"):
+            raise ValueError("critic_target must be mc, td or mix.")
+        if not 0.0 <= self.mc_lambda <= 1.0:
+            raise ValueError("mc_lambda must be in [0, 1].")
         if self.num_action_chunks > self.ref_num_action_chunks:
             raise ValueError("num_action_chunks must be <= ref_num_action_chunks.")
         if self.num_q_heads < 2:

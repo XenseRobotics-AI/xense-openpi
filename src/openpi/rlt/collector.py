@@ -222,6 +222,9 @@ class Collector:
                 "intervention_mask": window.human,
                 "action_source": window.source,
                 "terminated": window.terminal,
+                # True discounted return to the phase end; the critic can train on it
+                # directly instead of bootstrapping (rl.critic_target).
+                "mc_return": trace.mc_return(window.start, self.config.gamma),
                 "success": label == "success",
                 "actor_enabled": window.actor_enabled,
                 "episode_id": self._episode_id,

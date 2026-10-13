@@ -31,6 +31,7 @@ def _row(i, human=(False, True, False)):
         "next_obs": _features(i + 1),
         "actions": np.full((C, A), i, np.float32),
         "chunk_rewards": np.zeros(C, np.float32),
+        "mc_return": float(i),
         "intervention_mask": human,
         "action_source": action_source,
         "terminated": False,
@@ -120,6 +121,15 @@ def test_sliding_windows():
     np.testing.assert_array_equal(last.rewards, [0, 0, 1])
     np.testing.assert_array_equal(last.human, [False, True, False])
     assert last.next_features["z_rl"][0] == 10
+
+
+def test_mc_return_is_the_exact_discounted_return():
+    trace = _trace(5, stride=1)
+    trace.set_terminal_reward(1.0)
+    # gamma=0.5: window at start a sees rewards[a:], so the terminal 1.0 lands as 0.5**(4-a).
+    expected = {0: 0.5**4, 1: 0.5**3, 2: 0.5**2, 3: 0.5, 4: 1.0}
+    for anchor, value in expected.items():
+        assert trace.mc_return(anchor, gamma=0.5) == pytest.approx(value)
 
 
 def test_short_phase_has_no_windows():

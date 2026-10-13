@@ -4,7 +4,9 @@ A transition is one C-step window: ``curr_obs`` at its first step, the C
 executed actions (normalized), per-step rewards, ``next_obs`` C steps later and
 ``terminated`` for a labeled success/failure end. The critic target is
 
-    sum_l gamma**l r_l + gamma**C * (1 - terminated) * min_i Q'_i(s', canon(pi(s')))
+    mc:        the row's true discounted return to the labeled phase end (no bootstrap)
+    td:        sum_l gamma**l r_l + gamma**C * (1 - terminated) * min_i Q'_i(s', canon(pi(s')))
+    mix:       mc_lambda * mc + (1 - mc_lambda) * td
 
 and the actor minimizes ``-q_weight * Q1(s, canon(pi(s))) + bc_weight * MSE``
 against the BC target: the VLA reference, with human actions at intervened
@@ -47,23 +49,43 @@ def critic_loss(
     rng: jax.Array,
     *,
     gamma: float,
+    critic_target: str = "td",
+    mc_lambda: float = 0.5,
 ) -> tuple[jax.Array, dict[str, jax.Array]]:
-    next_obs = batch["next_obs"]
-    next_actions = space.canonicalize(actor(next_obs, noise_rng=rng), next_obs["state"])
-    q_next = jnp.min(target_critic(next_obs, next_actions), axis=-1)
-    bootstrap = gamma ** batch["actions"].shape[1] * jnp.where(batch["terminated"], 0.0, q_next)
-    target = jax.lax.stop_gradient(discounted_chunk_rewards(batch["chunk_rewards"], gamma) + bootstrap)
+    td_target = None
+    if critic_target in ("td", "mix"):
+        next_obs = batch["next_obs"]
+        next_actions = space.canonicalize(actor(next_obs, noise_rng=rng), next_obs["state"])
+        q_next = jnp.min(target_critic(next_obs, next_actions), axis=-1)
+        bootstrap = gamma ** batch["actions"].shape[1] * jnp.where(batch["terminated"], 0.0, q_next)
+        td_target = discounted_chunk_rewards(batch["chunk_rewards"], gamma) + bootstrap
+    if critic_target == "mc":
+        target = batch["mc_return"]
+    elif critic_target == "td":
+        target = td_target
+    elif critic_target == "mix":
+        target = mc_lambda * batch["mc_return"] + (1.0 - mc_lambda) * td_target
+    else:
+        raise ValueError(f"critic_target must be mc, td or mix, got {critic_target!r}.")
+    target = jax.lax.stop_gradient(target)
 
     q = critic(batch["curr_obs"], batch["actions"])
     loss = jnp.mean(jnp.square(q - target[:, None]))
+    # R^2 of the return regression, averaged over heads: ~0 means the critic collapses to
+    # predicting the mean (constant output); ~1 means it tracks the true returns.
+    target_var = jnp.maximum(target.var(), 1e-8)
+    explained_variance = (1.0 - jnp.square(target[:, None] - q).mean(axis=0) / target_var).mean()
     return loss, {
         "critic_loss": loss,
         "q_data": q.mean(),
+        "q_data_std": q.std(),
         "q_data_min": q.min(),
         "q_data_max": q.max(),
         "q_disagreement": jnp.abs(q[:, 0] - q[:, 1]).mean(),
         "q_target": target.mean(),
         "q_target_std": target.std(),
+        "explained_variance": explained_variance,
+        "mc_return": batch["mc_return"].mean(),
         "terminal_ratio": batch["terminated"].mean(),
     }
 

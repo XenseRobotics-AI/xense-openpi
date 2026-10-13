@@ -47,6 +47,7 @@ def _batch(space, seed=0):
         "next_obs": obs(),
         "actions": rng.uniform(-1, 1, (B, C, A)).astype(np.float32),
         "chunk_rewards": (rng.uniform(size=(B, C)) < 0.2).astype(np.float32),
+        "mc_return": rng.normal(size=B).astype(np.float32),
         "terminated": rng.uniform(size=B) < 0.5,
         "intervention_mask": human,
     }
@@ -89,6 +90,38 @@ def test_actor_input_reference_on_intervened_steps(input_reference):
     target = td.training_reference(batch)
     expected_bc = jnp.mean(jnp.square(pi - target[:, : pi.shape[1]]))
     np.testing.assert_allclose(info["bc_loss"], expected_bc, rtol=1e-5)
+
+
+def test_mc_critic_target_ignores_the_bootstrap():
+    """With critic_target="mc" the loss must not depend on the (random) next-action draw."""
+    space = action_space_test.bi_flexiv_space()
+    actor, critic = _heads()
+    batch = _batch(space)
+    loss_a, info_a = td.critic_loss(
+        critic, critic, actor, space, batch, jax.random.key(0), gamma=0.99, critic_target="mc"
+    )
+    loss_b, _ = td.critic_loss(
+        critic, critic, actor, space, batch, jax.random.key(1), gamma=0.99, critic_target="mc"
+    )
+    np.testing.assert_allclose(loss_a, loss_b, rtol=1e-6)  # rng only feeds the bootstrap
+    # The target is exactly the stored MC return.
+    q = critic(jax.tree.map(jnp.asarray, batch["curr_obs"]), jnp.asarray(batch["actions"]))
+    expected = jnp.mean(jnp.square(q - jnp.asarray(batch["mc_return"])[:, None]))
+    np.testing.assert_allclose(info_a["critic_loss"], expected, rtol=1e-6)
+
+
+def test_mix_critic_target_interpolates():
+    space = action_space_test.bi_flexiv_space()
+    actor, critic = _heads()
+    batch = _batch(space)
+    _, mc_info = td.critic_loss(critic, critic, actor, space, batch, jax.random.key(0), gamma=0.99, critic_target="mc")
+    _, td_info = td.critic_loss(critic, critic, actor, space, batch, jax.random.key(0), gamma=0.99, critic_target="td")
+    _, mix_info = td.critic_loss(
+        critic, critic, actor, space, batch, jax.random.key(0), gamma=0.99, critic_target="mix", mc_lambda=0.5
+    )
+    np.testing.assert_allclose(
+        mix_info["q_target"], 0.5 * mc_info["q_target"] + 0.5 * td_info["q_target"], rtol=1e-6
+    )
 
 
 def test_reference_dropout_only_zeroes_the_reference():

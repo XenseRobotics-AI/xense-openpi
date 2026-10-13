@@ -146,6 +146,8 @@ class Learner:
                 batch,
                 rng,
                 gamma=self.config.gamma,
+                critic_target=self.config.critic_target,
+                mc_lambda=self.config.mc_lambda,
             )
 
         (_, info), grads = jax.value_and_grad(loss_fn, has_aux=True)(critic)

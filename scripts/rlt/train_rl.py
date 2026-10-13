@@ -76,7 +76,19 @@ def _summary(config: _rlt_config.RLConfig, learner: _learner.Learner, result: di
     ]
     if infos:
         lines.append("losses (mean over this round's updates):")
-        for key in ("critic_loss", "actor_loss", "bc_loss", "q_pi", "q_data", "q_target", "bc_q_grad_cosine"):
+        for key in (
+            "critic_loss",
+            "actor_loss",
+            "bc_loss",
+            "q_pi",
+            "q_data",
+            "q_target",
+            "explained_variance",
+            "mc_return",
+            "q_target_std",
+            "q_disagreement",
+            "bc_q_grad_cosine",
+        ):
             values = [info[key] for info in infos if key in info]
             if values:
                 lines.append(f"  {key:<18}: {np.mean(values):.5g}")

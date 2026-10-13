@@ -49,6 +49,8 @@ class ReplayBuffer:
             **{f"{side}_{key}": spec for side in ("curr", "next") for key, spec in obs.items()},
             "actions": ((*chunk, action_dim), np.float32),
             "chunk_rewards": (chunk, np.float32),
+            # True discounted return from the window start to the labeled phase end.
+            "mc_return": ((), np.float32),
             "intervention_mask": (chunk, np.bool_),
             "action_source": (chunk, np.int8),
             # Labeled success/failure end: no bootstrap.
@@ -84,7 +86,9 @@ class ReplayBuffer:
             if value.shape != shape:
                 raise ValueError(f"Transition field {key!r} has shape {value.shape}, expected {shape}.")
             out[key] = value
-        if not all(np.isfinite(out[key]).all() for key in ("actions", "chunk_rewards", "curr_z_rl", "next_z_rl")):
+        if not all(
+            np.isfinite(out[key]).all() for key in ("actions", "chunk_rewards", "mc_return", "curr_z_rl", "next_z_rl")
+        ):
             raise ValueError("Transition holds non-finite values.")
         if not np.array_equal(out["action_source"] == SOURCE_HUMAN, out["intervention_mask"]):
             raise ValueError("action_source and intervention_mask disagree.")

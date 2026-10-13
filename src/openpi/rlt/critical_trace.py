@@ -91,6 +91,15 @@ class CriticalTrace:
             raise ValueError(f"No kept observation for step {index}; stride capture missed it.")
         return self._observations[index]
 
+    def mc_return(self, start: int, gamma: float) -> float:
+        """True discounted reward from ``start`` to the phase end (the label's reward included).
+
+        Computed directly from the recorded trace - no bootstrap, so no propagation
+        through the (possibly untrained) critic.
+        """
+        rewards = np.asarray(self._rewards[start:], np.float64)
+        return float(np.dot(gamma ** np.arange(len(rewards)), rewards))
+
     def windows(self) -> list[Window]:
         """All windows of the labeled phase; the one ending at the phase end is terminal."""
         if missing := self.missing_feature_indices():

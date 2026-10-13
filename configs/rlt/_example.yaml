@@ -57,6 +57,12 @@ rl:
   critic_lr: 3.0e-4
   max_grad_norm: 10.0 # per network
   gamma: 0.99 # per step; bootstrap discount gamma**C
+  # Critic target: "td" = bootstrap through the target critic (default); "mc" = the true
+  # discounted return to the labeled phase end (computed when the window is created; no
+  # bootstrap, so the terminal reward need not propagate through the untrained critic);
+  # "mix" = mc_lambda blend.
+  critic_target: td
+  mc_lambda: 0.5 # MC weight when critic_target == "mix"
   tau: 0.005 # target critic soft update, every critic step
   q_weight: 0.1 # actor: -q_weight * Q1 + bc_weight * BC
   bc_weight: 5.0
