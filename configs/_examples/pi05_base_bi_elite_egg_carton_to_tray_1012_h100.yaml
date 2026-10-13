@@ -32,7 +32,8 @@ ema_decay: null
 data:
   type: LeRobotBiEliteDataConfig
   # Uses the local LeRobot cache under ~/.cache/huggingface/lerobot/.
-  # Recorded on bench diagonal-07 with taccap grippers (examples/bi_elite_cs66_rt/recipes).
+  # Recorded on bench diagonal-08 with taccap grippers and native_assembly: diagonal-08;
+  # serve with examples/bi_elite_cs66_rt/recipes/diagonal-08-taccap.yaml.
   repo_id: Xense/bi_elite_cs66_rt_egg_carton_to_tray
   use_delta_cartesian_actions: true
   base_config:

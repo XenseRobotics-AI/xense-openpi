@@ -1,21 +1,40 @@
-# Inference recipe — bimanual Elite CS66 RT, diagonal mount, bench 07, TacCap grippers.
+# Inference recipe — bimanual Elite CS66 RT, diagonal mount, bench 08, TacCap grippers.
 # The bench Xense/bi_elite_cs66_rt_egg_carton_to_tray was recorded on.
 #
-# The `robot:` block is copied verbatim from lerobot-xense
-#   recipes/teleop/bi_elite_cs66_rt/diagonal-07-taccap.yaml (ed0cb6e0, 2026-09-23)
-# with the teleop/loop blocks dropped. Keep the two in sync: in particular the
-# *_world_rotation matrices define the world frame the policy's absolute TCP
-# poses live in, so they must match the ones the training data was recorded with.
+# The `robot:` block is copied from lerobot-xense
+#   recipes/teleop/bi_elite_cs66_rt/diagonal-08-taccap.yaml (ef9363f8, 2026-10-10)
+# with the teleop/loop blocks dropped. Keep the two in sync: in particular
+# `native_assembly` defines the world frame the policy's absolute TCP poses live in.
+# Without it the driver falls back to the rotation-only *_world_rotation mapping,
+# which drops the assembly's world<-base translation (~1.2 m in z) and puts every
+# state far outside the training distribution.
+#
+# Deviations from the teleop recipe: the speed caps stay at the inference values
+# (0.25 m/s, 1.0 rad/s) instead of the teleop 1 m/s / 3.14 rad/s, and the payload
+# declaration from diagonal-07-taccap is kept.
 #
 # Run tuning (enable_tactile, log_manipulability, speed caps) is overridden by
 # main.py's CLI flags; see README.md.
 
 robot:
   type: bi_elite_cs66_rt
+  # Validated bench-08 assembly; overrides the legacy mount angles below.
+  native_assembly: diagonal-08
+  # Teach-pendant TCP with the TacCap gripper, in metres (tool0 <- TCP); zero TCP
+  # rotation. Calibrated 2026-10-10 as x=1.9, y=-43.63, z=211.87 mm; both arms carry
+  # the same end effector, so they share it. Does not apply to bench 07 or xgripper.
+  left_tool_transform: [1.0, 0.0, 0.0, 0.00190,
+                        0.0, 1.0, 0.0, -0.04363,
+                        0.0, 0.0, 1.0, 0.21187,
+                        0.0, 0.0, 0.0, 1.0]
+  right_tool_transform: [1.0, 0.0, 0.0, 0.00190,
+                         0.0, 1.0, 0.0, -0.04363,
+                         0.0, 0.0, 1.0, 0.21187,
+                         0.0, 0.0, 0.0, 1.0]
 
-  # ── Bench hardware (diagonal-07) ────────────────────────────────────────────
-  left_robot_ip: "192.168.207.129"
-  right_robot_ip: "192.168.207.108"
+  # ── Bench hardware (diagonal-08) ────────────────────────────────────────────
+  left_robot_ip: "192.168.8.53"
+  right_robot_ip: "192.168.8.223"
   left_local_ip: "" # "" lets the OS route; set to pin the host NIC for RTSI
   right_local_ip: ""
   # Joint angles in RADIANS (J1..J6), the units the Elite SDK takes.
@@ -25,37 +44,12 @@ robot:
   right_home_position_rad: [-1.7453, -2.618, -1.5708, -2.618, -1.5708, -0.7854]
 
   # ── Mounting ────────────────────────────────────────────────────────────────
-  # The two CS66 arms are mounted diagonally/opposed. Each arm's world<-base
-  # rotation R lifts its base-frame TCP poses into ONE SHARED gravity-aligned
-  # world frame (x = facing, y = left, z = up), matching the Flexiv convention so
-  # recorded data is comparable across robots.
-  #
-  # The *_mount_*_deg angles below build R = Rz(world_yaw)·Rz(zrot)·Rx(tilt):
-  #   tilt_deg (α)      tilt about base-X    ┐ BOTH read off the teach pendant
-  #   zrot_deg (β)      rotation about Z     ┘ (both controllers read α=45, β=90).
-  #                     These two only fix the gravity vector in base (recover
-  #                     "z up"); they do NOT fix the heading.
-  #   world_yaw_deg (γ) extra yaw about world-Z aligning each arm's heading into
-  #                     the one shared world frame. The arms are mounted
-  #                     point-symmetrically and so face opposite directions:
-  #                     right γ=0° (defines the world), left γ=180°. The teach
-  #                     pendant CANNOT show this 180° — it is the residual yaw
-  #                     about gravity.
-  #
-  # *_world_rotation (rows = world X/Y/Z axes in base) OVERRIDES the angle build,
-  # and is what is actually in force on this bench. The pendant's 45/90 assumed a
-  # tilt about base-X, but the LEFT arm is actually tilted 45° about base-Y —
-  # verified two ways: a freedrive-probe measurement, and the base-link geometry.
-  # The matrix below == base rotated about Z by 90° then about Y by 45°, giving
-  # world X(fwd) = base +Y and world Z(up) = [.707, 0, .707].
-  #
-  # RIGHT is the point-symmetric partner of the (validated) LEFT:
-  #   R_right = Rz(180)·R_left   forward flips to base -Y, up stays [.707,0,.707]
-  # Earlier, Rz(90°)·Rx(45°) for the right arm was validated empirically (a base-X
-  # 130° pose put the tool +Z approach axis straight down).
-  #
-  # The angles are kept even though the matrices make them inert: they record what
-  # the pendant actually reads, which is what you need when re-deriving a bench.
+  # Same diagonal/opposed mounting as diagonal-07 — see that recipe for the full
+  # derivation (the pendant's 45/90 assumes a tilt about base-X, but the LEFT arm
+  # is actually tilted 45° about base-Y, verified by freedrive-probe measurement
+  # plus base-link geometry; the 180° world_yaw is the residual yaw about gravity
+  # that the pendant cannot show). *_world_rotation OVERRIDES the angles; the
+  # angles are kept because they record what the pendant reads.
   left_mount_tilt_deg: 45.0
   left_mount_zrot_deg: 90.0
   left_mount_world_yaw_deg: 180.0
@@ -72,17 +66,29 @@ robot:
     - [0.70710678, 0.0, 0.70710678]
 
   # ── Cameras ─────────────────────────────────────────────────────────────────
-  # Only the head is pinned here: taccap_auto_discover_cameras (below) sniffs the
-  # per-side wrist + GSPS tactile cameras off the gripper's USB hub at connect.
+  # Only the head is pinned: both gripper backends sniff their own wrist +
+  # tactile cameras off the gripper's USB hub at connect.
+  # These are OG sensors; each tactile camera carries the exposure override tuned
+  # for this bench. GSPS sensors (the TacCap grippers) must NOT use these values —
+  # they belong on their own xpack template (omit camera_properties).
   cameras:
     head:
       type: intelrealsense
-      serial_number_or_name: "347522071393"
+      serial_number_or_name: "346522074942"
       fps: 30
       width: 640
       height: 480
       warmup_s: 1
       use_depth: false
+    # Wrist + tactile are discovered off each gripper's USB hub at connect
+    # (gripper.auto_discover_cameras). What this bench had when the pins were
+    # removed, for cross-checking the first discovery run:
+    #   left_tactile_left: OG001349
+    #   left_tactile_right: OG001350
+    #   left_wrist: XC000045
+    #   right_tactile_left: OG001351
+    #   right_tactile_right: OG001352
+    #   right_wrist: XC000046
 
   # ── Control ─────────────────────────────────────────────────────────────────
   control_mode: cartesian_servo # cartesian_servo | joint_servo
@@ -140,21 +146,19 @@ robot:
   # trace (normal ~0.08, refuse ~0.02): raise singularity_w_low toward 0.035 if it still trips; lower
   # singularity_w_high toward 0.04 if it damps legit reach too early. Watch "manipulability w=.. -> s=..".
   singularity_directional: true
-  singularity_w_high:
-    0.055 # begin damping only just above the hold — narrowed from 0.065 because the
-    # RIGHT arm's normal table work sits at w~0.045-0.06 and was being damped
-    # 95% of the time ("not tracking the hand"). At 0.055 its w>0.055 moves run
-    # free; only w in 0.05-0.055 ramps, w<=0.05 holds.
-  singularity_w_low: 0.05 # TRUE hold at/below this — ABOVE the highest observed refusal (w=0.047).
-  singularity_min_scale:
-    0.0 # 0 = full hold into the singularity (no creep-through); OK because
-    # directional=true still lets any escape / retraction (rising w) run free.
-    # NOTE: refusal-w varies 0.015-0.043 across configs and overlaps normal
-    # working w (dips to ~0.058), so w_high=0.06 will damp some deep reaches —
-    # accepted as the safety trade-off. Watch the now-per-tick w->s log.
+  singularity_w_high: 0.055   # begin damping only just above the hold — narrowed from 0.065 because the
+                              # RIGHT arm's normal table work sits at w~0.045-0.06 and was being damped
+                              # 95% of the time ("not tracking the hand"). At 0.055 its w>0.055 moves run
+                              # free; only w in 0.05-0.055 ramps, w<=0.05 holds.
+  singularity_w_low: 0.05     # TRUE hold at/below this — ABOVE the highest observed refusal (w=0.047).
+  singularity_min_scale: 0.0  # 0 = full hold into the singularity (no creep-through); OK because
+                              # directional=true still lets any escape / retraction (rising w) run free.
+                              # NOTE: refusal-w varies 0.015-0.043 across configs and overlaps normal
+                              # working w (dips to ~0.058), so w_high=0.06 will damp some deep reaches —
+                              # accepted as the safety trade-off. Watch the now-per-tick w->s log.
   # Per-servo-tick velocity ceiling — smooths jumpy Pico4 wrist tracking at the source.
-  max_lin_speed: 0.25 # m/s
-  max_ang_speed: 1.0 # rad/s (matches the Bi-Pico4 max_rot_velocity default)
+  max_lin_speed: 0.25 # m/s (teleop recipe: 1)
+  max_ang_speed: 1.0 # rad/s (teleop recipe: 3.14)
 
   # NOTE: max_reach_radius intentionally left OFF (config default None). The 2026-07-09
   # trip was NOT a reach-boundary problem — the flange was at 0.82 m (well inside the

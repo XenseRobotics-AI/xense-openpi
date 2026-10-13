@@ -19,11 +19,11 @@ Example usage:
 
     # Basic inference, all on the CLI
     python -m examples.bi_elite_cs66_rt.main \\
-        --args.robot-recipe diagonal-07-taccap --args.host 192.168.2.100 --args.port 8000
+        --args.robot-recipe diagonal-08-taccap --args.host 192.168.2.100 --args.port 8000
 
     # With RTC enabled
     python -m examples.bi_elite_cs66_rt.main \\
-        --args.robot-recipe diagonal-07-taccap --args.host 192.168.2.100 --args.port 8000 --args.rtc-enabled
+        --args.robot-recipe diagonal-08-taccap --args.host 192.168.2.100 --args.port 8000 --args.rtc-enabled
 """
 
 from dataclasses import dataclass
@@ -127,7 +127,7 @@ class Args:
     # examples/bi_elite_cs66_rt/runs/; a path loads any YAML.
     run: str | None = None
     # Which physical bench to drive. A name resolves against
-    # examples/bi_elite_cs66_rt/recipes/ (diagonal-07-taccap); a path loads any
+    # examples/bi_elite_cs66_rt/recipes/ (diagonal-08-taccap); a path loads any
     # recipe YAML, including one from the lerobot-xense tree. Required (here or
     # in the run YAML): connecting to the wrong bench is not a safe default.
     robot_recipe: str | None = None

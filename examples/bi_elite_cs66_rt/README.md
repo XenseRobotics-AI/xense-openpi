@@ -37,7 +37,7 @@ Then for real:
 
 ```bash
 python -m examples.bi_elite_cs66_rt.main \
-    --args.robot-recipe diagonal-07-taccap --args.host <server> --args.port 8000
+    --args.robot-recipe diagonal-08-taccap --args.host <server> --args.port 8000
 ```
 
 Useful flags (see `--help` for all):
