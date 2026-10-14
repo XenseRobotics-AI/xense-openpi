@@ -19,7 +19,8 @@ robot:
   left_robot_sn: Rizon4-063786
   right_robot_sn: Rizon4R-062096
   # Joint angles in DEGREES (J1..J7), the units flexiv_rt takes.
-  left_start_position_degree: [96.59, 65.45, -6.65, 78.76, 85.09, -5.48, -103.47]
+  left_start_position_degree:
+    [96.59, 65.45, -6.65, 78.76, 85.09, -5.48, -103.47]
   right_start_position_degree: [96.93, 65.4, -7.06, 78.87, 85.03, -5.68, -103.2]
   left_home_position_degree: [96.59, 65.45, -6.65, 78.76, 85.09, -5.48, -103.47]
   right_home_position_degree: [96.93, 65.4, -7.06, 78.87, 85.03, -5.68, -103.2]
@@ -45,10 +46,10 @@ robot:
   # ── Gripper ── One block for both arms; `side` is stamped per arm at build time.
   gripper:
     type: serial
-    gripper_v_max: 100.0    # mm/s
-    gripper_f_max: 40.0     # N
-    gripper_min_pos: 0.0    # mm — fully closed
-    gripper_max_pos: 85.0   # mm — fully open
+    gripper_v_max: 100.0 # mm/s
+    gripper_f_max: 40.0 # N
+    gripper_min_pos: 0.0 # mm — fully closed
+    gripper_max_pos: 85.0 # mm — fully open
     serial_timeout: 1.0
     init_open: true
     # Everything else worth tuning, at its default — uncomment to change.

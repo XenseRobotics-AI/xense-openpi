@@ -22,11 +22,18 @@
     font: 12px/1.4 monospace; color: #6f6; opacity: .5;
     pointer-events: none; user-select: none;
   }
+  #sound {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    z-index: 9999; padding: 14px 22px; border: 0; border-radius: 8px;
+    background: rgba(20, 20, 20, .85); color: #fff; font: 18px sans-serif;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
 <div id="stage"></div>
 <div id="status">connecting…</div>
+<button id="sound" type="button">点击开启声音</button>
 
 <script>
 // ---- Config: scene id -> video file (under web/videos/). -------------------
@@ -51,9 +58,24 @@ const SWITCH_WS = `ws://${location.hostname}:9101`;
 
 const stage = document.getElementById("stage");
 const statusEl = document.getElementById("status");
+const soundButton = document.getElementById("sound");
 const els = {};        // scene id -> <video>
 let activeScene = null;
 let zTop = 0;          // running z-index so each switch lands on top
+
+// Prefer sound by default. Browsers may still block autoplay with sound; the
+// button remains as a fallback for that browser policy.
+soundButton.addEventListener("click", () => {
+  // Call play() for every clip inside the user gesture so later websocket
+  // driven scene changes are allowed to play with audio by the browser.
+  for (const [scene, v] of Object.entries(els)) {
+    v.muted = false;
+    v.play().then(() => {
+      if (scene !== activeScene || scene === "standby") v.pause();
+    }).catch(() => {});
+  }
+  soundButton.remove();
+});
 
 // Preload every clip muted and PARK it decoded on a paused frame 0. A switch is then a
 // pure reveal — play() from an already-decoded frame — with NO seek at show time. (A
@@ -63,7 +85,7 @@ let zTop = 0;          // running z-index so each switch lands on top
 for (const [scene, src] of Object.entries(SCENES)) {
   const v = document.createElement("video");
   v.src = src;
-  v.muted = true;
+  v.muted = false;
   v.playsInline = true;
   v.preload = "auto";
   // No looping: an active clip that finishes before its switch signal HOLDS on its last
