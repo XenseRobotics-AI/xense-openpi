@@ -349,130 +349,12 @@ def main(args: Args) -> None:
         setup_robot=True,
     )
 
-    if args.dry_run:
-        logger.info("DRY RUN mode: actions will be printed, not executed")
-        environment = DryRunEnvironmentWrapper(base_environment)
-    else:
-        environment = base_environment
-
-    subscribers = []
-    if args.record:
-        if args.dry_run:
-            logger.warn(
-                "Recording is enabled in dry-run mode — state/action data will be from policy output only (no real robot motion)"
-            )
-        recorder = _recorder.make_recorder_subscriber(
-            repo_id=args.record_repo_id,
-            task=args.task,
-            fps=int(args.runtime_hz),
-            root=args.record_root,
-        )
-        subscribers.append(recorder)
-        logger.info(f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}'")
-
-    if args.subscribe:
-        # require_handshake blocks here until the video-playback laptop is up and
-        # greets us — so, like the VLA policy client waiting for the inference server,
-        # we never proceed to inference while the screen PC is unreachable.
-        obs_subscriber = _subscribe.make_obs_subscriber(
-            uri=args.subscribe_url,
-            cameras=tuple(args.subscribe_cameras),
-            send_state=args.subscribe_state,
-            send_action=args.subscribe_action,
-            subscribe_hz=args.subscribe_hz,
-            send_stride=args.subscribe_stride,
-            require_handshake=True,
-            handshake_timeout_s=args.subscribe_handshake_timeout,
-        )
-        subscribers.append(obs_subscriber)
-        logger.info(f"Subscribing obs to detection machine: {args.subscribe_url}")
-
-    # In decoupled mode the broker is popped at action_hz, not runtime_hz —
-    # RTC's internal delay/blend math reads frequency_hz to estimate
-    # per-step elapsed time, so it must match the actual pop rate.
-    effective_broker_hz = args.action_hz if decoupled_mode else args.runtime_hz
-
-    if args.rtc_enabled:
-        policy = rtc_action_chunk_broker.RTCActionChunkBroker(
-            policy=ws_client_policy,
-            frequency_hz=effective_broker_hz,
-            action_queue_size_to_get_new_actions=args.action_queue_size_to_get_new_actions,
-            rtc_enabled=args.rtc_enabled,
-            execution_horizon=args.execution_horizon,
-            blend_steps=args.blend_steps,
-            default_delay=args.default_delay,
-            dry_run=args.dry_run,
-            # Training used DeltaActions(mask=[True]*18 + [False]*2): the first
-            # 18 action dims (bi-arm TCP XYZ + 6D rot) are deltas relative to
-            # obs.state; the last 2 (grippers) are absolute. Telling the broker
-            # this lets it re-base prev_chunk_left_over from the previous
-            # inference's state into the current obs.state before sending, so
-            # the model sees a prefix consistent with its training distribution
-            # and the postfix joins smoothly at merge.
-            delta_state_dim=18,
-        )
-    else:
-        policy = action_chunk_broker.ActionChunkBroker(
-            policy=ws_client_policy,
-            action_horizon=args.action_horizon,
-        )
-
-    if decoupled_mode:
-        # Wrap whichever broker we just built; the PacedBroker presents the
-        # same BasePolicy contract to anything else but adds submit_obs /
-        # pop_action / start / stop for DecoupledRuntime.
-        #
-        # target_hz=action_hz throttles the producer to the consumer rate.
-        # Without it, the producer drains an internal broker queue (RTC has
-        # one) faster than its background inference can refill, generating
-        # "Action queue exhausted" warning spam during startup. For non-RTC
-        # the queue.put back-pressure already paces things, but matching the
-        # consumer rate is still the right default.
-        policy = _paced_broker.PacedBroker(
-            inner=policy,
-            queue_size=args.paced_queue_size,
-            target_hz=args.action_hz,
-        )
-
+    # Everything from here on runs with the arms connected, so cleanup and
+    # signal handling must already be in place: setup below can block for a
+    # long time (subscribe handshake waits for the screen PC), and a Ctrl+C /
+    # SIGINT there must still home the arms rather than kill the process.
     intervention_controller: _intervention.Pico4InterventionController | None = None
-    if args.pico4_intervention:
-        teleop = BiPico4(
-            BiPico4Config(
-                pos_sensitivity=args.pico4_pos_sensitivity,
-                ori_sensitivity=args.pico4_ori_sensitivity,
-            )
-        )
-        intervention_controller = _intervention.Pico4InterventionController(teleop, base_environment)
-        intervention_controller.start()
-        environment = _intervention.InterventionEnvironmentWrapper(environment, intervention_controller)
-        agent = _intervention.InterventionPolicyAgent(
-            inner_agent=_policy_agent.PolicyAgent(policy=policy),
-            controller=intervention_controller,
-            broker=policy,
-        )
-    else:
-        agent = _policy_agent.PolicyAgent(policy=policy)
-
-    if decoupled_mode:
-        logger.info(f"Decoupled runtime: obs at ~{args.runtime_hz} Hz (camera-bound), action at {args.action_hz} Hz")
-        runtime = _decoupled_runtime.DecoupledRuntime(
-            environment=environment,
-            broker=policy,  # PacedBroker
-            subscribers=subscribers,
-            obs_hz=args.runtime_hz,
-            action_hz=args.action_hz,
-            num_episodes=args.num_episodes,
-            max_episode_steps=args.max_episode_steps,
-        )
-    else:
-        runtime = _runtime.Runtime(
-            environment=environment,
-            agent=agent,
-            subscribers=subscribers,
-            max_hz=args.runtime_hz,
-            num_episodes=args.num_episodes,
-            max_episode_steps=args.max_episode_steps,
-        )
+    runtime: _runtime.Runtime | _decoupled_runtime.DecoupledRuntime | None = None
 
     def safe_disconnect() -> None:
         try:
@@ -481,12 +363,7 @@ def main(args: Args) -> None:
         except Exception as e:
             logger.warn(f"Error disconnecting Pico4: {e}")
         try:
-            actual_env = environment
-            if isinstance(actual_env, _intervention.InterventionEnvironmentWrapper):
-                actual_env = actual_env._wrapped_env
-            if isinstance(actual_env, DryRunEnvironmentWrapper):
-                actual_env = actual_env._wrapped_env
-            actual_env.disconnect()
+            base_environment.disconnect()
         except Exception as e:
             logger.warn(f"Error disconnecting: {e}")
 
@@ -494,7 +371,9 @@ def main(args: Args) -> None:
     # cleanly (DecoupledRuntime joins its action + obs threads here, ~0.5 s);
     # main's `finally` then runs safe_disconnect, which homes the arms via
     # MoveJ before releasing the SDK — same end-state as the original
-    # synchronous runtime. A second Ctrl+C while shutdown is in progress
+    # synchronous runtime. Before the runtime exists (still setting up) the
+    # first press raises KeyboardInterrupt to abort setup, and the same
+    # `finally` homes the arms. A second Ctrl+C while shutdown is in progress
     # escapes to os._exit, accepting that the arms may not return home.
     _shutdown_in_progress = threading.Event()
 
@@ -503,12 +382,141 @@ def main(args: Args) -> None:
             logger.warn("Second Ctrl+C — forcing exit. Arms may not return home cleanly.")
             os._exit(1)
         _shutdown_in_progress.set()
+        if runtime is None:
+            logger.info("Ctrl+C during startup — aborting setup and disconnecting arms (press again to force exit)")
+            raise KeyboardInterrupt
         logger.info("Ctrl+C — stopping runtime gracefully (press Ctrl+C again to force exit)")
         runtime.request_stop()
 
     signal.signal(signal.SIGINT, signal_handler)
 
     try:
+        if args.dry_run:
+            logger.info("DRY RUN mode: actions will be printed, not executed")
+            environment = DryRunEnvironmentWrapper(base_environment)
+        else:
+            environment = base_environment
+
+        subscribers = []
+        if args.record:
+            if args.dry_run:
+                logger.warn(
+                    "Recording is enabled in dry-run mode — state/action data will be from policy output only (no real robot motion)"
+                )
+            recorder = _recorder.make_recorder_subscriber(
+                repo_id=args.record_repo_id,
+                task=args.task,
+                fps=int(args.runtime_hz),
+                root=args.record_root,
+            )
+            subscribers.append(recorder)
+            logger.info(f"Recording enabled: repo_id={args.record_repo_id}, task='{args.task}'")
+
+        if args.subscribe:
+            # require_handshake blocks here until the video-playback laptop is up and
+            # greets us — so, like the VLA policy client waiting for the inference server,
+            # we never proceed to inference while the screen PC is unreachable.
+            obs_subscriber = _subscribe.make_obs_subscriber(
+                uri=args.subscribe_url,
+                cameras=tuple(args.subscribe_cameras),
+                send_state=args.subscribe_state,
+                send_action=args.subscribe_action,
+                subscribe_hz=args.subscribe_hz,
+                send_stride=args.subscribe_stride,
+                require_handshake=True,
+                handshake_timeout_s=args.subscribe_handshake_timeout,
+            )
+            subscribers.append(obs_subscriber)
+            logger.info(f"Subscribing obs to detection machine: {args.subscribe_url}")
+
+        # In decoupled mode the broker is popped at action_hz, not runtime_hz —
+        # RTC's internal delay/blend math reads frequency_hz to estimate
+        # per-step elapsed time, so it must match the actual pop rate.
+        effective_broker_hz = args.action_hz if decoupled_mode else args.runtime_hz
+
+        if args.rtc_enabled:
+            policy = rtc_action_chunk_broker.RTCActionChunkBroker(
+                policy=ws_client_policy,
+                frequency_hz=effective_broker_hz,
+                action_queue_size_to_get_new_actions=args.action_queue_size_to_get_new_actions,
+                rtc_enabled=args.rtc_enabled,
+                execution_horizon=args.execution_horizon,
+                blend_steps=args.blend_steps,
+                default_delay=args.default_delay,
+                dry_run=args.dry_run,
+                # Training used DeltaActions(mask=[True]*18 + [False]*2): the first
+                # 18 action dims (bi-arm TCP XYZ + 6D rot) are deltas relative to
+                # obs.state; the last 2 (grippers) are absolute. Telling the broker
+                # this lets it re-base prev_chunk_left_over from the previous
+                # inference's state into the current obs.state before sending, so
+                # the model sees a prefix consistent with its training distribution
+                # and the postfix joins smoothly at merge.
+                delta_state_dim=18,
+            )
+        else:
+            policy = action_chunk_broker.ActionChunkBroker(
+                policy=ws_client_policy,
+                action_horizon=args.action_horizon,
+            )
+
+        if decoupled_mode:
+            # Wrap whichever broker we just built; the PacedBroker presents the
+            # same BasePolicy contract to anything else but adds submit_obs /
+            # pop_action / start / stop for DecoupledRuntime.
+            #
+            # target_hz=action_hz throttles the producer to the consumer rate.
+            # Without it, the producer drains an internal broker queue (RTC has
+            # one) faster than its background inference can refill, generating
+            # "Action queue exhausted" warning spam during startup. For non-RTC
+            # the queue.put back-pressure already paces things, but matching the
+            # consumer rate is still the right default.
+            policy = _paced_broker.PacedBroker(
+                inner=policy,
+                queue_size=args.paced_queue_size,
+                target_hz=args.action_hz,
+            )
+
+        if args.pico4_intervention:
+            teleop = BiPico4(
+                BiPico4Config(
+                    pos_sensitivity=args.pico4_pos_sensitivity,
+                    ori_sensitivity=args.pico4_ori_sensitivity,
+                )
+            )
+            intervention_controller = _intervention.Pico4InterventionController(teleop, base_environment)
+            intervention_controller.start()
+            environment = _intervention.InterventionEnvironmentWrapper(environment, intervention_controller)
+            agent = _intervention.InterventionPolicyAgent(
+                inner_agent=_policy_agent.PolicyAgent(policy=policy),
+                controller=intervention_controller,
+                broker=policy,
+            )
+        else:
+            agent = _policy_agent.PolicyAgent(policy=policy)
+
+        if decoupled_mode:
+            logger.info(
+                f"Decoupled runtime: obs at ~{args.runtime_hz} Hz (camera-bound), action at {args.action_hz} Hz"
+            )
+            runtime = _decoupled_runtime.DecoupledRuntime(
+                environment=environment,
+                broker=policy,  # PacedBroker
+                subscribers=subscribers,
+                obs_hz=args.runtime_hz,
+                action_hz=args.action_hz,
+                num_episodes=args.num_episodes,
+                max_episode_steps=args.max_episode_steps,
+            )
+        else:
+            runtime = _runtime.Runtime(
+                environment=environment,
+                agent=agent,
+                subscribers=subscribers,
+                max_hz=args.runtime_hz,
+                num_episodes=args.num_episodes,
+                max_episode_steps=args.max_episode_steps,
+            )
+
         runtime.run()
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt")
