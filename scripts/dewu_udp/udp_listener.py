@@ -5,6 +5,7 @@
 Commands (exact match, UTF-8, surrounding whitespace ignored):
     START  launch the run (ignored if already running)
     STOP   send SIGINT (= one Ctrl+C: graceful stop, arms return home)
+    START-TEST / STOP-TEST  link test: only logged, the arms are never touched
 
 The payload is only ever compared against fixed strings, never passed to a shell.
 """
@@ -20,6 +21,7 @@ import time
 SCRIPT = pathlib.Path(__file__).with_name("run_dewu_shoe_insole.sh")
 START_CMD = "START"
 STOP_CMD = "STOP"
+TEST_CMDS = ("START-TEST", "STOP-TEST")
 START_COOLDOWN_S = 3.0  # drop duplicate/bounced START packets
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -59,7 +61,9 @@ def main() -> None:
             continue
         cmd = data.decode("utf-8", errors="replace").strip()
 
-        if cmd == START_CMD:
+        if cmd in TEST_CMDS:
+            log.info("TEST command received from %s: %s (no action taken)", ip, cmd)
+        elif cmd == START_CMD:
             if running or time.monotonic() - last_start < START_COOLDOWN_S:
                 log.info("START ignored (already running)")
                 continue
