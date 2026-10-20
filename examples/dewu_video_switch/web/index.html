@@ -22,18 +22,11 @@
     font: 12px/1.4 monospace; color: #6f6; opacity: .5;
     pointer-events: none; user-select: none;
   }
-  #sound {
-    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    z-index: 9999; padding: 14px 22px; border: 0; border-radius: 8px;
-    background: rgba(20, 20, 20, .85); color: #fff; font: 18px sans-serif;
-    cursor: pointer;
-  }
 </style>
 </head>
 <body>
 <div id="stage"></div>
 <div id="status">connecting…</div>
-<button id="sound" type="button">点击开启声音</button>
 
 <script>
 // ---- Config: scene id -> video file (under web/videos/). -------------------
@@ -58,30 +51,52 @@ const SWITCH_WS = `ws://${location.hostname}:9101`;
 
 const stage = document.getElementById("stage");
 const statusEl = document.getElementById("status");
-const soundButton = document.getElementById("sound");
 const els = {};        // scene id -> <video>
 let activeScene = null;
 let zTop = 0;          // running z-index so each switch lands on top
 
-// Prefer sound by default. Browsers may still block autoplay with sound; the
-// button remains as a fallback for that browser policy.
-soundButton.addEventListener("click", () => {
-  // Call play() for every clip inside the user gesture so later websocket
-  // driven scene changes are allowed to play with audio by the browser.
+// Sound is ON by default, with no on-screen button. To guarantee audio without any
+// click, launch the browser with autoplay unlocked (see README: Chrome
+// --autoplay-policy=no-user-gesture-required). If the browser still blocks unmuted
+// autoplay, we fall back to muted playback so the video never freezes, and silently
+// restore sound on the first click / tap / key press anywhere on the page.
+let audioBlocked = false;
+
+function unlockAudio() {
+  for (const ev of ["pointerdown", "touchstart", "keydown"]) document.removeEventListener(ev, unlockAudio, true);
+  audioBlocked = false;
+  // play() every clip inside the user gesture so later websocket-driven scene
+  // changes are allowed to play with audio by the browser.
   for (const [scene, v] of Object.entries(els)) {
     v.muted = false;
+    if (scene === activeScene && scene !== "standby") { v.play().catch(() => {}); continue; }
     v.play().then(() => {
       if (scene !== activeScene || scene === "standby") v.pause();
     }).catch(() => {});
   }
-  soundButton.remove();
-});
+}
+for (const ev of ["pointerdown", "touchstart", "keydown"]) document.addEventListener(ev, unlockAudio, true);
 
-// Preload every clip muted and PARK it decoded on a paused frame 0. A switch is then a
+// play() with sound; if the autoplay policy refuses it, retry muted (and leave every
+// clip muted until unlockAudio() runs on the first user interaction).
+function playWithSound(v, scene) {
+  if (audioBlocked) v.muted = true;
+  return v.play().catch((err) => {
+    if (err && err.name === "NotAllowedError" && !v.muted) {
+      audioBlocked = true;
+      for (const el of Object.values(els)) el.muted = true;
+      if (activeScene === scene) return v.play();
+      return;
+    }
+    throw err;
+  });
+}
+
+// Preload every clip (with sound) and PARK it decoded on a paused frame 0. A switch is then a
 // pure reveal — play() from an already-decoded frame — with NO seek at show time. (A
 // seek at show time is exactly what caused the switch flash: the clip was revealed on
 // its stale last-played frame, then jumped to frame 0 as the async seek landed a moment
-// later.) Muted autoplay/seek is allowed without a gesture on Chrome & Safari.
+// later.)
 for (const [scene, src] of Object.entries(SCENES)) {
   const v = document.createElement("video");
   v.src = src;
@@ -114,9 +129,8 @@ function show(scene) {
   if (scene === "standby") {
     try { v.pause(); v.currentTime = 0; } catch (e) {}   // idle: hold frame 0
   } else {
-    const p = v.play();
-    if (p) p.catch(() => {  // shown before it finished loading -> play as soon as it can
-      v.addEventListener("canplay", () => { if (activeScene === scene) v.play().catch(() => {}); }, { once: true });
+    playWithSound(v, scene).catch(() => {  // shown before it finished loading -> play as soon as it can
+      v.addEventListener("canplay", () => { if (activeScene === scene) playWithSound(v, scene).catch(() => {}); }, { once: true });
     });
   }
 

@@ -47,6 +47,10 @@ python -m examples.dewu_video_switch.app \
     --detector-config examples/dewu_video_switch/shoe_sm.json
 
 # 2) open the display in a browser:  http://<this-host>:8080
+#    Sound is on by default. Browsers block unmuted autoplay until a user gesture,
+#    so launch Chrome with autoplay unlocked to get audio with zero clicks:
+#      google-chrome --autoplay-policy=no-user-gesture-required --kiosk http://<this-host>:8080
+#    (Otherwise the clips play muted and sound turns on at the first click/key anywhere.)
 
 # 3a) DEMO from a recorded episode (mimics the robot; run on any host with lerobot):
 python -m examples.dewu_video_switch.replay_lerobot \
