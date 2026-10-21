@@ -11,7 +11,7 @@
 robot_recipe: forward-05
 
 # Policy server (①). The 5090 box running scripts/serve_policy.py.
-host: 192.168.5.87
+host: 192.168.5.248
 port: 8000
 
 # Control loop
@@ -23,5 +23,5 @@ rtc_enabled: true
 # Head camera + state stream to the screen PC (②), which runs the detector and
 # switches the scene video. Its obs ws port is 9100.
 subscribe: true
-subscribe_url: ws://192.168.5.236:9100
+subscribe_url: ws://192.168.5.125:9100
 subscribe_hz: 10.0

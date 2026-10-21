@@ -18,4 +18,8 @@ if ! flock -n 9; then
 fi
 
 LOG="logs/dewu-$(date +%F_%H%M%S).log"
-exec "$PY" -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole >>"$LOG" 2>&1
+# Mirror output to the terminal and the log file. tee runs in a process
+# substitution, so `exec` still hands this PID to python and SIGINT reaches it.
+exec > >(tee -a "$LOG") 2>&1
+export PYTHONUNBUFFERED=1
+exec "$PY" -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole
