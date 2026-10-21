@@ -67,11 +67,14 @@ function unlockAudio() {
   audioBlocked = false;
   // play() every clip inside the user gesture so later websocket-driven scene
   // changes are allowed to play with audio by the browser.
-  for (const [scene, v] of Object.entries(els)) {
+  // Scenes can share one <video> (standby and 1-1), so walk the unique elements and
+  // keep only the one that is live (active and not the frozen standby) playing.
+  const isLive = (v) => activeScene !== null && activeScene !== "standby" && els[activeScene] === v;
+  for (const v of new Set(Object.values(els))) {
     v.muted = false;
-    if (scene === activeScene && scene !== "standby") { v.play().catch(() => {}); continue; }
+    if (isLive(v)) { v.play().catch(() => {}); continue; }
     v.play().then(() => {
-      if (scene !== activeScene || scene === "standby") v.pause();
+      if (!isLive(v)) v.pause();
     }).catch(() => {});
   }
 }
@@ -97,8 +100,13 @@ function playWithSound(v, scene) {
 // seek at show time is exactly what caused the switch flash: the clip was revealed on
 // its stale last-played frame, then jumped to frame 0 as the async seek landed a moment
 // later.)
+// Scenes that point at the same file share ONE <video> (standby and 1-1 are both
+// 1-1.mp4), so a remote display downloads each clip once, not twice.
+const bySrc = {};
 for (const [scene, src] of Object.entries(SCENES)) {
+  if (bySrc[src]) { els[scene] = bySrc[src]; continue; }
   const v = document.createElement("video");
+  bySrc[src] = v;
   v.src = src;
   v.muted = false;
   v.playsInline = true;

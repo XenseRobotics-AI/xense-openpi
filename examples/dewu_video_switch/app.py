@@ -32,6 +32,7 @@ import contextlib
 import functools
 import http.server
 import json
+import os
 import pathlib
 import sys
 import threading
@@ -311,6 +312,69 @@ class _QuietHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     copyfile(). Those are normal and unrelated to scene switching, so we silence the
     per-request 2xx logging here and swallow the reset itself in _QuietHTTPServer.
     404s and other real errors still print via log_error()."""
+
+    # Byte-range support. Stock SimpleHTTPRequestHandler ignores `Range:` and always
+    # answers 200 with the WHOLE file, so a remote browser (e.g. another PC on the LAN)
+    # must download every preloaded clip end-to-end — and, when the mp4's moov atom sits
+    # at the end, can't show even frame 0 until then. With 206 partial responses the
+    # browser fetches the index + the first few seconds and starts right away.
+    _range: tuple[int, int] | None = None
+
+    def end_headers(self):
+        self.send_header("Accept-Ranges", "bytes")
+        super().end_headers()
+
+    def send_head(self):
+        self._range = None
+        rng = self.headers.get("Range", "")
+        path = self.translate_path(self.path)
+        if not rng.startswith("bytes=") or os.path.isdir(path):
+            return super().send_head()
+        try:
+            f = open(path, "rb")  # noqa: SIM115 - closed by do_GET/do_HEAD
+        except OSError:
+            self.send_error(404, "File not found")
+            return None
+        fs = os.fstat(f.fileno())
+        size = fs.st_size
+        start_s, _, end_s = rng[len("bytes=") :].split(",")[0].strip().partition("-")
+        try:
+            if start_s:
+                start, end = int(start_s), (int(end_s) if end_s else size - 1)
+            else:  # suffix range: last N bytes
+                start, end = max(0, size - int(end_s)), size - 1
+        except ValueError:
+            f.close()
+            return super().send_head()
+        end = min(end, size - 1)
+        if start > end:
+            f.close()
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{size}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Last-Modified", self.date_time_string(int(fs.st_mtime)))
+        self.end_headers()
+        f.seek(start)
+        self._range = (start, end)
+        return f
+
+    def copyfile(self, source, outputfile):
+        if self._range is None:
+            return super().copyfile(source, outputfile)
+        remaining = self._range[1] - self._range[0] + 1
+        while remaining > 0:
+            buf = source.read(min(256 * 1024, remaining))
+            if not buf:
+                break
+            outputfile.write(buf)
+            remaining -= len(buf)
+        return None
 
     def log_message(self, fmt, *args):
         pass
