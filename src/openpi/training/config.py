@@ -589,6 +589,48 @@ class LeRobotBiEliteDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotBiRebotB601DataConfig(LeRobotBiEliteDataConfig):
+    """Bimanual Rebot B601 RT Cartesian recordings with both grippers.
+
+    The driver's 20D state/action order matches BiElite: left TCP (0:9),
+    left gripper (9), right TCP (10:19), right gripper (19). Reuse its
+    pass-through pose transforms and delta mask; TCPs remain in each arm's
+    own base frame, with rotation represented by the first two matrix columns.
+    Joint observations and gripper-less recordings are not supported.
+
+    Xense/bi_rebot_09_pick_and_place_1023 records head, left_left_wrist and
+    right_right_wrist: the dual-arm wrapper prefixes the auto-discovered
+    wrist names a second time. Override repack_transforms for other names.
+    """
+
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "head": "observation.images.head",
+                            "left_wrist": "observation.images.left_left_wrist",
+                            "right_wrist": "observation.images.right_right_wrist",
+                        },
+                        "state": "observation.state",
+                        "actions": "action",
+                        "prompt": "task",
+                    }
+                )
+            ]
+        )
+    )
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        return dataclasses.replace(
+            super().create(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class LeRobotDobotNova5DataConfig(DataConfigFactory):
     """Data config for the single right-arm Dobot Nova5 DH in LeRobot format.
 
