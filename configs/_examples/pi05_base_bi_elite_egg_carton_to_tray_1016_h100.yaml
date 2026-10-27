@@ -1,20 +1,16 @@
-# Launch template (8xH100, hb-openpi env). XLA_FLAGS must be set before Python/JAX
-# starts and therefore cannot be injected by a TrainConfig YAML. The flags below measured
-# -3.5% step time on 2026-09-04 (FSDP collective combining + pipelined collectives); see
-# docs/training-optimization.md for the performance results and numerical validation.
+# Launch template (8xH100, hb-openpi env). Do not set XLA_FLAGS: the retired collective
+# combining/pipelining flags corrupted FSDP gradients; see docs/training-optimization.md.
 #   python scripts/compute_norm_stats.py --config-name pi05_base_bi_elite_egg_carton_to_tray_1012_h100
 #   env -u LD_LIBRARY_PATH python scripts/check_cuda_stack.py
-#   env -u LD_LIBRARY_PATH \
-#   XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
-#     --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
-#     --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
-#     --xla_gpu_all_reduce_combine_threshold_bytes=1073741824 \
-#     --xla_gpu_enable_pipelined_all_gather=true \
-#     --xla_gpu_enable_pipelined_reduce_scatter=true \
-#     --xla_gpu_enable_while_loop_double_buffering=true" \
-#   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+#   env -u LD_LIBRARY_PATH XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
 #   python scripts/train.py pi05_base_bi_elite_egg_carton_to_tray_1012_h100 \
 #     --exp-name=<experiment-name>
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   # Same 20D state and a shorter prompt than the Flexiv 0904 dataset scanned at 116

@@ -2,6 +2,12 @@
 # Launch on the target training server in its OpenPI environment:
 #   python scripts/train.py pi05_base_bi_flexiv_insert_test_tube_1009_h100 \
 #     --exp-name=1009_left_wrist_black
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   max_token_len: 128
@@ -16,7 +22,7 @@ weight_loader:
 ema_decay: null
 data:
   type: LeRobotBiFlexivDataConfig
-  repo_id: Xense/strap-tape-taccap-0929
+  repo_id: Xense/strap-tape-taccap-1015
   base_config:
     prompt_from_task: true
     tactile: false

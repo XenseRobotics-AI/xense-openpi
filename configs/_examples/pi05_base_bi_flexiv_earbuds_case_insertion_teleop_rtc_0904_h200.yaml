@@ -1,3 +1,9 @@
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   max_token_len: 200

@@ -6,6 +6,12 @@
 # for explicit local loading (the directory containing meta/, data/, videos/).
 # The reference's XLA launch flags are optional and must be set before Python;
 # see its launch comments and docs/training-optimization.md.
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   pi05: true

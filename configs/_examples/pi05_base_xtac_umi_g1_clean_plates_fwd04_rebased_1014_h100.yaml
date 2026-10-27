@@ -9,6 +9,12 @@
 # Same model/training settings as pi05_base_bi_flexiv_umi_g1_clean_plates_1011_h100, so the
 # two differ only in the state/action interface (absolute state + delta TCP vs gripper-only
 # state + inv(T_t) @ T_t+k).
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   pi05: true

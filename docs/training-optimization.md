@@ -41,6 +41,8 @@ data:
 strict_batch_order: false
 ```
 
+训练启动时不设置 `XLA_FLAGS`，原因见下文“已移除的 XLA 通信标志”。
+
 `max_token_len: 128` 只针对上述耳机盒数据集做过验证：历史采样的 4037 个状态
 （含各维极值样本）最长为 116 tokens。更换数据集、prompt 或状态维度后需重新检查
 完整 transform 链的 token 长度；tokenizer 超长会警告并截断。不要直接套用 128。
@@ -59,6 +61,40 @@ strict_batch_order: false
 Gemma 与 SigLIP 保持默认的全量 rematerialization；历史 8×H100、batch 256 实验中，
 关闭 remat 或保存更多残差均超出显存容量。
 
+## 已移除的 XLA 通信标志
+
+此前推荐的启动参数包含以下 `XLA_FLAGS`，现已全部移除，训练时不再设置：
+
+```text
+--xla_gpu_enable_latency_hiding_scheduler=true
+--xla_gpu_all_gather_combine_threshold_bytes=1073741824
+--xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824
+--xla_gpu_all_reduce_combine_threshold_bytes=1073741824
+--xla_gpu_enable_pipelined_all_gather=true
+--xla_gpu_enable_pipelined_reduce_scatter=true
+--xla_gpu_enable_while_loop_double_buffering=true
+```
+
+2026-10-27 的 `pi05_base_bi_flexiv_strap_tape_1025_h200` 取证（JAX/jaxlib 0.5.3、
+8×H200、FSDP 8、全局 batch 512）发现：`xla_gpu_enable_pipelined_all_gather=true`
+与 1 GiB all-gather 合并阈值同时启用时，`value_and_grad` 返回的 loss 和梯度与等价前向
+不一致。固定 step 13800 的 checkpoint 和 batch，前向 loss 为 0.2039，自动微分返回
+0.0021；time MLP 梯度范数相差约 74 倍，方向余弦 -0.69，梯度裁剪是否触发也随之改变。
+单独关闭 pipelined all-gather，或将 all-gather 合并阈值设为 0，均可让二者对齐。
+从同一状态出发、仅关闭该开关的 142 步受控训练，固定输入的前向 loss 从 0.20 降到
+约 0.002；原路径则升到 1.4。
+
+单独关闭其余标志不能消除差异，但这组标志当初是作为整体验证的，未逐项测量收益，
+也没有在新的数值差分检查下逐项确认正确性，因此整组一并移除，不保留部分标志。
+具体出错的 XLA HLO 变换尚未定位；后续升级 JAX 后如需重新评估，必须先通过同一状态、
+同一输入下前向 loss 与 `value_and_grad` loss 的一致性检查，再测吞吐。
+
+迁移时需要检查各训练机的启动脚本、shell profile、tmux/nohup 命令以及调度系统的
+环境变量，确认训练进程启动时没有遗留这些 `XLA_FLAGS`。设置该变量的训练所产生的
+checkpoint 和 Adam 状态是在错误梯度下形成的，取证报告未证明可以直接续训。
+另外，此前的 50K/55K 发散是否都由此导致，需要核对当时的版本和实际 `XLA_FLAGS`
+后才能确定。
+
 ## 历史性能与当前验证
 
 历史实现和排障过程可通过 Git 提交查阅：`476babe` 引入 fused attention；
@@ -71,14 +107,16 @@ Gemma 与 SigLIP 保持默认的全量 rematerialization；历史 8×H100、batc
 的版本另做过真实激活等价性检查和 400 步对照。这些结果仅描述已移除的历史实现。
 
 同日 H100 端到端实验中，旧 FP16 基线为 1.328 s/step；token 长度 200→128 后为
-1.246 s/step；单独加入下述 XLA 标志为 1.281 s/step；二者组合为 1.193 s/step，
+1.246 s/step；单独加入当时的 XLA 通信标志为 1.281 s/step；二者组合为 1.193 s/step，
 相对基线减少约 10.2%。口径为 400 步运行中 step 100 到 step 300 的日志墙钟差除以 200。
-这些数字不是当前显式路径的吞吐，也不能直接推导删除后的性能变化。
+这些数字不是当前显式路径的吞吐，也不能直接推导删除后的性能变化。XLA 标志已因数值
+错误移除，其约 3.5% 的收益不再计入；当时的“loss 一致”只比较了日志曲线，没有做前向与
+自动微分之间的差分检查。
 
 删除后的 GPU 验证重点如下，实测前不宣称提速比例或 batch 512 已通过：
 
-- 吞吐：在同一机器固定模型、数据、seed、严格 batch 顺序、batch、token 长度、XLA 标志、
-  优化器及诊断逻辑，分别运行删除前后的版本。至少运行 400 步，按 step 100 到 300 的
+- 吞吐：在同一机器固定模型、数据、seed、严格 batch 顺序、batch、token 长度（均不设
+  `XLA_FLAGS`）、优化器及诊断逻辑，分别运行删除前后的版本。至少运行 400 步，按 step 100 到 300 的
   墙钟差除以 200，比较显式路径与旧实现的步时。
 - 显存：H100 的 8 卡、全局 batch 256 已有显式路径运行经验；H200 耳机盒配置的
   8 卡、全局 batch 512、token 200 需要单独实测峰值显存和训练情况，不能用 batch 256 推断。
@@ -98,17 +136,9 @@ CUDA 栈中的其他算子仍可能使用 cuDNN，库来源和版本一致性检
 ```bash
 env -u LD_LIBRARY_PATH python scripts/check_cuda_stack.py
 
-env -u LD_LIBRARY_PATH \
-  XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
-    --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
-    --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
-    --xla_gpu_all_reduce_combine_threshold_bytes=1073741824 \
-    --xla_gpu_enable_pipelined_all_gather=true \
-    --xla_gpu_enable_pipelined_reduce_scatter=true \
-    --xla_gpu_enable_while_loop_double_buffering=true" \
-  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+env -u LD_LIBRARY_PATH XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
   python scripts/train.py <config> --exp-name=<name>
 ```
 
-这些 XLA 标志作为整体做过历史验证，未逐项测量贡献。继续已有实验使用 `--resume`；
+若当前 shell 可能继承了旧的 `XLA_FLAGS`，在上述命令中再加 `-u XLA_FLAGS`。继续已有实验使用 `--resume`；
 仅在确实需要覆盖目标实验目录时使用 `--overwrite`。

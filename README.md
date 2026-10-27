@@ -219,23 +219,19 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
 python scripts/serve_policy.py policy:checkpoint --policy.config=my_task --policy.dir=checkpoints/my_task/my_exp/<step>
 ```
 
-For the optimized 8×H100 FSDP launch, set the measured XLA collective
-combining and pipelining flags before Python starts:
+For the 8×H100 FSDP launch:
 
 ```bash
-env -u LD_LIBRARY_PATH \
-  XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
-    --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
-    --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
-    --xla_gpu_all_reduce_combine_threshold_bytes=1073741824 \
-    --xla_gpu_enable_pipelined_all_gather=true \
-    --xla_gpu_enable_pipelined_reduce_scatter=true \
-    --xla_gpu_enable_while_loop_double_buffering=true" \
-  XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+env -u LD_LIBRARY_PATH XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
   python scripts/train.py my_task \
     --exp-name=my_exp \
     --overwrite
 ```
+
+Do **not** set `XLA_FLAGS` for training. The XLA collective combining and pipelining
+flags previously recommended here made FSDP training return wrong loss and gradients
+(JAX 0.5.3, 8×H200, FSDP 8) and have been retired; see
+[docs/training-optimization.md](docs/training-optimization.md).
 
 Do **not** prepend `$CONDA_PREFIX/lib` to `LD_LIBRARY_PATH`. The supported
 environment uses the pip CUDA 12.8 stack installed by `lerobot-xense`, and JAX shares

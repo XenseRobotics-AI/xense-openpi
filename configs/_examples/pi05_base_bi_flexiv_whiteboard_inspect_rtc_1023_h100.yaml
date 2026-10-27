@@ -1,3 +1,9 @@
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   batch_image_views: true
@@ -11,17 +17,16 @@ weight_loader:
 ema_decay: null
 data:
   type: LeRobotBiFlexivDataConfig
-  repo_id: Xense/assemble_box_with_phone_stand0430_merged
+  repo_id: Xense/whiteboard_inspect_1023
   base_config:
     tactile: false
     prompt_from_task: true
-  default_prompt: Assemble the packaging by folding the flat box into shape, placing
-    the metal phone stand inside, and closing the box properly.
+  default_prompt: Pick up the inspection probe, press it on each red-marked spot on the whiteboard one by one, put down the probe, pick up the eraser, and wipe off all the red marks.
 batch_size: 256
 num_workers: 64
-num_train_steps: 80000
+num_train_steps: 40000
 fsdp_devices: 8
-project_name: openpi
+project_name: xense-openpi-hubo
 save_interval: 10000
 keep_period: 10000
 log_interval: 100

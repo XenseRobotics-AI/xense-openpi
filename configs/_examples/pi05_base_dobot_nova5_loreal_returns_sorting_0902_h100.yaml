@@ -1,4 +1,10 @@
 # JAX-only pi0.5 training config for the single-arm Dobot Nova5 dataset.
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   batch_image_views: true

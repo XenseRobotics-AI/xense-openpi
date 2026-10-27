@@ -4,6 +4,12 @@
 # Train on 8xH100:
 #   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
 #     pi05_base_bi_rebot_09_pick_and_place_rtc_1023_h100 --exp-name=<experiment-name>
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   # Keep the pi0.5 default budget; the earbuds-specific 128-token scan does not
