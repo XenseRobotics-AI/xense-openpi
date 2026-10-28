@@ -1,0 +1,4 @@
+[submodule "third_party/xense-motion-viewer"]
+	path = third_party/xense-motion-viewer
+	url = https://github.com/XenseRobotics-AI/xense-motion-viewer.git
+	branch = main

@@ -16,6 +16,14 @@
 # Run tuning (enable_tactile, log_manipulability, speed caps) is overridden by
 # main.py's CLI flags; see README.md.
 
+# Optional display subscriptions. false creates no XMV/SDK sampling worker.
+visualization:
+  enabled: false
+  display_hz: 30
+  spawn_viewer: true
+  viewer_port: 9877
+  save_path: null
+
 robot:
   type: bi_elite_cs66_rt
   # Validated bench-08 assembly; overrides the legacy mount angles below.

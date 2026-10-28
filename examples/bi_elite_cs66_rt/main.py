@@ -42,6 +42,7 @@ from xense_client.runtime import decoupled_runtime as _decoupled_runtime
 from xense_client.runtime import environment as _environment
 from xense_client.runtime import runtime as _runtime
 from xense_client.runtime.agents import policy_agent as _policy_agent
+from xense_client.visualization import load_visualization_config
 
 import examples.bi_elite_cs66_rt.env as _env
 from examples.bi_elite_cs66_rt.real_env import STATE_KEYS
@@ -176,6 +177,9 @@ class Args:
     action_hz: float = 0.0
     paced_queue_size: int = 50
 
+    # None follows recipe visualization.enabled; CLI/run YAML can override it.
+    visualize: bool | None = None
+
 
 def main(args: Args) -> None:
     logger.info(_run_config.describe(args, Args, RUNS_DIR))
@@ -189,6 +193,7 @@ def main(args: Args) -> None:
     # Build the robot config before connecting: WebsocketClientPolicy blocks
     # until the policy server answers, and a bad recipe should not cost that wait.
     recipe_path = _recipe.resolve_recipe_path(args.robot_recipe)
+    visualization_config = load_visualization_config(recipe_path, enabled=args.visualize)
     robot_config = _recipe.load_robot_config(
         recipe_path,
         enable_tactile=args.enable_tactile,
@@ -229,10 +234,41 @@ def main(args: Args) -> None:
     # time, so it must match the actual pop rate.
     effective_broker_hz = args.action_hz if decoupled_mode else args.runtime_hz
 
+    visualization = None
+    visualization_kwargs = {}
+    chunk_broker_type = action_chunk_broker.ActionChunkBroker
+    rtc_broker_type = rtc_action_chunk_broker.RTCActionChunkBroker
+    if visualization_config.enabled:
+        try:
+            from xense_client.visualization import ObservedEnvironment
+            from xense_client.visualization import VisualizationSession
+            from xense_client.visualization_brokers import ObservedActionChunkBroker
+            from xense_client.visualization_brokers import ObservedRTCActionChunkBroker
+
+            from examples.bi_elite_cs66_rt.visualization import EliteVisualizationAdapter
+
+            visualization = VisualizationSession(
+                visualization_config, lambda: EliteVisualizationAdapter(base_environment._env.robot)
+            )
+            visualization.set_enabled(True)
+            visualization_kwargs["action_stream"] = visualization.stream
+            chunk_broker_type = ObservedActionChunkBroker
+            rtc_broker_type = ObservedRTCActionChunkBroker
+            environment = ObservedEnvironment(environment, visualization.stream)
+            logger.info("XMV visualization enabled: chunk, progress and independent SDK state subscriptions")
+        except Exception as exc:
+            if visualization is not None:
+                try:
+                    visualization.close()
+                except Exception as close_exc:
+                    logger.warn(f"Error cleaning up XMV initialization: {close_exc}")
+            visualization = None
+            logger.warn(f"XMV visualization could not start; continuing inference without it: {exc}")
+
     if args.rtc_enabled:
         # The RTC prefix is re-based into the current state's delta frame on the
         # policy server (training input pipeline), so no delta_state_dim here.
-        policy = rtc_action_chunk_broker.RTCActionChunkBroker(
+        policy = rtc_broker_type(
             policy=ws_client_policy,
             frequency_hz=effective_broker_hz,
             action_queue_size_to_get_new_actions=args.action_queue_size_to_get_new_actions,
@@ -241,11 +277,13 @@ def main(args: Args) -> None:
             blend_steps=args.blend_steps,
             default_delay=args.default_delay,
             dry_run=args.dry_run,
+            **visualization_kwargs,
         )
     else:
-        policy = action_chunk_broker.ActionChunkBroker(
+        policy = chunk_broker_type(
             policy=ws_client_policy,
             action_horizon=args.action_horizon,
+            **visualization_kwargs,
         )
 
     if decoupled_mode:
@@ -303,6 +341,11 @@ def main(args: Args) -> None:
         traceback.print_exc()
         raise
     finally:
+        if visualization is not None:
+            try:
+                visualization.close()
+            except Exception as exc:
+                logger.warn(f"Error closing XMV visualization: {exc}")
         try:
             base_environment.disconnect()
         except Exception as e:
