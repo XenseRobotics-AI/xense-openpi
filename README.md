@@ -713,6 +713,37 @@ python -m examples.bi_flexiv_rizon4_rt.main --args.run dewu-shoe-insole \
     2>&1 | tee ~/rt_diag_$(date +%F_%H%M).log
 ```
 
+#### v2: UDP start/stop control on the robot host
+
+In v2 the venue controller (`192.168.5.252`) starts and stops the run over UDP,
+so you don't have to type ③ by hand. ① (inference server) and ② (screen PC)
+start the same way as above. On the robot host, run the listener instead of ③:
+
+```bash
+# ③' Robot host — UDP listener (only accepts packets from the venue controller)
+python scripts/dewu_udp/udp_listener.py --port 4560 --allow-ip 192.168.5.252
+```
+
+Commands (plain UTF-8 text, one per UDP packet, to port 4560):
+
+| Command | Effect |
+|---|---|
+| `START` | Runs `scripts/dewu_udp/run_dewu_shoe_insole.sh`, which starts `--args.run dewu-shoe-insole` in the `lerobot-xense` env. Ignored if a run is already going. |
+| `STOP` | Sends one SIGINT (the same as one Ctrl+C), so the run stops gracefully and the arms return home. Repeated STOPs are ignored. |
+| `START-TEST` / `STOP-TEST` | Link test: the listener only logs it and never moves the arms. |
+
+The launcher allows one run at a time (flock on `/tmp/dewu-shoe-insole.lock`).
+Its output goes to the listener's terminal and to `logs/dewu-<timestamp>.log`.
+The policy server and screen PC IPs are set in
+[`runs/dewu-shoe-insole.yaml`](examples/bi_flexiv_rizon4_rt/runs/dewu-shoe-insole.yaml)
+(currently `host: 192.168.5.248`, `subscribe_url: ws://192.168.5.125:9100`).
+
+Check the link from the controller (or from any allowed host) before the demo:
+
+```bash
+echo -n START-TEST | nc -u -w1 <robot-host-ip> 4560   # listener logs "TEST command received"
+```
+
 ---
 
 ## License
