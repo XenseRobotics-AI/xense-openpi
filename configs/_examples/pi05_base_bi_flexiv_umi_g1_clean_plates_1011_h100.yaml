@@ -1,0 +1,52 @@
+# LoRA training on 8xH100, using the training settings from
+# pi05_base_bi_flexiv_earbuds_case_insertion_teleop_rtc_0904_h100.yaml.
+# Train the two hands (20D); discard the trailing 9D headset pose from both
+# state and actions. Use the right headset eye as base_0_rgb, plus both wrists.
+# Set OPENPI_LEROBOT_DATASET_ROOT to the dataset directory on the training server
+# for explicit local loading (the directory containing meta/, data/, videos/).
+# The reference's XLA launch flags are optional and must be set before Python;
+# see its launch comments and docs/training-optimization.md.
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
+model:
+  type: Pi0Config
+  pi05: true
+  batch_image_views: true
+  # With the gripper-only state (2 numbers), the dataset task tokenizes to 41 tokens;
+  # 128 leaves ample margin and could be lowered for speed.
+  max_token_len: 128
+  discrete_state_input: true
+  enable_training_time_rtc: false
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+data:
+  type: LeRobotXtacUmiDataConfig
+  repo_id: Xense/xtac-umi-g1-clean-plates-with-a-sponge
+  drop_head_pose: true
+  use_head_camera: true
+  head_camera_key: observation.images.head_right
+  # UMI policy interface for deploying handheld data on BiFlexiv: each TCP action is the
+  # SE(3) pose relative to the current gripper frame, inv(T_t) @ T_t+k, so the Pico4 world
+  # frame never has to match the Flexiv base frames. The model state is only the two
+  # gripper openings; absolute TCP poses would be out of distribution on the robot.
+  use_delta_cartesian_actions: false
+  use_relative_pose_actions: true
+  base_config:
+    tactile: false
+    prompt_from_task: true
+  default_prompt: Take the plates from the rack, clean their surfaces using a sponge, and return them to their original positions on the rack.
+ema_decay: null
+batch_size: 256
+num_workers: 64
+fsdp_devices: 8
+num_train_steps: 60000
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false
+project_name: xense-openpi-hubo

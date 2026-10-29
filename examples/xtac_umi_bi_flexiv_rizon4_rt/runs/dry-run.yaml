@@ -15,5 +15,4 @@ port: 8000
 # 30 Hz is what XTac-UMI data was recorded at; main.py warns if you drift off it.
 runtime_hz: 30.0
 num_episodes: 1
-max_episode_steps: 200
 log_level: DEBUG

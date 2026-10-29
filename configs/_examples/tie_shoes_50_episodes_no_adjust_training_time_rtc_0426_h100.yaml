@@ -1,5 +1,12 @@
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
+  batch_image_views: true
   max_token_len: 200
   pi05: true
   discrete_state_input: true
@@ -12,6 +19,7 @@ data:
   type: LeRobotAlohaDataConfig
   repo_id: Vertax/xense_bi_arx5_tie_white_shoelaces_1030_no_adjust
   base_config:
+    tactile: false
     prompt_from_task: true
   repack_transforms:
     inputs:
@@ -27,6 +35,9 @@ data:
 batch_size: 256
 num_workers: 64
 num_train_steps: 20000
-save_interval: 2000
+save_interval: 10000
 keep_period: 10000
 fsdp_devices: 8
+project_name: openpi
+log_interval: 100
+strict_batch_order: false

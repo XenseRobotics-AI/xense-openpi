@@ -40,6 +40,112 @@ RIGHT_GRIPPER = slice(19, 20)
 STATE_DIM = 20
 
 
+@dataclasses.dataclass(frozen=True)
+class XtacUmiStateActions(transforms.DataTransformFn):
+    """Select the two hands from a 29D G1 recording before delta encoding and normalization.
+
+    G1 recordings append a 9D headset pose to the original 20D hand layout.
+    Dropping it is explicit so a different recording layout cannot silently train.
+    Works on individual samples and on batches used to compute normalization stats.
+    """
+
+    drop_head_pose: bool = False
+
+    def __call__(self, data: dict) -> dict:
+        result = dict(data)
+        # Serving the resulting hand-only policy naturally supplies 20D state.
+        expected_dims = (STATE_DIM, STATE_DIM + 9) if self.drop_head_pose else (STATE_DIM,)
+        for key in ("state", "actions"):
+            if key not in data:
+                continue
+            value = np.asarray(data[key])
+            if value.ndim == 0 or value.shape[-1] not in expected_dims:
+                raise ValueError(
+                    f"XTac-UMI {key} must have dimensions in {expected_dims} with "
+                    f"drop_head_pose={self.drop_head_pose}; got {value.shape}. "
+                    "For 29D xtac_umi_g1 recordings, set drop_head_pose=True to train only the hands."
+                )
+            result[key] = value[..., :STATE_DIM].copy()
+        return result
+
+
+@dataclasses.dataclass(frozen=True)
+class XtacUmiRelativeActions(transforms.DataTransformFn):
+    """SE(3) relative TCP actions and a gripper-only state, the UMI policy interface.
+
+    Each side's TCP target becomes ``inv(T_t) @ T_{t+k}``: the motion expressed in the
+    current gripper's own frame, so it is the same number whether poses come from the
+    Pico4 world frame (recording) or a Flexiv base frame (deployment). Gripper dims stay
+    absolute. The model-facing state keeps only the two gripper openings, since absolute
+    TCP poses are frame-dependent and would be out of distribution on the robot.
+
+    Without ``actions`` (inference), the 20D absolute state is stashed under
+    ``transforms.INFERENCE_CONTEXT_KEY`` for `XtacUmiAbsoluteActions`.
+    Works on individual samples and on batches used to compute normalization stats.
+    """
+
+    def __call__(self, data: dict) -> dict:
+        result = dict(data)
+        state = np.asarray(data["state"])
+        if state.shape[-1] != STATE_DIM:
+            raise ValueError(f"Expected {STATE_DIM}D absolute state, got {state.shape}")
+
+        if "actions" in data:
+            actions = np.array(data["actions"], copy=True)
+            for tcp in (LEFT_TCP, RIGHT_TCP):
+                actions[..., tcp] = _relative_pose9(state[..., None, tcp], actions[..., tcp])
+            result["actions"] = actions
+        else:
+            result[transforms.INFERENCE_CONTEXT_KEY] = {"absolute_state": state}
+
+        result["state"] = np.concatenate((state[..., LEFT_GRIPPER], state[..., RIGHT_GRIPPER]), axis=-1)
+        return result
+
+
+@dataclasses.dataclass(frozen=True)
+class XtacUmiAbsoluteActions(transforms.DataTransformFn):
+    """Compose `XtacUmiRelativeActions` outputs onto the current pose: ``T_t @ dT_k``."""
+
+    def __call__(self, data: dict) -> dict:
+        if "actions" not in data:
+            return data
+        result = dict(data)
+        context = result.pop(transforms.INFERENCE_CONTEXT_KEY, None)
+        if context is None:
+            raise ValueError("Relative actions need the absolute state stashed by XtacUmiRelativeActions")
+        state = np.asarray(context["absolute_state"])
+        actions = np.array(data["actions"], copy=True)
+        for tcp in (LEFT_TCP, RIGHT_TCP):
+            actions[..., tcp] = _compose_pose9(state[..., None, tcp], actions[..., tcp])
+        result["actions"] = actions
+        return result
+
+
+def _rotation_from_6d(r6: np.ndarray) -> np.ndarray:
+    """First two rotation-matrix columns -> 3x3 matrix, re-orthonormalized with Gram-Schmidt."""
+    first = r6[..., 0:3] / np.linalg.norm(r6[..., 0:3], axis=-1, keepdims=True)
+    second = r6[..., 3:6] - np.sum(first * r6[..., 3:6], axis=-1, keepdims=True) * first
+    second = second / np.linalg.norm(second, axis=-1, keepdims=True)
+    return np.stack((first, second, np.cross(first, second)), axis=-1)
+
+
+def _relative_pose9(reference: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """``inv(T_ref) @ T_target`` for ``[x, y, z, r1..r6]`` poses (broadcasting)."""
+    rotation = _rotation_from_6d(reference[..., 3:9])
+    rotation_t = np.swapaxes(rotation, -1, -2)
+    position = np.einsum("...ij,...j->...i", rotation_t, target[..., :3] - reference[..., :3])
+    relative = rotation_t @ _rotation_from_6d(target[..., 3:9])
+    return np.concatenate((position, relative[..., :, 0], relative[..., :, 1]), axis=-1)
+
+
+def _compose_pose9(reference: np.ndarray, relative: np.ndarray) -> np.ndarray:
+    """``T_ref @ dT`` for ``[x, y, z, r1..r6]`` poses (broadcasting); inverse of `_relative_pose9`."""
+    rotation = _rotation_from_6d(reference[..., 3:9])
+    position = reference[..., :3] + np.einsum("...ij,...j->...i", rotation, relative[..., :3])
+    absolute = rotation @ _rotation_from_6d(relative[..., 3:9])
+    return np.concatenate((position, absolute[..., :, 0], absolute[..., :, 1]), axis=-1)
+
+
 def make_xtac_umi_example() -> dict:
     """A random input example in the XTac-UMI wrist-only observation format."""
     return {

@@ -36,7 +36,6 @@ except ImportError:
 import openpi.models.model as _model
 import openpi.shared.normalize as normalize
 import openpi.training.config as _config
-import openpi.training.data_loader as _data_loader
 import openpi.transforms as transforms
 
 logger = logging.getLogger(__name__)
@@ -315,7 +314,9 @@ def create_torch_dataloader(
     dataset_root: pathlib.Path | None = None,
     skip_hub_sync: bool = False,
     hub_data_meta_only: bool = False,
-) -> tuple[_data_loader.Dataset, int]:
+) -> tuple:
+    import openpi.training.data_loader as _data_loader
+
     if data_config.repo_id is None:
         raise ValueError("Data config must have a repo_id")
     logger.warning("Torch loader: slower; may access Hub via LeRobotDataset.")
@@ -355,7 +356,9 @@ def create_rlds_dataloader(
     action_horizon: int,
     batch_size: int,
     max_frames: int | None = None,
-) -> tuple[_data_loader.Dataset, int]:
+) -> tuple:
+    import openpi.training.data_loader as _data_loader
+
     dataset = _data_loader.create_rlds_dataset(data_config, action_horizon, batch_size, shuffle=False)
     dataset = _data_loader.IterableTransformedDataset(
         dataset,

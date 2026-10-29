@@ -17,6 +17,13 @@ import openpi.training.config as _config
 from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
 
+try:
+    from lerobot.datasets.dataset_reader import DatasetReader
+except ModuleNotFoundError as exc:
+    if exc.name != "lerobot.datasets.dataset_reader":
+        raise
+    DatasetReader = None
+
 T_co = TypeVar("T_co", covariant=True)
 
 
@@ -180,16 +187,10 @@ class FakeDataset(Dataset):
 TACTILE_KEY_MARKER = "tactile"
 
 
-class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
-    """LeRobotDataset that only decodes a whitelisted subset of the video streams.
+class _SelectiveVideoTimestamps:
+    """Filter video timestamps on either LeRobot's dataset or its separate reader.
 
-    `LeRobotDataset.__getitem__` decodes every key in `meta.video_keys`, and H.264 random
-    seek is ~200x slower than sequential decode, so streams the model never sees are pure
-    waste. Filtering the query timestamps means `_query_videos` is never asked for them.
-
-    `decode_video_keys` is set by `create_torch_dataset` right after construction. It must
-    be a plain attribute (not a constructor arg) because the dataset is pickled to spawned
-    dataloader workers.
+    Keep the whitelist as a plain attribute for spawned dataloader workers.
 
     It defaults to `None`, meaning "no filtering": a construction site that forgets to set it
     behaves exactly like a plain `LeRobotDataset`. The alternative default (an empty
@@ -198,7 +199,6 @@ class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
 
     decode_video_keys: frozenset[str] | None = None
 
-    @override
     def _get_query_timestamps(
         self,
         current_ts: float,
@@ -208,6 +208,45 @@ class SelectiveVideoLeRobotDataset(lerobot_dataset.LeRobotDataset):
         if self.decode_video_keys is None:
             return query_timestamps
         return {key: ts for key, ts in query_timestamps.items() if key in self.decode_video_keys}
+
+
+if DatasetReader is not None:
+
+    class SelectiveVideoDatasetReader(_SelectiveVideoTimestamps, DatasetReader):
+        """Filter video decode in LeRobot implementations with a separate reader."""
+
+else:
+    SelectiveVideoDatasetReader = None
+
+
+class SelectiveVideoLeRobotDataset(_SelectiveVideoTimestamps, lerobot_dataset.LeRobotDataset):
+    """Decode selected streams with both legacy and separate-reader LeRobot APIs.
+
+    lerobot-xense keeps timestamp queries on LeRobotDataset itself; newer
+    implementations delegate them to DatasetReader. Both can report version 0.5.1,
+    so use the available API rather than the package version to select the hook.
+    """
+
+    @override
+    def _ensure_reader(self) -> DatasetReader:
+        reader = super()._ensure_reader()
+        if not isinstance(reader, SelectiveVideoDatasetReader):
+            # LeRobot constructs and loads a plain reader in __init__. Preserve its
+            # loaded parquet and index mapping without a second disk read.
+            selective_reader = SelectiveVideoDatasetReader(
+                meta=self.meta,
+                root=self.root,
+                episodes=self.episodes,
+                tolerance_s=self.tolerance_s,
+                video_backend=self._video_backend,
+                delta_timestamps=self.delta_timestamps,
+                image_transforms=self.image_transforms,
+            )
+            selective_reader.hf_dataset = reader.hf_dataset
+            selective_reader._absolute_to_relative_idx = reader._absolute_to_relative_idx
+            self.reader = reader = selective_reader
+        reader.decode_video_keys = self.decode_video_keys
+        return reader
 
 
 def _repack_source_keys(data_config: _config.DataConfig) -> set[str]:
@@ -236,7 +275,8 @@ def _resolve_decode_video_keys(data_config: _config.DataConfig, video_keys: Sequ
             f"repack_transforms reads video stream(s) {missing}, but tactile=False disabled their decode. "
             "Set `tactile: true` under the data config's `base_config` to decode them."
         )
-    return decode_keys
+    required_video_keys = _repack_source_keys(data_config) & set(video_keys)
+    return decode_keys & required_video_keys if required_video_keys else decode_keys
 
 
 def create_torch_dataset(
@@ -251,9 +291,11 @@ def create_torch_dataset(
     if repo_id == "fake":
         return FakeDataset(model_config, num_samples=1024)
 
-    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
+    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id, root=data_config.dataset_root)
     dataset = SelectiveVideoLeRobotDataset(
         data_config.repo_id,
+        root=data_config.dataset_root,
+        video_backend=data_config.video_backend,
         delta_timestamps={
             key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
         },

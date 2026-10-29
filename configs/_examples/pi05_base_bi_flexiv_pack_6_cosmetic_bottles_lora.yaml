@@ -1,5 +1,12 @@
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
+  batch_image_views: true
   max_token_len: 200
   paligemma_variant: gemma_2b_lora
   action_expert_variant: gemma_300m_lora
@@ -14,6 +21,7 @@ data:
   type: LeRobotBiFlexivDataConfig
   repo_id: Xense/pack_6_cosmetic_bottles_into_carton
   base_config:
+    tactile: false
     prompt_from_task: true
   default_prompt: Pick up six cosmetic bottles one by one and pack them into the carton
     box. The box is narrow, so align each bottle carefully and insert it precisely.
@@ -22,3 +30,8 @@ num_train_steps: 20000
 # freeze_filter is intentionally absent. The loader sees the `lora` substring in the
 # model variants above and derives the flax filter via Pi0Config.get_freeze_filter();
 # see test_lora_freeze_filter_auto_derived in src/openpi/training/yaml_loader_test.py.
+project_name: openpi
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false

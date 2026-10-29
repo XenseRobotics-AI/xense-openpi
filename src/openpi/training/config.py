@@ -21,6 +21,7 @@ import openpi.models.model as _model
 import openpi.models.pi0_config as pi0_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
+import openpi.policies.bi_elite_policy as bi_elite_policy
 import openpi.policies.bi_flexiv_policy as bi_flexiv_policy
 import openpi.policies.dobot_nova5_policy as dobot_nova5_policy
 import openpi.policies.droid_policy as droid_policy
@@ -69,6 +70,10 @@ class AssetsConfig:
 class DataConfig:
     # LeRobot repo id. If None, fake data will be created.
     repo_id: str | None = None
+    # Explicit local LeRobot dataset root. Avoids Hub synchronization of downloaded legacy caches.
+    dataset_root: str | None = None
+    # None uses LeRobot's default decoder; pyav avoids TorchCodec CUDA runtime dependencies.
+    video_backend: Literal["torchcodec", "pyav"] | None = None
     # Directory within the assets directory containing the data assets.
     asset_id: str | None = None
     # Contains precomputed normalization stats. If None, normalization will not be performed.
@@ -524,6 +529,108 @@ class LeRobotTron2DataConfig(LeRobotBiFlexivDataConfig):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotBiEliteDataConfig(DataConfigFactory):
+    """
+    Data config for the BiElite CS66 RT dual-arm robot in LeRobot format.
+
+    State/action format (20D, Cartesian with 6D rotation), per-side-grouped - the
+    order the lerobot driver emits:
+        left_tcp.{x, y, z, r1-r6} (dims 0-8) + left_gripper.pos (dim 9)
+        right_tcp.{x, y, z, r1-r6} (dims 10-18) + right_gripper.pos (dim 19)
+
+    Note this differs from `LeRobotBiFlexivDataConfig`, which groups both TCPs
+    first and both grippers last; see bi_elite_policy for the layout.
+
+    Cameras: head, left_wrist, right_wrist (tactile streams are not consumed).
+    Compatible with Xense/bi_elite_cs66_rt_egg_carton_to_tray and similar bi_elite datasets.
+    """
+
+    use_delta_cartesian_actions: bool = True
+    # If provided, will be injected into the input data if the "prompt" key is not present.
+    default_prompt: str | None = None
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[bi_elite_policy.BiEliteInputs()],
+            outputs=[bi_elite_policy.BiEliteOutputs()],
+        )
+
+        if self.use_delta_cartesian_actions:
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(bi_elite_policy.DELTA_ACTION_MASK)],
+                outputs=[_transforms.AbsoluteActions(bi_elite_policy.DELTA_ACTION_MASK)],
+            )
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": {
+                                "head": "observation.images.head",
+                                "left_wrist": "observation.images.left_wrist",
+                                "right_wrist": "observation.images.right_wrist",
+                            },
+                            "state": "observation.state",
+                            "actions": "action",
+                            "prompt": "task",
+                        }
+                    )
+                ]
+            ),
+            data_transforms=data_transforms,
+            model_transforms=ModelTransformFactory(default_prompt=self.default_prompt)(model_config),
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBiRebotB601DataConfig(LeRobotBiEliteDataConfig):
+    """Bimanual Rebot B601 RT Cartesian recordings with both grippers.
+
+    The driver's 20D state/action order matches BiElite: left TCP (0:9),
+    left gripper (9), right TCP (10:19), right gripper (19). Reuse its
+    pass-through pose transforms and delta mask; TCPs remain in each arm's
+    own base frame, with rotation represented by the first two matrix columns.
+    Joint observations and gripper-less recordings are not supported.
+
+    Xense/bi_rebot_09_pick_and_place_1023 records head, left_left_wrist and
+    right_right_wrist: the dual-arm wrapper prefixes the auto-discovered
+    wrist names a second time. Override repack_transforms for other names.
+    """
+
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "head": "observation.images.head",
+                            "left_wrist": "observation.images.left_left_wrist",
+                            "right_wrist": "observation.images.right_right_wrist",
+                        },
+                        "state": "observation.state",
+                        "actions": "action",
+                        "prompt": "task",
+                    }
+                )
+            ]
+        )
+    )
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        return dataclasses.replace(
+            super().create(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class LeRobotDobotNova5DataConfig(DataConfigFactory):
     """Data config for the single right-arm Dobot Nova5 DH in LeRobot format.
 
@@ -594,12 +701,24 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     Cameras: left_wrist, right_wrist, plus an optional head camera
     (`use_head_camera`). Without one, the model's base_0_rgb slot is a black
     image with image_mask=False - see xtac_umi_policy.XtacUmiInputs.
+
+    For 29D xtac_umi_g1 recordings, set drop_head_pose=True to train only the
+    hands. With use_head_camera=True, head_camera_key selects one headset eye
+    (e.g. observation.images.head_left) for base_0_rgb.
     """
 
     use_delta_cartesian_actions: bool = True
-    # If True, the dataset must have an observation.images.head column, which fills
+    # UMI policy interface: TCP actions as SE(3) poses relative to the current gripper frame
+    # (inv(T_t) @ T_{t+k}) and a gripper-only model state. Frame-independent, so handheld
+    # Pico4-world data deploys on a robot base frame. Requires use_delta_cartesian_actions=False.
+    use_relative_pose_actions: bool = False
+    # If True, the dataset must have the head_camera_key column, which fills
     # the base_0_rgb slot (image_mask=True). Default False: base_0_rgb is masked out.
     use_head_camera: bool = False
+    # G1 datasets have separate head_left/head_right streams; select one for base_0_rgb.
+    head_camera_key: str = "observation.images.head"
+    # G1 appends 9D headset pose to state/action. Explicitly discard it when training only the hands.
+    drop_head_pose: bool = False
     # If provided, will be injected into the input data if the "prompt" key is not present.
     default_prompt: str | None = None
 
@@ -609,9 +728,20 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
-            inputs=[xtac_umi_policy.XtacUmiInputs(use_head_camera=self.use_head_camera)],
+            inputs=[
+                xtac_umi_policy.XtacUmiStateActions(drop_head_pose=self.drop_head_pose),
+                xtac_umi_policy.XtacUmiInputs(use_head_camera=self.use_head_camera),
+            ],
             outputs=[xtac_umi_policy.XtacUmiOutputs()],
         )
+
+        if self.use_delta_cartesian_actions and self.use_relative_pose_actions:
+            raise ValueError("use_relative_pose_actions replaces use_delta_cartesian_actions; set the latter to false.")
+        if self.use_relative_pose_actions:
+            data_transforms = data_transforms.push(
+                inputs=[xtac_umi_policy.XtacUmiRelativeActions()],
+                outputs=[xtac_umi_policy.XtacUmiAbsoluteActions()],
+            )
 
         if self.use_delta_cartesian_actions:
             # Per-side-grouped: TCP dims (0-8, 10-18) become deltas w.r.t. the current
@@ -629,7 +759,7 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
             "right_wrist": "observation.images.right_wrist",
         }
         if self.use_head_camera:
-            images["head"] = "observation.images.head"
+            images["head"] = self.head_camera_key
 
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),

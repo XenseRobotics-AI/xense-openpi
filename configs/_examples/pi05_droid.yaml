@@ -1,5 +1,12 @@
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
+  batch_image_views: true
   action_horizon: 15
   max_token_len: 200
   pi05: true
@@ -9,4 +16,10 @@ data:
   assets:
     asset_id: droid
   base_config:
+    tactile: false
     prompt_from_task: true
+project_name: openpi
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false

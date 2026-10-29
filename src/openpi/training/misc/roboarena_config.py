@@ -9,6 +9,7 @@ file per task. Everything else lives in `configs/` - see `configs/README.md`.
 import openpi.models.pi0_config as pi0_config
 import openpi.models.pi0_fast as pi0_fast
 import openpi.models.tokenizer as _tokenizer
+import openpi.training.optimizer as _optimizer
 
 
 def get_roboarena_configs():
@@ -25,6 +26,12 @@ def get_roboarena_configs():
         TrainConfig(
             # Trained from PaliGemma, using RT-2 / OpenVLA style binning tokenizer.
             name="paligemma_binning_droid",
+            lr_schedule=_optimizer.CosineDecaySchedule(
+                warmup_steps=1_000,
+                peak_lr=2.5e-5,
+                decay_steps=30_000,
+                decay_lr=2.5e-6,
+            ),
             model=pi0_fast.Pi0FASTConfig(
                 action_dim=8,
                 action_horizon=15,
@@ -41,6 +48,12 @@ def get_roboarena_configs():
         TrainConfig(
             # Trained from PaliGemma, using FAST tokenizer (using universal FAST+ tokenizer).
             name="paligemma_fast_droid",
+            lr_schedule=_optimizer.CosineDecaySchedule(
+                warmup_steps=1_000,
+                peak_lr=2.5e-5,
+                decay_steps=30_000,
+                decay_lr=2.5e-6,
+            ),
             model=pi0_fast.Pi0FASTConfig(action_dim=8, action_horizon=15),
             data=DroidInferenceDataConfig(
                 assets=AssetsConfig(asset_id="droid"),
@@ -52,6 +65,12 @@ def get_roboarena_configs():
         TrainConfig(
             # Trained from PaliGemma, using FAST tokenizer (tokenizer trained on DROID dataset).
             name="paligemma_fast_specialist_droid",
+            lr_schedule=_optimizer.CosineDecaySchedule(
+                warmup_steps=1_000,
+                peak_lr=2.5e-5,
+                decay_steps=30_000,
+                decay_lr=2.5e-6,
+            ),
             model=pi0_fast.Pi0FASTConfig(
                 action_dim=8,
                 action_horizon=15,
@@ -68,6 +87,12 @@ def get_roboarena_configs():
         TrainConfig(
             # Trained from PaliGemma, using FSQ tokenizer.
             name="paligemma_vq_droid",
+            lr_schedule=_optimizer.CosineDecaySchedule(
+                warmup_steps=1_000,
+                peak_lr=2.5e-5,
+                decay_steps=30_000,
+                decay_lr=2.5e-6,
+            ),
             model=pi0_fast.Pi0FASTConfig(
                 action_dim=8,
                 action_horizon=15,
@@ -84,6 +109,12 @@ def get_roboarena_configs():
         TrainConfig(
             # pi0-style diffusion / flow VLA, trained on DROID from PaliGemma.
             name="paligemma_diffusion_droid",
+            lr_schedule=_optimizer.CosineDecaySchedule(
+                warmup_steps=1_000,
+                peak_lr=2.5e-5,
+                decay_steps=30_000,
+                decay_lr=2.5e-6,
+            ),
             model=pi0_config.Pi0Config(action_horizon=10, action_dim=8),
             data=DroidInferenceDataConfig(
                 assets=AssetsConfig(asset_id="droid"),
