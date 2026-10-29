@@ -55,6 +55,36 @@ def test_disabled_recipe_ignores_unused_display_settings(tmp_path):
         load_visualization_config(path)
 
 
+def test_prepare_loads_display_without_reading_hardware_or_starting_sampler():
+    calls = []
+
+    class Adapter:
+        def describe(self):
+            calls.append("describe")
+            return object()
+
+        def read_state(self, received_at):
+            pytest.fail("Preparation read robot state before connection")
+
+    class Display:
+        def close(self):
+            calls.append("close")
+            return True
+
+    def display_factory(description):
+        calls.append("display")
+        return Display()
+
+    session = VisualizationSession(VisualizationConfig(), Adapter, display_factory=display_factory)
+    session.prepare()
+    session.prepare()
+    assert calls == ["describe", "display"]
+    assert not session.enabled
+    assert session._thread is None
+    session.close()
+    assert calls == ["describe", "display", "close"]
+
+
 def test_blocked_sdk_reader_still_closes_display_and_cannot_overlap_on_restart():
     pytest.importorskip("xense_motion_viewer.live")
     entered, release = threading.Event(), threading.Event()

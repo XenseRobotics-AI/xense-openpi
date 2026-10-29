@@ -152,18 +152,29 @@ class VisualizationSession:
             recording.disconnect()
             raise
 
+    def prepare(self):
+        """Load optional packages, geometry and viewer before connecting hardware.
+
+        In particular, Rerun's native spawn can hold the GIL for longer than a
+        robot's freshness deadline. Preparation does not sample SDK state.
+        """
+        if self._display is not None:
+            return
+        if self._thread is not None:
+            self.close()
+        self._adapter = self._adapter_factory()
+        self._display = self._make_display(self._adapter.describe())
+
     def set_enabled(self, enabled: bool):
         if not enabled:
             self.close()
             return
         if self.enabled:
             return
-        if self._thread is not None or self._display is not None:
+        if self._thread is not None:
             # A timed-out SDK read must finish before another sampler starts.
             self.close()
-        # Adapter/geometry initialization happens before starting runtime work.
-        self._adapter = self._adapter_factory()
-        self._display = self._make_display(self._adapter.describe())
+        self.prepare()
         self.stream.reopen()
         self._plans = self.stream.subscribe_plans()
         self._stop.clear()
