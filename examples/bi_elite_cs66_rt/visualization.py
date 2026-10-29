@@ -9,6 +9,7 @@ import json
 import time
 import xml.etree.ElementTree as ET
 
+from lerobot.robots.bi_elite_cs66_rt.gripper_snapshots import TaccapGripperSnapshotReader
 import numpy as np
 from xense_client.visualization import StateSample
 from xense_motion_viewer import RobotDescription
@@ -27,6 +28,7 @@ class EliteVisualizationAdapter:
         self._stamps = {}
         self._changed_at = {}
         self._discontinuity = False
+        self._gripper_readers = {}
         self._assembly = getattr(robot, "_assembly", None)
         if self._assembly is None:
             from libpyelite.assembly import Assembly
@@ -76,6 +78,18 @@ class EliteVisualizationAdapter:
 
     def describe(self):
         return self._description
+
+    def bind_state_readers(self):
+        """Bind once after connection; subsequent samples only read SDK caches.
+
+        Use the Elite snapshot adapter even when station collision checking is
+        disabled. TacCapFollower itself has no get_gripper_snapshot method.
+        """
+        existing = getattr(self.robot, "_station_gripper_readers", {})
+        self._gripper_readers = {
+            side: existing[side] if side in existing else TaccapGripperSnapshotReader(self.robot._gripper[side])
+            for side in SIDES
+        }
 
     def decode_actions(self, actions):
         values = np.asarray(actions)
@@ -129,7 +143,9 @@ class EliteVisualizationAdapter:
             gripper = self.robot._gripper[side]
             if gripper is None:
                 raise RuntimeError(f"{side} gripper state is unavailable")
-            sample = gripper.get_gripper_snapshot()
+            if side not in self._gripper_readers:
+                raise RuntimeError("Bind Elite gripper state readers after connecting the robot")
+            sample = self._gripper_readers[side].read()
             if (
                 not sample.valid
                 or sample.sequence <= 0

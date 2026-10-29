@@ -3,6 +3,8 @@
 No robot, camera or policy connection is opened by these tests.
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -42,3 +44,75 @@ def test_inference_entry_loads_current_recipe_before_connecting(name, monkeypatc
     # such as log_manipulability would fail before reaching this sentinel.
     with pytest.raises(ReachedPolicyConnectionError):
         entrypoint.main(entrypoint.Args(robot_recipe=name))
+
+
+@pytest.mark.parametrize("connect_fails", [False, True])
+def test_visualization_is_prepared_before_robot_connect_and_sampling_follows_it(monkeypatch, connect_fails):
+    pytest.importorskip("xense_motion_viewer")
+    import xense_client.visualization as lifecycle
+
+    import examples.bi_elite_cs66_rt.main as entrypoint
+    import examples.bi_elite_cs66_rt.visualization as elite_display
+
+    events = []
+
+    class ConnectionFailedError(Exception):
+        pass
+
+    class Environment:
+        def __init__(self, config, **kwargs):
+            assert not kwargs["setup_robot"]
+            self._env = SimpleNamespace(robot=object(), setup_robot=self.connect)
+
+        def connect(self):
+            events.append("connect")
+            if connect_fails:
+                raise ConnectionFailedError
+
+        def disconnect(self):
+            events.append("disconnect")
+
+    class Adapter:
+        def __init__(self, robot):
+            pass
+
+        def bind_state_readers(self):
+            events.append("bind")
+
+    class Session:
+        stream = object()
+
+        def __init__(self, *args):
+            pass
+
+        def prepare(self):
+            events.append("prepare")
+
+        def set_enabled(self, enabled):
+            events.append("sample")
+
+        def close(self):
+            events.append("close")
+
+    monkeypatch.setattr(entrypoint._env, "BiEliteCS66RTEnvironment", Environment)
+    monkeypatch.setattr(elite_display, "EliteVisualizationAdapter", Adapter)
+    monkeypatch.setattr(lifecycle, "VisualizationSession", Session)
+    monkeypatch.setattr(
+        entrypoint._websocket_client_policy,
+        "WebsocketClientPolicy",
+        lambda **kwargs: SimpleNamespace(get_server_metadata=dict),
+    )
+    monkeypatch.setattr(
+        entrypoint._runtime,
+        "Runtime",
+        lambda **kwargs: SimpleNamespace(run=lambda: events.append("run")),
+    )
+    monkeypatch.setattr(entrypoint.signal, "signal", lambda *args: None)
+    args = entrypoint.Args(robot_recipe="diagonal-08-taccap", visualize=True)
+    if connect_fails:
+        with pytest.raises(ConnectionFailedError):
+            entrypoint.main(args)
+        assert events == ["prepare", "connect", "close"]
+    else:
+        entrypoint.main(args)
+        assert events == ["prepare", "connect", "bind", "sample", "run", "close", "disconnect"]

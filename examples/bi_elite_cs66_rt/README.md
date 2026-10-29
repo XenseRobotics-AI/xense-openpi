@@ -85,6 +85,13 @@ The renderer receives immutable data through a bounded queue on its own
 thread; it has no robot object or SDK callbacks. A renderer startup failure is
 logged and inference continues with visualization disabled.
 
+Imports, mesh loading and viewer startup finish **before connecting the robot**.
+The SDK sampler starts after connection. This keeps Rerun startup (which can
+hold Python's GIL) outside the station gripper freshness deadline.
+
+Measured TacCap fingers use the Elite SDK snapshot reader independently of
+whether station collision checking is enabled.
+
 `--args.visualize True` overrides the recipe for one launch; `--args.visualize False`
 forces it off. The same `visualize: true/false` setting can be used in a run
 YAML. When off, unused display settings are ignored; no subscriptions, state

@@ -216,7 +216,7 @@ def main(args: Args) -> None:
         go_to_start=args.go_to_start,
         render_height=args.render_height,
         render_width=args.render_width,
-        setup_robot=True,
+        setup_robot=False,
     )
 
     if args.dry_run:
@@ -244,15 +244,10 @@ def main(args: Args) -> None:
 
             from examples.bi_elite_cs66_rt.visualization import EliteVisualizationAdapter
 
-            visualization = VisualizationSession(
-                visualization_config, lambda: EliteVisualizationAdapter(base_environment._env.robot)
-            )
-            visualization.set_enabled(True)
-            visualization_kwargs["action_stream"] = visualization.stream
-            chunk_broker_type = ObservedActionChunkBroker
-            rtc_broker_type = ObservedRTCActionChunkBroker
-            environment = ObservedEnvironment(environment, visualization.stream)
-            logger.info("XMV visualization enabled: chunk, progress and independent SDK state subscriptions")
+            adapter = EliteVisualizationAdapter(base_environment._env.robot)
+            visualization = VisualizationSession(visualization_config, lambda: adapter)
+            visualization.prepare()
+            logger.info("XMV display prepared before connecting the robot")
         except Exception as exc:
             if visualization is not None:
                 try:
@@ -261,6 +256,33 @@ def main(args: Args) -> None:
                     logger.warn(f"Error cleaning up XMV initialization: {close_exc}")
             visualization = None
             logger.warn(f"XMV visualization could not start; continuing inference without it: {exc}")
+
+    try:
+        base_environment._env.setup_robot()
+    except BaseException:
+        if visualization is not None:
+            try:
+                visualization.close()
+            except Exception as exc:
+                logger.warn(f"Error closing XMV after robot connection failure: {exc}")
+        raise
+
+    if visualization is not None:
+        try:
+            adapter.bind_state_readers()
+            visualization.set_enabled(True)
+            visualization_kwargs["action_stream"] = visualization.stream
+            chunk_broker_type = ObservedActionChunkBroker
+            rtc_broker_type = ObservedRTCActionChunkBroker
+            environment = ObservedEnvironment(environment, visualization.stream)
+            logger.info("XMV visualization enabled: chunk, progress and independent SDK state subscriptions")
+        except Exception as exc:
+            try:
+                visualization.close()
+            except Exception as close_exc:
+                logger.warn(f"Error cleaning up XMV state sampling: {close_exc}")
+            visualization = None
+            logger.warn(f"XMV state sampling could not start; continuing inference without it: {exc}")
 
     if args.rtc_enabled:
         # The RTC prefix is re-based into the current state's delta frame on the

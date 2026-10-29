@@ -39,8 +39,22 @@ class Rtsi:
 class Gripper:
     valid = True
 
-    def get_gripper_snapshot(self):
-        return SimpleNamespace(valid=self.valid, sequence=1, position=0.5, sampled_at=time.monotonic())
+    def __init__(self):
+        # Mirror the real TacCap API: Elite owns the snapshot reader, not the
+        # shared gripper backend. Calibration is read only when binding it.
+        self.config = SimpleNamespace(type="taccap_follower")
+        self.is_connected = True
+        self.calibration_reads = 0
+        self._gripper = SimpleNamespace(get_gripper_config=self.calibration)
+        self._loop = SimpleNamespace(snapshot=self.snapshot)
+
+    def calibration(self):
+        self.calibration_reads += 1
+        return SimpleNamespace(min_open_rad=0.0, max_open_rad=2.0, flags=1)
+
+    def snapshot(self):
+        obs = SimpleNamespace(valid=self.valid, seq=1, raw_pos=1.0, age_ms=0.0)
+        return SimpleNamespace(running=True, observation=obs)
 
 
 @pytest.fixture
@@ -54,7 +68,9 @@ def adapter():
         _rtsi={side: Rtsi() for side in ("left", "right")},
         _gripper={side: Gripper() for side in ("left", "right")},
     )
-    return EliteVisualizationAdapter(robot)
+    result = EliteVisualizationAdapter(robot)
+    result.bind_state_readers()
+    return result
 
 
 def test_sdk_joints_tcp_and_grippers_are_independent_of_policy(adapter):
@@ -70,6 +86,23 @@ def test_sdk_joints_tcp_and_grippers_are_independent_of_policy(adapter):
         joint, knots = next(iter(adapter._calibration[side].items()))
         assert sample.state.joint_positions[joint] == np.interp(0.5, *np.asarray(knots).T)
     assert "left:10.000000000" in sample.sample_id
+    adapter.read_state(0.6)
+    assert all(gripper.calibration_reads == 1 for gripper in adapter.robot._gripper.values())
+
+
+def test_gripper_readers_work_without_collision_layer_and_reject_disconnected_backend(adapter):
+    assert not hasattr(adapter.robot, "_station")
+    assert adapter.read_state(0).state is not None
+    adapter.robot._gripper["right"].is_connected = False
+    with pytest.raises(RuntimeError, match="right gripper state is invalid"):
+        adapter.read_state(0.1)
+
+
+def test_collision_readers_are_reused_without_calibration_io_during_active_servo(adapter):
+    adapter.robot._station_gripper_readers = adapter._gripper_readers.copy()
+    adapter.bind_state_readers()
+    assert all(gripper.calibration_reads == 1 for gripper in adapter.robot._gripper.values())
+    assert adapter.read_state(0).state is not None
 
 
 def test_elite_only_action_layout_and_rotation_columns(adapter):
