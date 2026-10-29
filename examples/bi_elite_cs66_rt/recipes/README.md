@@ -13,8 +13,18 @@ lerobot-xense tree can be used directly:
 
 | Recipe | Bench | Gripper | Datasets recorded on it |
 |---|---|---|---|
-| `diagonal-07-taccap` | diagonal-07 | taccap_follower | — |
 | `diagonal-08-taccap` | diagonal-08 | taccap_follower | `Xense/bi_elite_cs66_rt_egg_carton_to_tray` |
+
+The recipe header records its lerobot-xense source revision and retained
+inference settings. Use a matching lerobot-xense / libpyelite installation;
+parameter values and units are documented beside the YAML fields.
+
+## Collision checking
+
+`robot.native_collision_profile: auto` enables the assembly's geometric collision
+checks; `null` disables them, and a path selects a custom profile. The shipped
+bench-08 recipe uses `auto` with the upstream TacCap gripper calibration.
+Collision checking is independent of `visualization.enabled`.
 
 ## The world frame must match the training data
 
@@ -35,9 +45,12 @@ datasets were recorded before vs. after it.
 ## Recipe vs CLI
 
 **Recipe = bench hardware**: controller IPs, start/home poses, mount rotations,
-head camera, `gripper:` block, payload and the singularity/joint-velocity guards.
+head camera, `gripper:` block, payload, native motion limits and collision settings.
 
 **CLI = run tuning**: `--args.go-to-start`, `--args.enable-tactile`,
-`--args.log-manipulability`, `--args.max-lin-speed`, `--args.max-ang-speed`. The
+`--args.max-lin-speed`, `--args.max-ang-speed`. The
 loader logs each recipe value a flag overrides. The speed caps default to `None`,
 which keeps the recipe's value.
+
+The current driver removed `log_manipulability`. Drop it from older run YAMLs
+and remove `--args.log-manipulability` from launch commands when updating.

@@ -51,6 +51,10 @@ Useful flags (see `--help` for all):
 
 Ctrl+C stops the runtime and disconnects the robot; a second Ctrl+C forces exit.
 
+Bench-08 enables native geometric collision checking by default, independently
+of the Viewer. See [collision settings](recipes/README.md#collision-checking)
+and the comments in [the recipe](recipes/diagonal-08-taccap.yaml).
+
 ## Optional Xense Motion Viewer visualization
 
 The display is off by default. It adds read-only chunk/progress subscriptions

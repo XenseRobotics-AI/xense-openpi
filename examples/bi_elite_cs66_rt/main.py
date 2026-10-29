@@ -142,8 +142,6 @@ class Args:
     # Routed onto the recipe's `gripper:` block. The policy does not consume
     # tactile images, so leaving the sensors off saves USB bandwidth.
     enable_tactile: bool = False
-    # Per-tick manipulability log; the teleop recipe turns it on for diagnosis.
-    log_manipulability: bool = False
     # Per-arm Cartesian speed caps of the servo loop (m/s, rad/s). None keeps the recipe's.
     max_lin_speed: float | None = None
     max_ang_speed: float | None = None
@@ -197,7 +195,6 @@ def main(args: Args) -> None:
     robot_config = _recipe.load_robot_config(
         recipe_path,
         enable_tactile=args.enable_tactile,
-        log_manipulability=args.log_manipulability,
         max_lin_speed=args.max_lin_speed,
         max_ang_speed=args.max_ang_speed,
     )
