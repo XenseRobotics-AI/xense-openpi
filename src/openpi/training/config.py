@@ -10,6 +10,7 @@ from collections.abc import Sequence
 import dataclasses
 import difflib
 import logging
+import os
 import pathlib
 from typing import Any, Literal, Protocol, TypeAlias, override
 
@@ -71,6 +72,7 @@ class DataConfig:
     # LeRobot repo id. If None, fake data will be created.
     repo_id: str | None = None
     # Explicit local LeRobot dataset root. Avoids Hub synchronization of downloaded legacy caches.
+    # Falls back to $OPENPI_LEROBOT_DATASET_ROOT; always read it through `resolve_dataset_root`.
     dataset_root: str | None = None
     # None uses LeRobot's default decoder; pyav avoids TorchCodec CUDA runtime dependencies.
     video_backend: Literal["torchcodec", "pyav"] | None = None
@@ -111,6 +113,19 @@ class DataConfig:
     action_space: droid_rlds_dataset.DroidActionSpace | None = None
     # Path to the data filter file for DROID dataset
     filter_dict_path: str | None = None
+
+
+DATASET_ROOT_ENV = "OPENPI_LEROBOT_DATASET_ROOT"
+
+
+def resolve_dataset_root(data_config: DataConfig) -> pathlib.Path | None:
+    """Local LeRobot dataset root shared by training and norm-stats computation.
+
+    ``data_config.dataset_root`` wins; ``$OPENPI_LEROBOT_DATASET_ROOT`` is the fallback.
+    ``None`` means LeRobot's default cache / Hub lookup by ``repo_id``.
+    """
+    root = data_config.dataset_root or os.environ.get(DATASET_ROOT_ENV, "").strip()
+    return pathlib.Path(root).expanduser() if root else None
 
 
 class GroupFactory(Protocol):

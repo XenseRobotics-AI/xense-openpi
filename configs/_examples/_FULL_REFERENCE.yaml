@@ -85,7 +85,8 @@ data:
                                      #   of decode time, discarded by the repack anyway).
                                      #   Set true only for models that consume tactile images.
     # Most users only need prompt_from_task here. Other DataConfig fields:
-    # dataset_root: /path/to/dataset # explicit local tree; skips legacy Hub cache synchronization
+    # dataset_root: /path/to/dataset # explicit local tree (fallback: $OPENPI_LEROBOT_DATASET_ROOT);
+    #                                #   used by both training and compute_norm_stats
     # video_backend: pyav           # optional decoder override (default: LeRobot chooses)
     # use_quantile_norm: false       # auto-true for non-pi0 models; rarely override
     # action_sequence_keys: [actions]

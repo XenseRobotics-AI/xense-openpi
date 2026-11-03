@@ -291,10 +291,12 @@ def create_torch_dataset(
     if repo_id == "fake":
         return FakeDataset(model_config, num_samples=1024)
 
-    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id, root=data_config.dataset_root)
+    dataset_root = _config.resolve_dataset_root(data_config)
+    logging.info(f"LeRobot dataset {repo_id!r}: root={dataset_root or '<LeRobot default cache>'}")
+    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id, root=dataset_root)
     dataset = SelectiveVideoLeRobotDataset(
         data_config.repo_id,
-        root=data_config.dataset_root,
+        root=dataset_root,
         video_backend=data_config.video_backend,
         delta_timestamps={
             key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys

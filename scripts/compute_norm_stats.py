@@ -12,12 +12,16 @@
 
 **Flags:** ``--skip-hub-sync`` if local tree is already complete and you want no Hub
 round-trip. ``--hub-data-meta-only`` to sync only ``data/**`` + ``meta/**`` (skips
-videos). **Offline:** ``--dataset-root``, ``OPENPI_LEROBOT_DATASET_ROOT``, or
-``HF_HUB_OFFLINE=1``.
+videos). **Offline:** ``HF_HUB_OFFLINE=1`` or a local dataset root.
+
+**Dataset root:** resolved exactly as training does (``config.resolve_dataset_root``):
+``data.base_config.dataset_root`` first, then ``OPENPI_LEROBOT_DATASET_ROOT``.
+``--dataset-root`` overrides both for this run only; training will not see it.
 
 ``--use-torch-loader`` decodes images/video via LeRobot — avoid unless you need it.
 """
 
+import dataclasses
 import logging
 import os
 import pathlib
@@ -34,13 +38,20 @@ except ImportError:
     _LEROBOT_HOME = None
 
 import openpi.models.model as _model
+import openpi.policies.xtac_umi_policy as xtac_umi_policy
 import openpi.shared.normalize as normalize
 import openpi.training.config as _config
 import openpi.transforms as transforms
 
 logger = logging.getLogger(__name__)
 
+# Data transforms that only read/write ``state`` and ``actions``. The parquet path applies these
+# (in config order) and skips the rest (image/prompt adapters), so any transform that changes the
+# state/action space MUST be listed here, or stats are computed in the wrong space and Normalize
+# silently truncates them to the model-facing dims.
 _STATE_ACTION_TRANSFORM_TYPES = (
+    xtac_umi_policy.XtacUmiStateActions,
+    xtac_umi_policy.XtacUmiRelativeActions,
     transforms.DeltaActions,
     transforms.SubsampleActions,
 )
@@ -98,8 +109,8 @@ def _offline_dataset_help(repo_id: str, default_root: pathlib.Path) -> str:
         f"No usable local copy for {repo_id!r} and Hugging Face Hub is unreachable from Python.\n"
         f"  Default path (requires meta/info.json and data/**/*.parquet):\n    {default_root}\n"
         "  Check: ls meta/info.json data  (run inside that folder)\n"
-        "  If your tree lives elsewhere:  --dataset-root /path/to/dataset  "
-        "or OPENPI_LEROBOT_DATASET_ROOT\n"
+        "  If your tree lives elsewhere, set data.base_config.dataset_root in the config "
+        "or OPENPI_LEROBOT_DATASET_ROOT (both are used by training too)\n"
         "  Override cache root with HF_LEROBOT_HOME (LeRobot) / HF_HOME (Hugging Face).\n"
         "  With a complete local copy only:  --skip-hub-sync  or  HF_HUB_OFFLINE=1\n"
         "  Browser can load huggingface.co but Python fails? Browsers often use a system VPN/proxy\n"
@@ -393,9 +404,20 @@ def main(
     config = _config.get_config(config_name)
     data_config = config.data.create(config.assets_dirs, config.model)
 
-    root_override = dataset_root
-    if root_override is None and os.environ.get("OPENPI_LEROBOT_DATASET_ROOT"):
-        root_override = pathlib.Path(os.environ["OPENPI_LEROBOT_DATASET_ROOT"])
+    training_root = _config.resolve_dataset_root(data_config)
+    if dataset_root is not None:
+        if training_root is None or dataset_root.expanduser().resolve() != training_root.resolve():
+            logger.warning(
+                "--dataset-root %s differs from the root training will use (%s). Set "
+                "data.base_config.dataset_root or %s so training reads the same data.",
+                dataset_root,
+                training_root or "<LeRobot default cache>",
+                _config.DATASET_ROOT_ENV,
+            )
+        # Also reaches the torch loader, which resolves the root from data_config.
+        data_config = dataclasses.replace(data_config, dataset_root=str(dataset_root))
+    root_override = _config.resolve_dataset_root(data_config)
+    logger.info("Dataset root: %s", root_override or "<LeRobot default cache / Hub>")
 
     if data_config.rlds_data_dir is not None:
         data_loader, num_batches = create_rlds_dataloader(
