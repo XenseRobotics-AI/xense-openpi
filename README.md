@@ -50,7 +50,7 @@ We build on the `lerobot-xense` mamba environment, then install the client packa
 
 ```bash
 # Clone with submodules
-git clone git@github.com:XenseRobotics-AI/xense-openpi.git openpi
+git clone --recurse-submodules git@github.com:XenseRobotics-AI/xense-openpi.git openpi
 cd openpi
 
 # Activate the base environment
@@ -68,6 +68,26 @@ GIT_LFS_SKIP_SMUDGE=1 pip install -e .
 #    (requires an accessible NVIDIA GPU)
 python scripts/check_cuda_stack.py
 ```
+
+### Optional Xense Motion Viewer
+
+The `third_party/xense-motion-viewer` submodule provides optional visualization
+for the BiElite CS66 robot client. It is not installed by `pip install -e .`;
+training and inference with visualization off do not require the viewer package.
+
+To enable visualization, run the following from the repository root in the robot
+client's `lerobot-xense` environment. The submodule command also initializes an
+existing checkout or updates it to the commit pinned by this branch after pulling
+changes:
+
+```bash
+git submodule update --init --recursive third_party/xense-motion-viewer
+python -m pip install -e 'third_party/xense-motion-viewer[rerun]'
+```
+
+See the [BiElite visualization guide](examples/bi_elite_cs66_rt/README.md#optional-xense-motion-viewer-visualization)
+for the recipe and CLI switches, and [`third_party/README.md`](third_party/README.md)
+for updating the pinned viewer revision.
 
 ## Model Checkpoints
 
@@ -309,6 +329,7 @@ For more detailed examples of running inference on specific platforms, see:
 
 - [DROID README](examples/droid/README.md) for DROID platform
 - [BiARX5 README](examples/bi_arx5_real/README.md) for Xense platform
+- [BiElite CS66 README](examples/bi_elite_cs66_rt/README.md) for Elite dual-arm inference, collision checking and optional visualization
 
 If you want to embed a policy server call in your own robot runtime, take a look at the `xense-client` package at `packages/xense-client/` and the minimal reference in `examples/simple_client/`.
 

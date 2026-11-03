@@ -7,7 +7,7 @@ pins an exact commit, so every checkout uses the same reviewed viewer code.
 Initialize it in an existing checkout:
 
 ```bash
-git submodule update --init third_party/xense-motion-viewer
+git submodule update --init --recursive third_party/xense-motion-viewer
 python -m pip install -e 'third_party/xense-motion-viewer[rerun]'
 ```
 
@@ -28,4 +28,5 @@ submodule checkout differs from the commit pinned by xense-openpi. Copy scripts
 and file-hash manifests are no longer used to update the dependency.
 
 The viewer pins Rerun 0.26.2 for the lerobot environment. See
-`examples/bi_elite_cs66_rt/README.md` for the recipe switch and integration scope.
+[the BiElite visualization guide](../examples/bi_elite_cs66_rt/README.md#optional-xense-motion-viewer-visualization)
+for the recipe switch, CLI overrides and integration scope.
