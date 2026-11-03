@@ -209,7 +209,8 @@ def main(args: Args) -> None:
         host=args.host,
         port=args.port,
     )
-    logger.info(f"Server metadata: {ws_client_policy.get_server_metadata()}")
+    server_metadata = ws_client_policy.get_server_metadata()
+    logger.info(f"Server metadata: {server_metadata}")
 
     base_environment = _env.BiEliteCS66RTEnvironment(
         robot_config,
@@ -242,10 +243,17 @@ def main(args: Args) -> None:
             from xense_client.visualization_brokers import ObservedActionChunkBroker
             from xense_client.visualization_brokers import ObservedRTCActionChunkBroker
 
+            from examples.bi_elite_cs66_rt.visualization import IMAGE_STREAMS
             from examples.bi_elite_cs66_rt.visualization import EliteVisualizationAdapter
 
             adapter = EliteVisualizationAdapter(base_environment._env.robot)
-            visualization = VisualizationSession(visualization_config, lambda: adapter)
+            visualization = VisualizationSession(
+                visualization_config,
+                lambda: adapter,
+                image_streams=IMAGE_STREAMS,
+                instruction_metadata=server_metadata.get("task_instruction"),
+                dry_run=args.dry_run,
+            )
             visualization.prepare()
             logger.info("XMV display prepared before connecting the robot")
         except Exception as exc:
@@ -271,12 +279,14 @@ def main(args: Args) -> None:
         try:
             adapter.bind_state_readers()
             visualization.set_enabled(True)
+            base_environment._env.observation_listener = visualization.publish_observation
             visualization_kwargs["action_stream"] = visualization.stream
             chunk_broker_type = ObservedActionChunkBroker
             rtc_broker_type = ObservedRTCActionChunkBroker
-            environment = ObservedEnvironment(environment, visualization.stream)
+            environment = ObservedEnvironment(environment, visualization.stream, events=visualization)
             logger.info("XMV visualization enabled: chunk, progress and independent SDK state subscriptions")
         except Exception as exc:
+            base_environment._env.observation_listener = None
             try:
                 visualization.close()
             except Exception as close_exc:
@@ -317,7 +327,7 @@ def main(args: Args) -> None:
         runtime = _decoupled_runtime.DecoupledRuntime(
             environment=environment,
             broker=policy,
-            subscribers=[],
+            subscribers=[visualization] if visualization is not None else [],
             obs_hz=args.runtime_hz,
             action_hz=args.action_hz,
             num_episodes=args.num_episodes,
@@ -327,7 +337,7 @@ def main(args: Args) -> None:
         runtime = _runtime.Runtime(
             environment=environment,
             agent=_policy_agent.PolicyAgent(policy=policy),
-            subscribers=[],
+            subscribers=[visualization] if visualization is not None else [],
             max_hz=args.runtime_hz,
             num_episodes=args.num_episodes,
             max_episode_steps=args.max_episode_steps,
@@ -349,19 +359,24 @@ def main(args: Args) -> None:
 
     signal.signal(signal.SIGINT, signal_handler)
 
+    outcome = "Run ended"
     try:
         runtime.run()
     except KeyboardInterrupt:
+        outcome = "Run interrupted"
         logger.info("Keyboard interrupt")
     except Exception as e:
+        outcome = f"Run error: {e}"
         logger.error(f"Runtime error: {e}")
         import traceback
 
         traceback.print_exc()
         raise
     finally:
+        base_environment._env.observation_listener = None
         if visualization is not None:
             try:
+                visualization.finish("Stopped by request" if _shutdown_in_progress.is_set() else outcome)
                 visualization.close()
             except Exception as exc:
                 logger.warn(f"Error closing XMV visualization: {exc}")

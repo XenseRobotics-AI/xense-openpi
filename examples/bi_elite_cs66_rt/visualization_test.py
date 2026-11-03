@@ -172,7 +172,11 @@ def test_elite_chunk_sdk_state_and_real_rerun_display_together(adapter, tmp_path
         else:
             action = broker.infer({})
         assert states.get(timeout=2).state is not None
-        time.sleep(0.04)  # Allow the asynchronous renderer to consume the first plan.
+        target = session._display.stats.consumed + 3
+        deadline = time.monotonic() + 5
+        while session._display.stats.consumed < target:
+            assert time.monotonic() < deadline, "Display did not render the initial plan"
+            time.sleep(0.01)
         ObservedEnvironment(Environment(), session.stream).apply_action(action)
         adapter.robot._rtsi["left"].stamp += 1
         adapter.robot._rtsi["left"].joints[0] += 0.1

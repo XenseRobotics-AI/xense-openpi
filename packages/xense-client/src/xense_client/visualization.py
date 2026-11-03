@@ -4,6 +4,7 @@ Only a robot's adapter knows its action layout, SDK and URDF. XMV and Rerun
 are imported when visualization starts, never by the inference brokers.
 """
 
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -29,6 +30,11 @@ class VisualizationConfig:
     viewer_port: int = 9877
     save_path: str | None = None
     queue_capacity: int = 8
+    images_enabled: bool = True
+    image_hz: float = 10.0
+    image_max_edge: int = 640
+    jpeg_quality: int = 85
+    image_stale_after: float = 1.0
 
     def __post_init__(self):
         if not isinstance(self.enabled, bool) or not isinstance(self.spawn_viewer, bool):
@@ -39,6 +45,15 @@ class VisualizationConfig:
             raise ValueError("visualization queue_capacity must be positive")
         if type(self.viewer_port) is not int or not 1 <= self.viewer_port <= 65535:
             raise ValueError("visualization viewer_port must be an integer in 1..65535")
+        if not isinstance(self.images_enabled, bool):
+            raise ValueError("images_enabled must be a boolean")
+        for key in ("image_hz", "image_stale_after"):
+            if not np.isfinite(getattr(self, key)) or getattr(self, key) <= 0:
+                raise ValueError(f"{key} must be finite and positive")
+        if type(self.image_max_edge) is not int or self.image_max_edge < 1:
+            raise ValueError("image_max_edge must be positive")
+        if type(self.jpeg_quality) is not int or not 1 <= self.jpeg_quality <= 100:
+            raise ValueError("jpeg_quality must be in 1..100")
 
 
 def load_visualization_config(recipe, *, enabled=None):
@@ -93,7 +108,16 @@ class VisualizationSession:
     broker plan; no stale reference is replayed.
     """
 
-    def __init__(self, config, adapter_factory, *, display_factory=None):
+    def __init__(
+        self,
+        config,
+        adapter_factory,
+        *,
+        display_factory=None,
+        image_streams=(),
+        instruction_metadata=None,
+        dry_run=False,
+    ):
         self.config, self._adapter_factory = config, adapter_factory
         self._display_factory = display_factory
         self.stream = ActionStream()
@@ -102,6 +126,19 @@ class VisualizationSession:
         self._stop = threading.Event()
         self._thread = self._display = self._adapter = self._plans = None
         self.errors = 0
+        self._image_streams = tuple(image_streams)
+        self._clock_origin = None
+        self._generation = self._episode = self._event_sequence = 0
+        self._events = deque(maxlen=256)
+        self._task_lock = threading.Lock()
+        self._running = self._had_error = False
+        self._dry_run = dry_run
+        self._task_status = "Waiting for runtime"
+        self._pending_task = None
+        metadata = instruction_metadata if isinstance(instruction_metadata, dict) else {}
+        valid = metadata.get("applies_when") == "request_has_no_prompt" and isinstance(metadata.get("text"), str)
+        self._instruction = metadata["text"] if valid else None
+        self._instruction_source = str(metadata.get("source", "")) if valid else ""
 
     @property
     def enabled(self):
@@ -130,38 +167,38 @@ class VisualizationSession:
     def _make_display(self, description):
         if self._display_factory is not None:
             return self._display_factory(description)
-        import rerun as rr
-        from xense_motion_viewer.live import LiveMotionDisplay
+        from xense_motion_viewer.live_process import ImageStream
+        from xense_motion_viewer.live_process import LiveDisplayProcess
+        from xense_motion_viewer.live_process import ProcessDisplayConfig
 
-        recording = rr.RecordingStream(
-            "xense-motion-viewer-live", batcher_config=rr.ChunkBatcherConfig(flush_tick=1 / self.config.display_hz)
+        config = ProcessDisplayConfig(
+            display_hz=self.config.display_hz,
+            image_hz=self.config.image_hz,
+            image_max_edge=self.config.image_max_edge,
+            jpeg_quality=self.config.jpeg_quality,
+            stale_after=self.config.image_stale_after,
+            capacity=self.config.queue_capacity,
+            spawn_viewer=self.config.spawn_viewer,
+            viewer_port=self.config.viewer_port,
+            save_path=self.config.save_path,
         )
-        try:
-            sinks = []
-            if self.config.save_path:
-                path = Path(self.config.save_path).expanduser()
-                path.parent.mkdir(parents=True, exist_ok=True)
-                sinks.append(rr.FileSink(path))
-            if self.config.spawn_viewer:
-                recording.spawn(port=self.config.viewer_port, connect=False, memory_limit="512MiB")
-                sinks.append(rr.GrpcSink(f"rerun+http://127.0.0.1:{self.config.viewer_port}/proxy"))
-            if sinks:
-                recording.set_sinks(*sinks)
-            return LiveMotionDisplay(recording, description, capacity=self.config.queue_capacity)
-        except Exception:
-            recording.disconnect()
-            raise
+        streams = tuple(ImageStream(*stream) for stream in self._image_streams) if self.config.images_enabled else ()
+        return LiveDisplayProcess(description, config=config, streams=streams, clock_origin=self._clock_origin)
 
     def prepare(self):
-        """Load optional packages, geometry and viewer before connecting hardware.
+        """Start the isolated renderer before connecting hardware.
 
-        In particular, Rerun's native spawn can hold the GIL for longer than a
-        robot's freshness deadline. Preparation does not sample SDK state.
+        This does not sample SDK state. Bind SDK readers after connection.
         """
         if self._display is not None:
             return
         if self._thread is not None:
             self.close()
+        self._clock_origin = time.monotonic()
+        self._events.clear()
+        self._generation = self._episode = self._event_sequence = 0
+        self._running = self._had_error = False
+        self._pending_task = None
         self._adapter = self._adapter_factory()
         self._display = self._make_display(self._adapter.describe())
 
@@ -180,19 +217,91 @@ class VisualizationSession:
         self._stop.clear()
         self._thread = threading.Thread(target=self._sample_loop, name="xmv-sdk-state", daemon=True)
         self._thread.start()
+        self.report_event("Display session connected", "Waiting for runtime")
+
+    def publish_observation(self, raw_observation):
+        """Borrow image references only. No copies, camera reads, encoding or IPC."""
+        if not self.enabled or not self.config.images_enabled or self._display is None:
+            return
+        try:
+            self._display.publish_images(
+                time.monotonic() - self._clock_origin, raw_observation, generation=self._generation
+            )
+        except Exception:
+            self.errors += 1
+
+    def report_event(self, text, status, *, error=False):
+        if self._display is None:
+            return
+        try:
+            from xense_motion_viewer.live_process import TaskEvent
+            from xense_motion_viewer.live_process import TaskSnapshot
+
+            with self._task_lock:
+                at = time.monotonic() - self._clock_origin
+                self._event_sequence += 1
+                self._had_error = self._had_error or error
+                self._task_status = status
+                self._events.append(TaskEvent(self._event_sequence, at, text))
+                snapshot = TaskSnapshot(
+                    at,
+                    self._generation,
+                    self._episode,
+                    self._instruction,
+                    self._instruction_source,
+                    status,
+                    tuple(self._events),
+                    max(0, self._event_sequence - 256),
+                )
+                self._pending_task = snapshot
+            self._flush_task()
+        except Exception:
+            self.errors += 1
+
+    def _flush_task(self):
+        snapshot = self._pending_task
+        if snapshot is not None and self._display is not None:
+            try:
+                if self._display.update_task(snapshot):
+                    with self._task_lock:
+                        if self._pending_task is snapshot:
+                            self._pending_task = None
+            except Exception:
+                self.errors += 1
+
+    def on_episode_start(self):
+        self._generation += 1
+        self._episode += 1
+        self._running = False
+        self.report_event(f"Episode {self._episode} started", "Warming up")
+
+    def on_step(self, observation, action):
+        if not self._running:
+            self._running = True
+            status = "Dry run Running (no robot actions sent)" if self._dry_run else "Running"
+            self.report_event(f"Episode {self._episode} executing steps", status)
+
+    def on_episode_end(self):
+        self.report_event(f"Episode {self._episode} ended (not proof of task success)", "Episode ended")
+
+    def finish(self, outcome):
+        if self._had_error:
+            outcome += " (errors occurred; see runtime events)"
+        self.report_event(outcome, outcome)
 
     def _sample_loop(self):
         from xense_motion_viewer.live import FutureTrajectory
         from xense_motion_viewer.live import LiveFrame
 
         adapter, display, plans = self._adapter, self._display, self._plans
-        started = time.monotonic()
         period = 1 / self.config.display_hz
         generation = None
         futures = {}
         reset_pending = True
         while not self._stop.is_set():
             tick = time.monotonic()
+            display_generation = self._generation
+            self._flush_task()
             status = ""
             plan = plans.latest()
             if plan is not None:
@@ -205,7 +314,7 @@ class VisualizationSession:
                 except Exception as exc:
                     self.errors += 1
                     futures, status = {}, f"Invalid action reference: {exc}"
-            now = time.monotonic() - started
+            now = time.monotonic() - self._clock_origin
             try:
                 sample = adapter.read_state(now)
             except Exception as exc:
@@ -222,7 +331,9 @@ class VisualizationSession:
                 reset_pending,
                 status + sample.status,
             )
-            if display.publish(frame):
+            if display_generation != self._generation:
+                continue
+            if display.publish(frame, generation=display_generation):
                 reset_pending = False
             self._stop.wait(max(0, period - (time.monotonic() - tick)))
 
@@ -236,6 +347,7 @@ class VisualizationSession:
             self._thread.join(timeout=2.0)
         reader_alive = self._thread is not None and self._thread.is_alive()
         if self._display is not None:
+            self._flush_task()
             if not self._display.close():
                 raise RuntimeError("XMV display did not stop")
             self._display = None
@@ -252,22 +364,42 @@ class ObservedEnvironment:
     inference observations and robot action dictionaries keep their old schema.
     """
 
-    def __init__(self, environment, stream):
+    def __init__(self, environment, stream, *, events=None):
         self._environment, self._stream = environment, stream
+        self._events = events
+
+    def _report(self, text, status, *, error=False):
+        if self._events is not None:
+            self._events.report_event(text, status, error=error)
 
     def reset(self):
-        return self._environment.reset()
+        self._report("Reset started", "Resetting")
+        try:
+            result = self._environment.reset()
+        except Exception as exc:
+            self._report(f"Reset failed: {exc}", "Reset failed", error=True)
+            raise
+        self._report("Reset completed", "Reset complete")
+        return result
 
     def is_episode_complete(self):
         return self._environment.is_episode_complete()
 
     def get_observation(self):
-        return self._environment.get_observation()
+        try:
+            return self._environment.get_observation()
+        except Exception as exc:
+            self._report(f"Observation error: {exc}", "Observation error", error=True)
+            raise
 
     def apply_action(self, action):
         ref = action.get(ACTION_REF_KEY)
         clean = {key: value for key, value in action.items() if key != ACTION_REF_KEY} if ref is not None else action
-        result = self._environment.apply_action(clean)
+        try:
+            result = self._environment.apply_action(clean)
+        except Exception as exc:
+            self._report(f"Action submission error: {exc}", "Action submission error", error=True)
+            raise
         if self._stream.enabled:
             self._stream.dispatched(ref)
         return result

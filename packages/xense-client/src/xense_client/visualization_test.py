@@ -67,6 +67,9 @@ def test_prepare_loads_display_without_reading_hardware_or_starting_sampler():
             pytest.fail("Preparation read robot state before connection")
 
     class Display:
+        def update_task(self, snapshot):
+            return True
+
         def close(self):
             calls.append("close")
             return True
@@ -100,7 +103,10 @@ def test_blocked_sdk_reader_still_closes_display_and_cannot_overlap_on_restart()
             return StateSample(None)
 
     class Display:
-        def publish(self, frame):
+        def update_task(self, snapshot):
+            return True
+
+        def publish(self, frame, **kwargs):
             return not closed
 
         def close(self):
@@ -148,7 +154,10 @@ def test_switch_closes_every_subscription_and_sampler():
             return StateSample(RobotState(received_at, {}), str(len(reads)))
 
     class Display:
-        def publish(self, frame):
+        def update_task(self, snapshot):
+            return True
+
+        def publish(self, frame, **kwargs):
             frames.append(frame)
             displayed.set()
             return True

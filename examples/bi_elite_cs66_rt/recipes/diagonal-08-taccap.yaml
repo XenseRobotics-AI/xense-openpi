@@ -20,6 +20,11 @@
 visualization:
   enabled: false
   display_hz: 30
+  images_enabled: true
+  image_hz: 10
+  image_max_edge: 640
+  jpeg_quality: 85
+  image_stale_after: 1.0
   spawn_viewer: true
   viewer_port: 9877
   save_path: null

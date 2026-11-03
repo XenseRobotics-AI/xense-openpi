@@ -82,7 +82,13 @@ def test_visualization_is_prepared_before_robot_connect_and_sampling_follows_it(
     class Session:
         stream = object()
 
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def publish_observation(self, observation):
+            pass
+
+        def finish(self, outcome):
             pass
 
         def prepare(self):

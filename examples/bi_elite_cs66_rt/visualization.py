@@ -19,6 +19,14 @@ from xense_motion_viewer import poses_from_xyz_rotation6d
 from xense_motion_viewer.urdf import xyz_rpy
 
 SIDES = ("left", "right")
+IMAGE_STREAMS = (
+    ("left_wrist", "Left wrist RGB"),
+    ("right_wrist", "Right wrist RGB"),
+    ("left_tactile_left", "Left arm | Left tactile pad"),
+    ("right_tactile_left", "Right arm | Left tactile pad"),
+    ("left_tactile_right", "Left arm | Right tactile pad"),
+    ("right_tactile_right", "Right arm | Right tactile pad"),
+)
 
 
 class EliteVisualizationAdapter:

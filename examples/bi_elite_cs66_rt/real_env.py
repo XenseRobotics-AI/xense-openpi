@@ -70,6 +70,7 @@ class BiEliteCS66RTRealEnv:
         """
         self.config = robot_config
         self._go_to_start = go_to_start
+        self.observation_listener = None
 
         # The policy was trained on Cartesian TCP + gripper only; any other
         # schema changes the 20D vector out from under it.
@@ -115,6 +116,12 @@ class BiEliteCS66RTRealEnv:
             {"qpos": np.ndarray (20D), "images": {cam_name: (H, W, 3)}}
         """
         raw_obs = self.robot.get_observation()
+        if self.observation_listener is not None:
+            try:
+                self.observation_listener(raw_obs)
+            except Exception as exc:
+                logger.warn(f"Image display publication failed; detaching listener: {exc}")
+                self.observation_listener = None
         qpos = np.array([raw_obs[key] for key in STATE_KEYS], dtype=np.float32)
         images = {cam: raw_obs[cam] for cam in POLICY_CAMERAS if cam in raw_obs}
         return {"qpos": qpos, "images": images}
