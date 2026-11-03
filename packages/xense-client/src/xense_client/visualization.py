@@ -298,6 +298,7 @@ class VisualizationSession:
         generation = None
         futures = {}
         reset_pending = True
+        missing_pending = None
         while not self._stop.is_set():
             tick = time.monotonic()
             display_generation = self._generation
@@ -333,8 +334,19 @@ class VisualizationSession:
             )
             if display_generation != self._generation:
                 continue
+            if missing_pending is not None:
+                missing_generation, missing_frame = missing_pending
+                if missing_generation != display_generation or display.publish(
+                    missing_frame, generation=missing_generation
+                ):
+                    missing_pending = None
+                else:
+                    self._stop.wait(max(0, period - (time.monotonic() - tick)))
+                    continue
             if display.publish(frame, generation=display_generation):
                 reset_pending = False
+            elif frame.state is None:
+                missing_pending = (display_generation, frame)
             self._stop.wait(max(0, period - (time.monotonic() - tick)))
 
     def close(self):
