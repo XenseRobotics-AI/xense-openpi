@@ -48,6 +48,7 @@ Useful flags (see `--help` for all):
 | `--args.action-hz 60` | Decoupled runtime: actions at 60 Hz, obs at `runtime_hz` |
 | `--args.max-lin-speed 0.15` / `--args.max-ang-speed 0.8` | Tighter servo-loop speed caps than the recipe's |
 | `--args.no-go-to-start` | Start from wherever the arms are |
+| `--args.visualize True` / `--args.visualize False` | Override the recipe's optional Xense Motion Viewer switch |
 
 Ctrl+C stops the runtime and disconnects the robot; a second Ctrl+C forces exit.
 
@@ -62,15 +63,27 @@ and an independent sampler of the existing Elite SDK RTSI/gripper streams.
 It does not read policy observations to obtain joints, open another robot
 connection, call IK, or change action queue replacement/blending.
 
-XMV pins Rerun `0.26.2`, within lerobot's supported range. Install in the existing
-robot/inference environment from the xense-openpi repository root:
+Install the [optional viewer dependency](../../README.md#optional-xense-motion-viewer)
+in the robot client's `lerobot-xense` environment first. XMV pins Rerun `0.26.2`,
+within lerobot's supported range.
+
+### Enable or disable
+
+Enable visualization for the dry run above with an explicit boolean:
 
 ```bash
-git submodule update --init third_party/xense-motion-viewer
-python -m pip install -e 'third_party/xense-motion-viewer[rerun]'
+python -m examples.bi_elite_cs66_rt.main \
+    --args.run dry-run --args.host <server> --args.visualize True
 ```
 
-Enable the top-level block in the robot recipe (beside `robot:`):
+Use `--args.visualize False` to force it off for one launch. For repeated runs,
+set `visualize: true` or `visualize: false` in the run YAML selected by
+`--args.run`. The precedence is **CLI > run YAML > recipe**; an omitted or `null`
+run setting follows the recipe. These overrides only change whether the display
+is enabled; its other settings still come from the recipe.
+
+To enable it by default for a bench, edit the existing top-level block in the
+robot recipe (beside `robot:`, not inside it):
 
 ```yaml
 visualization:
@@ -80,6 +93,18 @@ visualization:
   viewer_port: 9877
   save_path: null  # or recordings/elite-live.rrd
 ```
+
+For recording without a viewer window, keep `enabled: true`, set
+`spawn_viewer: false` and set `save_path: recordings/elite-live.rrd`. Relative
+recording paths are resolved from the working directory.
+
+The shipped recipe uses `enabled: false`. When off, unused display settings are
+ignored; no subscriptions, state sampler or renderer thread are created, and
+XMV/Rerun are not imported. Switching visualization off leaves
+`robot.native_collision_profile` unchanged; see
+[collision checking](recipes/README.md#collision-checking).
+
+### Display behavior
 
 The renderer receives immutable data through a bounded queue on its own
 thread; it has no robot object or SDK callbacks. A renderer startup failure is
@@ -92,10 +117,6 @@ hold Python's GIL) outside the station gripper freshness deadline.
 Measured TacCap fingers use the Elite SDK snapshot reader independently of
 whether station collision checking is enabled.
 
-`--args.visualize True` overrides the recipe for one launch; `--args.visualize False`
-forces it off. The same `visualize: true/false` setting can be used in a run
-YAML. When off, unused display settings are ignored; no subscriptions, state
-sampler or renderer thread are created, and XMV/Rerun are not imported.
 `VisualizationSession.set_enabled(False)` closes active subscriptions and the
 display, and waits up to two seconds for the SDK sampler. If an SDK read remains
 blocked, shutdown reports the error after closing the display, and re-enabling

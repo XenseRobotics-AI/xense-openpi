@@ -21,10 +21,39 @@ parameter values and units are documented beside the YAML fields.
 
 ## Collision checking
 
-`robot.native_collision_profile: auto` enables the assembly's geometric collision
-checks; `null` disables them, and a path selects a custom profile. The shipped
-bench-08 recipe uses `auto` with the upstream TacCap gripper calibration.
-Collision checking is independent of `visualization.enabled`.
+Set `native_collision_profile` inside the recipe's `robot:` block:
+
+| Value | Effect |
+|---|---|
+| `auto` | Use the collision profile packaged with `native_assembly`; the shipped bench-08 recipe uses this with the upstream TacCap gripper calibration |
+| `null` | Disable native geometric collision checking |
+| `/path/to/collision.json` | Use a custom collision profile for the bench |
+
+For the shipped recipe, the relevant fields are:
+
+```yaml
+robot:
+  # Existing bench, camera, gripper and motion settings stay in this block.
+  native_assembly: diagonal-08
+  native_collision_profile: auto
+```
+
+Edit the existing field in
+[`diagonal-08-taccap.yaml`](diagonal-08-taccap.yaml), or copy the complete recipe
+and select it with `--args.robot-recipe /path/to/recipe.yaml`. Use YAML `null`
+(without quotes) to disable checking. There is no collision CLI override or run
+YAML field; a run selects the recipe with `robot_recipe:`.
+
+The profile covers table, stand, self and inter-arm collisions. With checking
+enabled, the native station guard also rejects blocked MoveJ start/home paths.
+This setting controls geometric collision checking; controller collision
+sensitivity is configured separately on the teach pendant.
+
+Collision checking is independent of `visualization.enabled` and does not
+require Xense Motion Viewer. The shipped recipe has collision checking **on**
+and visualization **off**. See the
+[visualization guide](../README.md#enable-or-disable) for the top-level
+`visualization:` block and the `--args.visualize True/False` override.
 
 ## The world frame must match the training data
 
