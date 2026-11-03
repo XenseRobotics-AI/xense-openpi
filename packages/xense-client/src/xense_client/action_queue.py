@@ -1,7 +1,8 @@
 from threading import Lock
 
-from lerobot.utils.robot_utils import get_logger
 import numpy as np
+
+from xense_client.logger import get_logger
 
 logger = get_logger("ActionQueue")
 

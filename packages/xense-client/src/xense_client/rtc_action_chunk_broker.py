@@ -4,12 +4,12 @@ import threading
 import time
 from typing import override
 
-from lerobot.utils.robot_utils import get_logger
 import numpy as np
 
 from xense_client import base_policy as _base_policy
 from xense_client.action_queue import ActionQueue
 from xense_client.latency_tracker import LatencyTracker
+from xense_client.logger import get_logger
 
 logger = get_logger("RTCActionChunkBroker")
 
