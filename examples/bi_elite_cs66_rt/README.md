@@ -124,7 +124,7 @@ object or SDK callbacks. A display startup failure is logged and inference
 continues with visualization disabled. SDK state sampling remains independent
 of `get_observation()`.
 
-Six image panels show the two wrists and the four tactile pads. The existing
+Seven image panels show the head camera, two wrists, and four tactile pads. The existing
 observation call supplies image references before the policy image filter.
 Publication on that path only rate-limits and replaces references; a background
 thread copies and transfers them. Images never enter the motion FIFO, and the

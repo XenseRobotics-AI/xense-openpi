@@ -13,6 +13,7 @@ from xense_motion_viewer.urdf import URDFModel
 from xense_motion_viewer.urdf import xyz_rpy
 
 from examples.bi_elite_cs66_rt.visualization import EliteVisualizationAdapter
+from examples.bi_elite_cs66_rt.visualization import IMAGE_STREAMS
 
 
 class Rtsi:
@@ -71,6 +72,18 @@ def adapter():
     result = EliteVisualizationAdapter(robot)
     result.bind_state_readers()
     return result
+
+
+def test_display_declares_all_raw_rgb_streams_with_head_first():
+    assert tuple(key for key, _ in IMAGE_STREAMS) == (
+        "head",
+        "left_wrist",
+        "right_wrist",
+        "left_tactile_left",
+        "right_tactile_left",
+        "left_tactile_right",
+        "right_tactile_right",
+    )
 
 
 def test_sdk_joints_tcp_and_grippers_are_independent_of_policy(adapter):

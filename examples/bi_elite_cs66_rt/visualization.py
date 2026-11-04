@@ -20,6 +20,7 @@ from xense_motion_viewer.urdf import xyz_rpy
 
 SIDES = ("left", "right")
 IMAGE_STREAMS = (
+    ("head", "Head RGB"),
     ("left_wrist", "Left wrist RGB"),
     ("right_wrist", "Right wrist RGB"),
     ("left_tactile_left", "Left arm | Left tactile pad"),
