@@ -106,6 +106,7 @@ class BiEliteCS66RTRealEnv:
             logger.info("BiElite CS66 RT connected and ready")
         except Exception as e:
             logger.error(f"Failed to connect: {e}")
+            self.disconnect()
             raise
 
     def get_observation(self) -> dict:
@@ -121,20 +122,20 @@ class BiEliteCS66RTRealEnv:
 
     def reset(self) -> None:
         """Return both arms to the start pose and wait for the motion to finish."""
+        if not self._go_to_start:
+            return
         logger.info("Resetting BiElite CS66 RT to start positions...")
         self.robot.reset_to_initial_position()
         # With the background servo loop the reset is asynchronous: wait for the
         # reset to register, then for it to complete.
-        t0 = time.time()
+        t0 = time.monotonic()
         while not self.robot.rt_moving:
-            if time.time() - t0 > 1.0:
-                logger.warn("Reset motion never started, proceeding anyway")
-                break
+            if time.monotonic() - t0 >= 1.0:
+                raise TimeoutError("BiElite CS66 RT reset motion did not start within 1s")
             time.sleep(0.001)
         while self.robot.rt_moving:
-            if time.time() - t0 > _RESET_TIMEOUT_S:
-                logger.warn("Reset motion timeout, proceeding anyway")
-                break
+            if time.monotonic() - t0 >= _RESET_TIMEOUT_S:
+                raise TimeoutError(f"BiElite CS66 RT reset motion did not finish within {_RESET_TIMEOUT_S:g}s")
             time.sleep(0.05)
         logger.info("BiElite CS66 RT reset completed")
 
@@ -148,10 +149,11 @@ class BiEliteCS66RTRealEnv:
 
     def disconnect(self) -> None:
         """Disconnect both arms, grippers, and cameras."""
-        if self.robot.is_connected:
-            logger.info("Disconnecting BiElite CS66 RT...")
-            try:
-                self.robot.disconnect()
-                logger.info("BiElite CS66 RT disconnected")
-            except Exception as e:
-                logger.warn(f"Error during disconnect: {e}")
+        # The facade can report false when only one arm is connected. It must
+        # still release that arm's servo loop, gripper, and cameras.
+        logger.info("Disconnecting BiElite CS66 RT...")
+        try:
+            self.robot.disconnect()
+            logger.info("BiElite CS66 RT disconnected")
+        except Exception as e:
+            logger.warn(f"Error during disconnect: {e}")
