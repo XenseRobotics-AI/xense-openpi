@@ -13,6 +13,11 @@ from openpi.shared import array_typing as at
 from openpi.shared import normalize as _normalize
 
 DataDict: TypeAlias = at.PyTree
+
+# Input transforms may stash arrays here that output transforms need at inference but the
+# model must not see, e.g. the absolute pose that relative actions are composed onto.
+# `Policy.infer` moves it from the model inputs to the model outputs.
+INFERENCE_CONTEXT_KEY = "inference_context"
 NormStats: TypeAlias = _normalize.NormStats
 
 

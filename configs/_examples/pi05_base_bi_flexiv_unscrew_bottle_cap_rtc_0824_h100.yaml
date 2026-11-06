@@ -1,5 +1,12 @@
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
+  batch_image_views: true
   max_token_len: 200
   pi05: true
   discrete_state_input: true
@@ -32,3 +39,5 @@ keep_period: 10000
 # Cost: batch delivery order is no longer reproducible run to run (every index is still
 # visited exactly once per pass).
 strict_batch_order: false
+project_name: openpi
+log_interval: 100

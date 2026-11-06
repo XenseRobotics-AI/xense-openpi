@@ -1,0 +1,15 @@
+# python -m examples.bi_rebot_b601_rt.main --args.run pick-and-place-rtc --args.host <server>
+robot_recipe: dm-taccap00-09
+host: localhost
+port: 8000
+task: Pick up the red, blue, and yellow rectangular wooden blocks and place each block into the box with the matching color
+runtime_hz: 30.0
+rtc_enabled: true
+action_queue_size_to_get_new_actions: 20
+execution_horizon: 50
+default_delay: 4
+delay_margin: 2
+blend_steps: 0
+enable_tactile: false
+num_episodes: 1
+max_episode_steps: 1000000
