@@ -9,6 +9,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from examples.xtac_umi_bi_flexiv_rizon4_rt import gripper_frame
 from examples.xtac_umi_bi_flexiv_rizon4_rt import rebase_umi_dataset as rebase
@@ -86,7 +87,7 @@ def _hand(matrix: np.ndarray, grip: float) -> list:
 
 
 def _write_source(root, episodes):
-    """Minimal 20D LeRobot v3 tree; ``episodes`` is a list of [T, 20] state arrays."""
+    """Minimal LeRobot v3 tree; ``episodes`` contains 20D or 29D state arrays."""
     rows, meta, index = [], [], 0
     for e, states in enumerate(episodes):
         for t, state in enumerate(states):
@@ -103,19 +104,26 @@ def _write_source(root, episodes):
                 }
             )
             index += 1
-        meta.append({"episode_index": e, "length": len(states), "dataset_from_index": index - len(states)})
+        episode_meta = {"episode_index": e, "length": len(states), "dataset_from_index": index - len(states)}
+        for key in ("observation.state", "action"):
+            episode_meta.update({f"stats/{key}/{stat}": value for stat, value in rebase._stats(states).items()})
+        episode_meta["stats/head/min"] = [0.0, 0.0, 0.0]
+        meta.append(episode_meta)
     (root / "data/chunk-000").mkdir(parents=True)
     pd.DataFrame(rows).to_parquet(root / "data/chunk-000/file-000.parquet")
     (root / "meta/episodes/chunk-000").mkdir(parents=True)
     pd.DataFrame(meta).to_parquet(root / "meta/episodes/chunk-000/file-000.parquet")
     pd.DataFrame({"task_index": [0]}, index=["task"]).to_parquet(root / "meta/tasks.parquet")
-    names = [f"d{i}" for i in range(20)]
-    features = {k: {"dtype": "float32", "shape": [20], "names": names} for k in ("observation.state", "action")}
+    dim = episodes[0].shape[-1]
+    names = [f"d{i}" for i in range(dim)]
+    features = {k: {"dtype": "float32", "shape": [dim], "names": names} for k in ("observation.state", "action")}
     (root / "meta/info.json").write_text(json.dumps({"features": features, "total_episodes": len(episodes)}))
     (root / "meta/stats.json").write_text(json.dumps({}))
 
 
-def test_end_to_end_sessions_anchor_and_drop(tmp_path):
+@pytest.mark.parametrize("dim", [20, 29])
+@pytest.mark.parametrize("session_starts", [None, (3, 0, 3)])
+def test_end_to_end_sessions_anchor_and_drop(tmp_path, dim, session_starts):
     left0 = _transform(np.eye(3), [0.3, 0.15, -0.3])
     right0 = _transform(np.eye(3), [0.3, -0.15, -0.3])
     session_shift = np.array([-0.17, 0.24, 0.36])  # Unity origin moved between sessions
@@ -130,7 +138,11 @@ def test_end_to_end_sessions_anchor_and_drop(tmp_path):
                 _hand(_transform(np.eye(3), left0[:3, 3] + offset), 1.0)
                 + _hand(_transform(np.eye(3), right0[:3, 3] + offset), 0.5)
             )
-        return np.array(states)
+        states = np.array(states)
+        if dim == 29:
+            head = np.tile(_pose9(np.eye(4)), (len(states), 1))
+            states = np.concatenate([states, head], axis=-1)
+        return states
 
     zero = np.zeros(3)
     src = tmp_path / "Xense/src"
@@ -153,6 +165,7 @@ def test_end_to_end_sessions_anchor_and_drop(tmp_path):
             left_home=left_home,
             right_home=right_home,
             lerobot_home=tmp_path,
+            session_starts=session_starts,
         )
     )
 
@@ -177,3 +190,43 @@ def test_end_to_end_sessions_anchor_and_drop(tmp_path):
     assert info["total_episodes"] == 4
     episodes = pd.read_parquet(dst / "meta/episodes/chunk-000/file-000.parquet")
     np.testing.assert_array_equal(episodes["dataset_from_index"], [0, 6, 12, 18])
+    global_stats = json.loads((dst / "meta/stats.json").read_text())
+    for key in ("observation.state", "action"):
+        for _, episode_meta in episodes.iterrows():
+            group = out[out["episode_index"] == episode_meta["episode_index"]]
+            values = np.stack(group[key].to_numpy()).astype(np.float64)
+            for stat in ("min", "max", "mean", "std"):
+                expected = getattr(values, stat)(axis=0)
+                np.testing.assert_allclose(episode_meta[f"stats/{key}/{stat}"], expected, atol=1e-7)
+            np.testing.assert_array_equal(episode_meta[f"stats/{key}/count"], [len(values)])
+            for q in (0.01, 0.1, 0.5, 0.9, 0.99):
+                np.testing.assert_allclose(
+                    episode_meta[f"stats/{key}/q{int(q * 100):02d}"], np.quantile(values, q, axis=0), atol=1e-7
+                )
+        values = np.stack(out[key].to_numpy()).astype(np.float64)
+        np.testing.assert_allclose(global_stats[key]["mean"], values.mean(axis=0))
+        np.testing.assert_allclose(global_stats[key]["q99"], np.quantile(values, 0.99, axis=0))
+    assert "stats/head/min" in episodes
+
+
+@pytest.mark.parametrize("session_starts", [(), (5,), (15, 5)])
+def test_invalid_session_starts_preserves_destination(tmp_path, session_starts):
+    state = np.array(_hand(np.eye(4), 1.0) + _hand(np.eye(4), 0.5))
+    _write_source(tmp_path / "Xense/src", [np.tile(state, (2, 1))])
+    dst = tmp_path / "Xense/dst"
+    dst.mkdir()
+    sentinel = dst / "existing.txt"
+    sentinel.write_text("keep existing dataset")
+    with pytest.raises(SystemExit, match="--session-starts must be nonempty and start at or before episode 0"):
+        rebase.main(
+            rebase.Args(
+                src_repo_id="Xense/src",
+                dst_repo_id="Xense/dst",
+                left_home=(0.7, 0.2, 0.1, 1.0, 0.0, 0.0, 0.0),
+                right_home=(0.7, -0.2, 0.1, 1.0, 0.0, 0.0, 0.0),
+                lerobot_home=tmp_path,
+                session_starts=session_starts,
+                overwrite=True,
+            )
+        )
+    assert sentinel.read_text() == "keep existing dataset"

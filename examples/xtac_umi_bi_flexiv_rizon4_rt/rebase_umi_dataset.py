@@ -69,7 +69,8 @@ class Args:
     right_home: tuple[float, float, float, float, float, float, float] | None = None
     # Dataset root containing org/name dirs; defaults to $HF_LEROBOT_HOME (~/.cache/huggingface/lerobot).
     lerobot_home: pathlib.Path | None = None
-    # Explicit session start episodes (e.g. 0 15). Default: detect from start-position jumps.
+    # Explicit session start episodes (e.g. 0 15); sorted and deduplicated, must cover the first episode.
+    # Default: detect from start-position jumps.
     session_starts: tuple[int, ...] | None = None
     # A new session starts where the hands' mean start position moves more than this (m).
     session_jump_m: float = 0.15
@@ -161,6 +162,7 @@ def _stats(values: np.ndarray) -> dict:
         "mean": values.mean(0).tolist(),
         "std": values.std(0).tolist(),
         "count": [len(values)],
+        **{f"q{int(q * 100):02d}": np.quantile(values, q, axis=0).tolist() for q in (0.01, 0.1, 0.5, 0.9, 0.99)},
     }
 
 
@@ -184,10 +186,8 @@ def main(args: Args) -> None:
         os.environ.get("HF_LEROBOT_HOME", pathlib.Path.home() / ".cache/huggingface/lerobot")
     )
     src, dst = home_root / args.src_repo_id, home_root / args.dst_repo_id
-    if dst.exists():
-        if not args.overwrite:
-            raise SystemExit(f"{dst} exists; pass --overwrite to replace it.")
-        shutil.rmtree(dst)
+    if dst.exists() and not args.overwrite:
+        raise SystemExit(f"{dst} exists; pass --overwrite to replace it.")
     homes = {"left": home_to_matrix(args.left_home), "right": home_to_matrix(args.right_home)}
 
     info = json.loads((src / "meta/info.json").read_text())
@@ -200,6 +200,11 @@ def main(args: Args) -> None:
     has_head = states.shape[-1] == HAND_DIM + 9
     episode_ids = np.unique(data["episode_index"].to_numpy())
     rows = {e: np.flatnonzero(data["episode_index"].to_numpy() == e) for e in episode_ids}
+    session_starts = None
+    if args.session_starts is not None:
+        session_starts = np.unique(args.session_starts)
+        if not len(session_starts) or session_starts[0] > episode_ids[0]:
+            raise SystemExit(f"--session-starts must be nonempty and start at or before episode {episode_ids[0]}")
 
     # Relocalizations: drop the whole episode, the pose after the step is not trustworthy.
     dropped = {}
@@ -215,8 +220,8 @@ def main(args: Args) -> None:
 
     # Sessions are detected over all episodes: a dropped one still sits in the recording order.
     starts = np.stack([states[rows[e][0]] for e in episode_ids])
-    if args.session_starts is not None:
-        session_of = np.searchsorted(np.asarray(args.session_starts), episode_ids, side="right") - 1
+    if session_starts is not None:
+        session_of = np.searchsorted(session_starts, episode_ids, side="right") - 1
     else:
         midpoints = (starts[:, LEFT_TCP][:, :3] + starts[:, RIGHT_TCP][:, :3]) / 2
         session_of = detect_sessions(midpoints, args.session_jump_m)
@@ -273,12 +278,25 @@ def main(args: Args) -> None:
     out["action"] = list(actions[keep_rows, :HAND_DIM].astype(np.float32))
     out["episode_index"] = out["episode_index"].map(renumber)
     out["index"] = np.arange(len(out))
+    # Validate inputs before replacing an existing destination.
+    if dst.exists():
+        shutil.rmtree(dst)
     (dst / "data/chunk-000").mkdir(parents=True)
     out.reset_index(drop=True).to_parquet(dst / "data/chunk-000/file-000.parquet", index=False)
 
     episodes = pd.concat([pd.read_parquet(p) for p in sorted((src / "meta/episodes").rglob("*.parquet"))])
     episodes = episodes[episodes["episode_index"].isin(kept)].sort_values("episode_index").copy()
     episodes["episode_index"] = episodes["episode_index"].map(renumber)
+    # Source pose statistics describe a different frame (and possibly 29D).
+    # Rebuild all pose-stat columns from the actual 20D output, including quantiles.
+    for key in ("observation.state", "action"):
+        episodes = episodes.drop(columns=[col for col in episodes if col.startswith(f"stats/{key}/")])
+        per_episode = {
+            e: _stats(np.stack(group[key].to_numpy()).astype(np.float64))
+            for e, group in out.groupby("episode_index", sort=False)
+        }
+        for stat in next(iter(per_episode.values())):
+            episodes[f"stats/{key}/{stat}"] = [per_episode[e][stat] for e in episodes["episode_index"]]
     episodes["dataset_to_index"] = np.cumsum(episodes["length"].to_numpy())
     episodes["dataset_from_index"] = episodes["dataset_to_index"] - episodes["length"]
     episodes["data/chunk_index"] = 0
@@ -300,8 +318,8 @@ def main(args: Args) -> None:
     (dst / "meta/info.json").write_text(json.dumps(info, indent=4))
 
     stats = json.loads((src / "meta/stats.json").read_text())
-    stats["observation.state"] = _stats(states[keep_rows, :HAND_DIM])
-    stats["action"] = _stats(actions[keep_rows, :HAND_DIM])
+    for key in ("observation.state", "action"):
+        stats[key] = _stats(np.stack(out[key].to_numpy()).astype(np.float64))
     (dst / "meta/stats.json").write_text(json.dumps(stats, indent=4))
 
     provenance = {
