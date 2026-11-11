@@ -69,6 +69,7 @@ rl:
   replay_stride: 2 # labeled phases -> C-step windows every 2 env steps; must divide C
   warm_up: 250 # transitions before training starts and the actor drives open windows
   utd: 5 # critic updates per committed transition
+  async_training: true # train in a background thread while the robot collects (RLT paper); false: between rounds
   token_checkpoint: null # phase-one step dir or token/ run dir; null = this run's token/
   total_rounds: 300
   listen: 0.0.0.0:8000 # the robot host dials this address
@@ -80,4 +81,5 @@ rl:
   keep_period: 50 # older checkpoints are pruned except rounds divisible by this (null: latest only)
   dump_transitions: true # per-round transitions + events.jsonl under <run>/transitions (analysis only)
   # On --resume only the operational fields may change (token_checkpoint, total_rounds, listen,
-  # num_steps, replay_feature_batch_size, takeover_*, save_interval, keep_period, dump_transitions).
+  # num_steps, replay_feature_batch_size, takeover_*, save_interval, keep_period, dump_transitions,
+  # async_training).

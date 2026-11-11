@@ -100,8 +100,9 @@ class TokenTrainingConfig:
 class RLConfig:
     """Phase two: online chunked-TD actor-critic on top of the frozen RL token.
 
-    Defaults are TacXense's tuned real-robot values (its ``rlt_fast`` config).
-    State and action widths are not configured: they come from the VLA's norm stats.
+    Defaults are TacXense's tuned real-robot values (its ``rlt_fast`` config), except where noted
+    as following the RLT paper. State and action widths are not configured: they come from the
+    VLA's norm stats.
     """
 
     # Actor chunk length C: executed steps per transition, and the TD bootstrap horizon.
@@ -145,6 +146,9 @@ class RLConfig:
     warm_up: int = 250
     # Critic updates earned per committed transition.
     utd: int = 5
+    # Spend the earned updates on a background thread while the robot collects, as in the RLT
+    # paper; false trains between rounds while the robot idles.
+    async_training: bool = True
 
     # Online collection.
     # Phase-one token checkpoint (step dir or token/ run dir); None = this run's own token/ dir.
@@ -182,6 +186,7 @@ class RLConfig:
             "save_interval",
             "keep_period",
             "dump_transitions",
+            "async_training",
         }
     )
 
