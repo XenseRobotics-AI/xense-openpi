@@ -134,3 +134,22 @@ def test_anchors_match_tacxense(length, stride):
     reference = CriticalTrace(C, stride=stride)
     reference.extend(np.zeros((length, A)), np.zeros(length), np.zeros(length, bool), np.zeros(length, np.int8))
     assert _trace(length, stride).anchors() == reference._sliding_anchor_indices(terminal=True)
+
+
+def test_eviction_is_counted_and_survives_a_checkpoint():
+    buffer = _buffer(capacity=4)
+    for i in range(3):
+        buffer.add(_row(i))
+    assert buffer.evicted == 0
+    for i in range(3, 7):
+        buffer.add(_row(i))
+    assert (len(buffer), buffer.added, buffer.evicted) == (4, 7, 3)
+
+    restored = _buffer()
+    restored.load_state_dict(buffer.state_dict())
+    assert restored.evicted == 3
+
+    legacy = buffer.state_dict()
+    del legacy["added"]  # checkpoints written before eviction tracking
+    restored.load_state_dict(legacy)
+    assert restored.evicted == 0

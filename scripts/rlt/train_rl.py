@@ -71,7 +71,10 @@ def _summary(config: _rlt_config.RLConfig, learner: _learner.Learner, result: di
             f"actions : out_of_range={n.get('out_of_range', 0)} gripper_clips={n.get('gripper_clips', 0)} "
             f"rot6d_fallbacks={n.get('rot6d_fallbacks', 0)}"
         ),
-        f"data    : +{len(result['rows'])} transitions, replay {len(learner.replay)}/{config.buffer_size}, total {c.transitions}",
+        (
+            f"data    : +{len(result['rows'])} transitions, replay {len(learner.replay)}/{config.buffer_size}, "
+            f"total {c.transitions}" + (f", evicted {learner.replay.evicted}" if learner.replay.evicted else "")
+        ),
         f"warm-up : {config.warm_up} transitions, {warm_up}",
         (
             f"updates : {'since last round' if config.async_training else 'this round'} {len(infos)} | "
@@ -231,6 +234,7 @@ def main() -> None:
                     **{f"total_{key}": value for key, value in totals.items()},
                     **dataclasses.asdict(learner.counters),
                     "replay_size": len(learner.replay),
+                    "replay_evicted": learner.replay.evicted,
                     "warmed_up": learner.warmed_up,
                     "pending_updates": learner.pending_updates(),
                     **{

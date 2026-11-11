@@ -181,3 +181,21 @@ def test_async_training_may_change_on_resume(tmp_path):
 
 def test_default_chunk_length_follows_the_paper():
     assert _rlt_config.RLConfig().num_action_chunks == 10
+
+
+def test_first_eviction_is_logged(caplog):
+    learner, space = _make()
+    learner.replay = _learner._replay.ReplayBuffer(
+        6, z_dim=Z, state_dim=20, action_dim=20, num_action_chunks=C, ref_num_action_chunks=R
+    )
+    learner.commit(_rows(6, space))
+    assert "Replay is full" not in caplog.text
+    learner.commit(_rows(2, space, seed=1))
+    assert "Replay is full" in caplog.text
+    assert learner.replay.evicted == 2
+
+
+def test_default_replay_keeps_hours_of_data():
+    config = _rlt_config.RLConfig()
+    # 30 Hz, one window every replay_stride steps.
+    assert config.buffer_size / (30 / config.replay_stride) / 3600 > 1.5

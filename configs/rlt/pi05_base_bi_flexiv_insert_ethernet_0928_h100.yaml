@@ -57,7 +57,7 @@ rl:
   fixed_std: 0.002 # Gaussian exploration in normalized action space
 
   batch_size: 256
-  buffer_size: 6000 # replay transitions, not executed steps
+  buffer_size: 100000 # replay transitions, not executed steps (~1.85 h of labeled data at 30 Hz, stride 2)
   replay_stride: 2 # sliding anchors every 2 execution steps; must divide C
   # At 30 executed steps/s, a 4-5 s labeled phase yields 56-71 overlapping rows
   # (C=10, stride=2): 600 rows correspond to about 9-11 phases.

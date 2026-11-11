@@ -65,7 +65,7 @@ rl:
   fixed_std: 0.002 # Gaussian actor exploration std (normalized space)
   critic_actor_ratio: 2 # actor updates after every 2nd critic update
   batch_size: 256
-  buffer_size: 6000 # transitions
+  buffer_size: 100000 # transitions; ~25 KB each (RAM and RL checkpoints), ~1.85 h of labeled data at 30 Hz, stride 2
   replay_stride: 2 # labeled phases -> C-step windows every 2 env steps; must divide C
   warm_up: 250 # transitions before training starts and the actor drives open windows
   utd: 5 # critic updates per committed transition

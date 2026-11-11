@@ -139,8 +139,12 @@ class RLConfig:
     critic_actor_ratio: int = 2
 
     batch_size: int = 256
-    # Replay capacity in transitions (one transition = one C-step window).
-    buffer_size: int = 6000
+    # Replay capacity in transitions (one transition = one C-step window). The RLT paper keeps
+    # warm-up, RL and intervention data together in one buffer over 15 min - 5 h of robot data.
+    # At 30 Hz with replay_stride 2 a labeled second yields 15 transitions, so 100k holds ~1.85 h
+    # of critical-phase data (~25 KB per row: ~2.5 GB in RAM and in each RL checkpoint).
+    # TacXense used 6000 (~7 min), which evicted the warm-up and early interventions.
+    buffer_size: int = 100_000
     # Labeled critical phases are cut into C-step windows starting every `replay_stride` env steps.
     replay_stride: int = 2
     # Training (and actor execution) starts once replay holds this many transitions.

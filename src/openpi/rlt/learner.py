@@ -134,9 +134,16 @@ class Learner:
         for row in rows:
             self.replay.prepare(row)
         with self._lock:
+            evicted = self.replay.evicted
             for row in rows:
                 self.replay.add(row)
             self.counters.transitions += len(rows)
+            if self.replay.evicted and not evicted:
+                logging.warning(
+                    "Replay is full (%d transitions): the oldest rows are now being overwritten. "
+                    "Raise rl.buffer_size to keep the whole run.",
+                    self.replay.capacity,
+                )
 
     def train(self) -> list[dict[str, float]]:
         """Spend the whole earned update backlog; returns per-update metrics."""
