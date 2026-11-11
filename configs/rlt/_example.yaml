@@ -46,7 +46,7 @@ token_training:
 # Phase two: online RL on the real robot (scripts/rlt/train_rl.py). Defaults are TacXense's
 # tuned real-robot values. The robot host runs examples/bi_flexiv_rizon4_rt/main.py --args.rlt.
 rl:
-  num_action_chunks: 20 # C: executed steps per transition and TD bootstrap horizon
+  num_action_chunks: 10 # C: executed steps per transition and TD bootstrap horizon (RLT paper App. B)
   ref_num_action_chunks: 50 # VLA reference length fed to the actor (first C steps used)
   actor_hidden_dims: [256, 256]
   critic_hidden_dims: [256, 256]

@@ -48,7 +48,7 @@ token_training:
 rl:
   # TODO: this run's own token/ dir (null) or a phase-one token step dir.
   token_checkpoint: /home/li/tmp/xense-openpi/checkpoints/60000
-  num_action_chunks: 20 # C: executed steps per chunk and TD bootstrap horizon
+  num_action_chunks: 10 # C: executed steps per chunk and TD bootstrap horizon (RLT paper App. B)
   ref_num_action_chunks: 50 # VLA reference length; the actor consumes the first C steps
 
   actor_lr: 3.0e-4

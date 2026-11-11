@@ -177,3 +177,7 @@ def test_async_training_may_change_on_resume(tmp_path):
     learner.save(tmp_path / "ckpt")
     toggled = dataclasses.replace(_CONFIG, async_training=not _CONFIG.async_training)
     _learner.Learner(toggled, space, z_dim=Z).restore(tmp_path / "ckpt")
+
+
+def test_default_chunk_length_follows_the_paper():
+    assert _rlt_config.RLConfig().num_action_chunks == 10

@@ -106,7 +106,8 @@ class RLConfig:
     """
 
     # Actor chunk length C: executed steps per transition, and the TD bootstrap horizon.
-    num_action_chunks: int = 20
+    # C=10 as in the RLT paper (App. B); TacXense used 20.
+    num_action_chunks: int = 10
     # Length of the frozen VLA's reference chunk fed to the actor (only the first C steps are used).
     ref_num_action_chunks: int = 50
 
