@@ -27,7 +27,7 @@ token_training:
   # insert_ethernet uses the policy-server checkpoint on xense-inference.
   vla_checkpoint: /home/li/hubo/xense-openpi/checkpoints/59999
   prefix_cache_dir: /data/rlt_cache/strap_tape_1010 # ~3.6 MB per cached frame; use fast local disk
-  repo_id: null # inherits Xense/strap-tape-taccap-0929 from the VLA config
+  repo_id: null # inherits Xense/strap-tape-taccap-1015 from the VLA config
   frame_stride: 1
 
   batch_size: 256 # global, split across all local GPUs

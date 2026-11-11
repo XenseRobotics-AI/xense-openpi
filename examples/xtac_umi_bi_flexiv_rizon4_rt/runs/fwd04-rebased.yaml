@@ -1,0 +1,22 @@
+# Checkpoint trained on re-based UMI data (pi05_base_xtac_umi_g1_clean_plates_fwd04_rebased_h100),
+# on forward-04. Starts as a dry run; add --args.no-dry-run once the printed actions look right.
+#   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.main --args.run fwd04-rebased --args.host <server>
+#
+# rebase_umi_dataset.py already wrote the labels in the Flexiv TCP convention (they are
+# composed onto the arms' own start TCPs), so the UMI<->Flexiv gripper change of basis
+# must NOT run on top of them.
+#
+# The data was anchored to the start TCPs the arms reach at the recipe's start joints;
+# keep go_to_start on so each episode begins where the training data does.
+
+robot_recipe: forward-04
+dry_run: true
+align_gripper_frames: false
+go_to_start: true
+
+host: localhost
+port: 8000
+
+runtime_hz: 30.0
+num_episodes: 1
+log_level: INFO

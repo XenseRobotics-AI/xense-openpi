@@ -8,7 +8,6 @@ from typing import Any
 
 import jax.numpy as jnp
 
-from openpi.models import pi0_config
 import openpi.models.model as _model
 from openpi.rlt import config as _rlt_config
 from openpi.rlt import prefix_cache
@@ -28,9 +27,6 @@ class FrozenVLA:
     def load_model(self) -> _model.BaseModel:
         """Load the VLA for inference, as ``policy_config.create_trained_policy`` does."""
         model_config = self.train_config.model
-        if isinstance(model_config, pi0_config.Pi0Config) and model_config.use_cudnn_attention:
-            # A training-only optimization that JAX 0.5.3 only supports on Hopper; params are unaffected.
-            model_config = dataclasses.replace(model_config, use_cudnn_attention=False)
         return model_config.load(_model.restore_params(self.checkpoint_dir / "params", dtype=jnp.bfloat16))
 
     def input_transforms(self, default_prompt: str | None = None) -> _transforms.DataTransformFn:

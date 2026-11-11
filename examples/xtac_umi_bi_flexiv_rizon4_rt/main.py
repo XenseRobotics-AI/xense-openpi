@@ -25,6 +25,21 @@ override the file. See runs/README.md.
 
 Example::
 
+    # forward-04 rebased checkpoint：只打印策略动作，按 Ctrl+C 结束
+    python -m examples.xtac_umi_bi_flexiv_rizon4_rt.main \\
+        --args.robot-recipe forward-04 \\
+        --args.host 192.168.204.87 \\
+        --args.port 8000 \\
+        --args.no-align-gripper-frames \\
+        --args.runtime-hz 30 \\
+        --args.dry-run
+
+    # --args.robot-recipe：选择 forward-04 台位的机器人、起始关节和夹爪配置。
+    # --args.host / --args.port：策略服务器的 IP 和 WebSocket 端口。
+    # --args.no-align-gripper-frames：关闭末端坐标轴转换；rebased 数据已采用 Flexiv TCP 约定。
+    # --args.runtime-hz：控制循环最高频率为 30 Hz，与训练数据帧率一致。
+    # --args.dry-run：只打印策略动作；连接、reset 和退出回 home 仍可能移动机器人。
+
     # A run file — everything preset
     python -m examples.xtac_umi_bi_flexiv_rizon4_rt.main --args.run dry-run
 
@@ -151,7 +166,6 @@ class Args:
     # Runtime settings
     runtime_hz: float = _TRAINING_HZ
     num_episodes: int = 1
-    max_episode_steps: int = 1_000_000
 
     # Dry run mode: connect and read, but never send an action to the arms.
     dry_run: bool = False
@@ -248,7 +262,6 @@ def main(args: Args) -> None:
         subscribers=[],
         max_hz=args.runtime_hz,
         num_episodes=args.num_episodes,
-        max_episode_steps=args.max_episode_steps,
     )
 
     def disconnect() -> None:
