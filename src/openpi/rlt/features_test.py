@@ -1,4 +1,5 @@
 import dataclasses
+import functools
 import json
 import pathlib
 
@@ -51,7 +52,20 @@ def test_token_checkpoint_roundtrip_and_identity_check(tmp_path):
         _features.load_token_model(run_dir, _StubVLA({**_IDENTITY, "params_fingerprint": "other"}))
 
 
-def test_features_match_serving_and_the_cache_path():
+def test_token_checkpoints_without_drop_task_tokens_kept_the_prompt(tmp_path):
+    run_dir = _save_token(tmp_path, _TOKEN.create(64, nnx.Rngs(3)))
+    metadata_path = next(run_dir.glob("*/assets")) / _features.TOKEN_METADATA
+    assert _features.load_token_checkpoint(run_dir, _StubVLA(_IDENTITY))[1].drop_task_tokens
+    metadata = json.loads(metadata_path.read_text())
+    del metadata["model"]["drop_task_tokens"]  # written before the field existed
+    metadata_path.write_text(json.dumps(metadata))
+    assert not _features.load_token_checkpoint(run_dir, _StubVLA(_IDENTITY))[1].drop_task_tokens
+
+
+@pytest.mark.parametrize("drop_task_tokens", [False, True])
+def test_features_match_serving_and_the_cache_path(drop_task_tokens):
+    from openpi.rlt import vla as _vla
+
     model_config = pi0_config.Pi0Config(
         paligemma_variant="dummy", action_expert_variant="dummy", pi05=True, action_horizon=10, max_token_len=64
     )
@@ -85,6 +99,9 @@ def test_features_match_serving_and_the_cache_path():
         output_transform=_transforms.compose(outputs),
         ref_num_action_chunks=8,
         num_steps=2,
+        prefix_mask=(
+            functools.partial(_features._drop_task_tokens, state_in_prompt=True) if drop_task_tokens else None
+        ),
     )
     state = rng.normal(size=20).astype(np.float32)
     state[18:] = 0.5
@@ -101,8 +118,17 @@ def test_features_match_serving_and_the_cache_path():
     np.testing.assert_allclose(features["ref_exec"], served["actions"][:8], atol=1e-5)
     # z_rl equals what the offline cache path (extract_prefix_hidden) feeds the encoder.
     batch = jax.tree.map(lambda x: jnp.asarray(x)[None], _transforms.compose(inputs)(dict(obs)))
-    hidden, mask = vla.extract_prefix_hidden(_model.Observation.from_dict(batch))
-    np.testing.assert_allclose(features["z_rl"], token.encode(hidden, mask)[0], atol=1e-4)
+    observation = _model.Observation.from_dict(batch)
+    hidden, mask = vla.extract_prefix_hidden(observation)
+    # The precompute path: FrozenVLA.prefix_mask over extract_prefix_hidden.
+    frozen = _vla.FrozenVLA(_config.get_config("debug_pi05"), pathlib.Path("/ckpt"), data_config)
+    assert frozen.state_in_prompt
+    cache_mask = frozen.prefix_mask(mask, observation, drop_task_tokens=drop_task_tokens)
+    dropped = int(mask.sum() - cache_mask.sum())
+    # "<bos>Task: pick up the cube," is 8 tokens.
+    assert dropped == (8 if drop_task_tokens else 0)
+    hidden = jnp.where(cache_mask[..., None], hidden, 0)
+    np.testing.assert_allclose(features["z_rl"], token.encode(hidden, cache_mask)[0], atol=1e-4)
 
 
 def _gemma_width() -> int:

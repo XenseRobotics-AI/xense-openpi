@@ -35,7 +35,16 @@ METADATA_FILE = "metadata.json"
 _DTYPE = ml_dtypes.bfloat16
 
 # Keys whose mismatch means the cache was built from a different VLA or dataset.
-IDENTITY_KEYS = ("vla_config", "params_fingerprint", "norm_stats_fingerprint", "repo_id", "frame_stride")
+IDENTITY_KEYS = (
+    "vla_config",
+    "params_fingerprint",
+    "norm_stats_fingerprint",
+    "repo_id",
+    "frame_stride",
+    "drop_task_tokens",
+)
+# Values assumed for keys that caches written before the key existed lack.
+_LEGACY_IDENTITY = {"drop_task_tokens": False}
 
 
 def directory_fingerprint(path: pathlib.Path | str) -> str:
@@ -68,6 +77,7 @@ def _write_metadata(root: pathlib.Path, metadata: dict[str, Any]) -> None:
 
 def check_identity(metadata: dict[str, Any], expected: dict[str, Any]) -> None:
     """Raise if the cache was built from a different VLA checkpoint, norm stats or dataset."""
+    metadata, expected = {**_LEGACY_IDENTITY, **metadata}, {**_LEGACY_IDENTITY, **expected}
     mismatched = {
         key: (metadata.get(key), expected[key]) for key in IDENTITY_KEYS if metadata.get(key) != expected[key]
     }

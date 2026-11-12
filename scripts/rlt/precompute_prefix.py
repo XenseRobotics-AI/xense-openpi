@@ -23,6 +23,7 @@ import time
 
 import flax.nnx as nnx
 import jax
+import jax.numpy as jnp
 import numpy as np
 import tqdm_loggable.auto as tqdm
 
@@ -74,7 +75,8 @@ def main() -> None:
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
 
-    token_training = _rlt_config.get_config(args.config).token_training
+    rlt_config = _rlt_config.get_config(args.config)
+    token_training = rlt_config.token_training
     if args.batch_size % jax.device_count():
         raise ValueError(f"--batch-size {args.batch_size} must be a multiple of {jax.device_count()} devices.")
     root = pathlib.Path(token_training.prefix_cache_dir).resolve()
@@ -94,7 +96,7 @@ def main() -> None:
     seq_len, hidden_dim = _prefix_shape(model, model_config)
     writer = prefix_cache.CacheWriter(
         root,
-        identity=frozen.cache_identity(token_training),
+        identity=frozen.cache_identity(rlt_config),
         frame_index=frame_index,
         seq_len=seq_len,
         hidden_dim=hidden_dim,
@@ -111,7 +113,8 @@ def main() -> None:
         )  # fmt: skip
         if need > free:
             raise OSError(f"Not enough disk at {root}: need up to {need / 2**30:.1f} GiB, {free / 2**30:.1f} GiB free.")
-        _run(args, token_training, model, writer, dataset, frame_index, pending)
+        logging.info("Task-instruction prompt tokens: %s", "dropped" if rlt_config.model.drop_task_tokens else "kept")
+        _run(args, token_training, model, writer, dataset, frame_index, pending, frozen, rlt_config.model)
 
     metadata = writer.finalize()
     used = sum(p.stat().st_blocks * 512 for p in root.iterdir())
@@ -120,15 +123,21 @@ def main() -> None:
     )
 
 
-def _run(args, token_training, model, writer, dataset, frame_index, pending) -> None:
+def _run(args, token_training, model, writer, dataset, frame_index, pending, frozen, model_config) -> None:
     mesh = sharding.make_mesh(1)
     data_sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec(sharding.DATA_AXIS))
     replicated = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
 
     graphdef, state = nnx.split(model)
     state = jax.device_put(state, replicated)
+
+    def extract_fn(state, obs):
+        hidden, mask = nnx.merge(graphdef, state).extract_prefix_hidden(obs)
+        mask = frozen.prefix_mask(mask, obs, drop_task_tokens=model_config.drop_task_tokens)
+        return jnp.where(mask[..., None], hidden, 0), mask
+
     extract = jax.jit(
-        lambda state, obs: nnx.merge(graphdef, state).extract_prefix_hidden(obs),
+        extract_fn,
         in_shardings=(replicated, data_sharding),
         out_shardings=data_sharding,
     )

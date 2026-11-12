@@ -52,6 +52,10 @@ class RLTModelConfig:
     dtype: Literal["bfloat16", "float32"] = "bfloat16"
     # Rematerialize each block in the backward pass (trades compute for memory).
     remat: bool = False
+    # Mask out the task-instruction tokens of the prompt (RLT paper, footnote 1: each task has a
+    # fixed instruction). pi05's discretized state in the prompt is kept; see ``rlt.prompt_tokens``.
+    # Applied when the prefix cache is built and when online features are extracted.
+    drop_task_tokens: bool = True
 
     def create(self, input_dim: int, rngs: nnx.Rngs):
         from openpi.rlt.token_model import RLTTokenTransformer

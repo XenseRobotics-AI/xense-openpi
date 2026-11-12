@@ -11,6 +11,8 @@ those into ``z_rl``. Outputs, all numpy:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+import functools
 import json
 import logging
 import pathlib
@@ -24,6 +26,7 @@ import numpy as np
 import openpi.models.model as _model
 from openpi.rlt import action_space as _action_space
 from openpi.rlt import config as _rlt_config
+from openpi.rlt import prompt_tokens as _prompt_tokens
 from openpi.rlt import token_model as _token_model
 from openpi.rlt import vla as _vla
 from openpi.shared import nnx_utils
@@ -47,6 +50,13 @@ def resolve_token_checkpoint(path: pathlib.Path | str) -> pathlib.Path:
 
 def load_token_model(path: pathlib.Path | str, frozen: _vla.FrozenVLA) -> _token_model.RLTTokenTransformer:
     """Load a phase-one checkpoint, refusing one trained on a different VLA checkpoint or norm stats."""
+    return load_token_checkpoint(path, frozen)[0]
+
+
+def load_token_checkpoint(
+    path: pathlib.Path | str, frozen: _vla.FrozenVLA
+) -> tuple[_token_model.RLTTokenTransformer, _rlt_config.RLTModelConfig]:
+    """``load_token_model`` plus the model config it was trained with (e.g. ``drop_task_tokens``)."""
     step_dir = resolve_token_checkpoint(path)
     metadata = json.loads((step_dir / "assets" / TOKEN_METADATA).read_text())
     trained_on = metadata["prefix_cache"]
@@ -55,22 +65,42 @@ def load_token_model(path: pathlib.Path | str, frozen: _vla.FrozenVLA) -> _token
         raise ValueError(
             f"Token checkpoint {step_dir} was trained on a different VLA ({', '.join(mismatched)} differ)."
         )
-    config = _rlt_config.RLTModelConfig(**metadata["model"])
+    # Checkpoints from before drop_task_tokens existed were trained on the full prompt.
+    config = _rlt_config.RLTModelConfig(**{"drop_task_tokens": False, **metadata["model"]})
     model = config.create(metadata["input_dim"], nnx.Rngs(0))
     graphdef, state = nnx.split(model)
     state.replace_by_pure_dict(_model.restore_params(step_dir / "params"))
-    logging.info("Loaded RLT token model from %s", step_dir)
-    return nnx.merge(graphdef, state)
+    logging.info(
+        "Loaded RLT token model from %s (task tokens %s)", step_dir, "dropped" if config.drop_task_tokens else "kept"
+    )
+    return nnx.merge(graphdef, state), config
+
+
+def _drop_task_tokens(mask: jax.Array, observation: _model.Observation, *, state_in_prompt: bool) -> jax.Array:
+    return _prompt_tokens.drop_task_tokens(
+        mask, observation.tokenized_prompt, observation.tokenized_prompt_mask, state_in_prompt=state_in_prompt
+    )
 
 
 class _FrozenNet(nnx.Module):
-    def __init__(self, vla: _model.BaseModel, token: _token_model.RLTTokenTransformer, num_steps: int):
+    def __init__(
+        self,
+        vla: _model.BaseModel,
+        token: _token_model.RLTTokenTransformer,
+        num_steps: int,
+        prefix_mask: Callable[[jax.Array, _model.Observation], jax.Array] | None = None,
+    ):
         self.vla = vla
         self.token = token
         self.num_steps = num_steps
+        self.prefix_mask = prefix_mask
 
     def __call__(self, rng: jax.Array, observation: _model.Observation) -> tuple[jax.Array, jax.Array]:
         actions, hidden, mask = self.vla.sample_actions_with_prefix(rng, observation, num_steps=self.num_steps)
+        if self.prefix_mask is not None:
+            # The same prompt slots the prefix cache masked out when the token was trained.
+            mask = self.prefix_mask(mask, observation)
+            hidden = jnp.where(mask[..., None], hidden, 0)
         return actions, self.token.encode(hidden, mask)
 
 
@@ -86,13 +116,14 @@ class FeatureExtractor:
         ref_num_action_chunks: int,
         num_steps: int = 10,
         seed: int = 0,
+        prefix_mask: Callable[[jax.Array, _model.Observation], jax.Array] | None = None,
     ):
         self.space = space
         self.z_dim = token.rl_token.value.shape[-1]
         self._ref_len = ref_num_action_chunks
         self._input_transform = input_transform
         self._output_transform = output_transform
-        self._run = nnx_utils.module_jit(_FrozenNet(vla, token, num_steps).__call__)
+        self._run = nnx_utils.module_jit(_FrozenNet(vla, token, num_steps, prefix_mask).__call__)
         self._rng = jax.random.key(seed)
 
     @classmethod
@@ -106,15 +137,21 @@ class FeatureExtractor:
         default_prompt: str | None = None,
         seed: int = 0,
     ) -> FeatureExtractor:
+        token, token_config = load_token_checkpoint(token_checkpoint, frozen)
         return cls(
             frozen.load_model(),
-            load_token_model(token_checkpoint, frozen),
+            token,
             _action_space.ActionSpace.from_data_config(frozen.data_config),
             input_transform=frozen.input_transforms(default_prompt),
             output_transform=frozen.output_transforms(),
             ref_num_action_chunks=rl.ref_num_action_chunks,
             num_steps=num_steps,
             seed=seed,
+            prefix_mask=(
+                functools.partial(_drop_task_tokens, state_in_prompt=frozen.state_in_prompt)
+                if token_config.drop_task_tokens
+                else None
+            ),
         )
 
     def extract(self, obs: dict) -> dict[str, np.ndarray]:
