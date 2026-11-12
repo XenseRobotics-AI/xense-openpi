@@ -1,0 +1,20 @@
+# Open-loop replay of one handheld XTac-UMI episode on forward-04 (no policy server).
+#   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.replay --args.run replay \
+#       --args.repo-id Xense/<dataset> --args.episode 0
+#
+# Starts as a dry run: the arms reset to the start pose and the plan is built and
+# summarized from their real start TCPs, but no target is sent. Add
+# --args.no-dry-run once the reported yaw, offsets and speeds look right, and keep
+# the first real run slow.
+#
+# The recipe must describe the grippers actually mounted. For the taccap followers,
+# pass the lerobot-xense recipe by path:
+#   --args.robot-recipe <lerobot-xense>/recipes/teleop/bi_flexiv_rizon4_rt/forward-04-taccap.yaml
+
+robot_recipe: forward-04
+dry_run: true
+# The plan is anchored on the TCPs the arms reach at the recipe's start joints.
+go_to_start: true
+
+speed_scale: 0.25
+log_level: INFO

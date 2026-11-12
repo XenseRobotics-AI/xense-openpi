@@ -547,6 +547,12 @@ python scripts/serve_policy.py \
     --policy.dir=checkpoints/pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0430_merged_fixed_h100/pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0430_merged_fixed_h100_0430/79999
 
 python scripts/serve_policy.py \
+    --default-prompt="Pick up the inspection probe, press it on each red-marked spot on the whiteboard one by one, put down the probe, pick up the eraser, and wipe off all the red marks." \
+    policy:checkpoint \
+    --policy.config=pi05_base_bi_flexiv_whiteboard_inspect_rtc_1109_h100 \
+    --policy.dir=/home/li/hubo/xense-openpi/checkpoints/pi05_base_bi_flexiv_whiteboard_inspect_rtc_1109_h100/39999
+
+python scripts/serve_policy.py \
     --default-prompt="assemble the box with the phone stand" \
     policy:checkpoint \
     --policy.config=pi05_base_bi_flexiv_assemble_box_with_phone_stand_lora_0430_merged_fixed_h100 \
