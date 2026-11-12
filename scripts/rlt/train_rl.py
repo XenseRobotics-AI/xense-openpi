@@ -6,6 +6,10 @@ phases collected round by round (see ``openpi.rlt.collector``). This process
 listens on ``rl.listen``; the robot host dials in with the RLT mode of
 ``examples/bi_flexiv_rizon4_rt``.
 
+With ``rl.async_training`` (the default, as in the RLT paper) a background thread
+spends the earned updates while the robot collects, and every chunk acts with the
+latest weights; otherwise training runs between rounds while the robot idles.
+
     mamba activate lerobot-xense
     python scripts/rlt/train_rl.py <rlt_config> --exp-name <run> [--resume | --overwrite]
 
@@ -67,11 +71,15 @@ def _summary(config: _rlt_config.RLConfig, learner: _learner.Learner, result: di
             f"actions : out_of_range={n.get('out_of_range', 0)} gripper_clips={n.get('gripper_clips', 0)} "
             f"rot6d_fallbacks={n.get('rot6d_fallbacks', 0)}"
         ),
-        f"data    : +{len(result['rows'])} transitions, replay {len(learner.replay)}/{config.buffer_size}, total {c.transitions}",
+        (
+            f"data    : +{len(result['rows'])} transitions, replay {len(learner.replay)}/{config.buffer_size}, "
+            f"total {c.transitions}" + (f", evicted {learner.replay.evicted}" if learner.replay.evicted else "")
+        ),
         f"warm-up : {config.warm_up} transitions, {warm_up}",
         (
-            f"updates : this round {len(infos)} | total critic {c.critic_updates} actor {c.actor_updates} | "
-            f"pending {learner.pending_updates()}"
+            f"updates : {'since last round' if config.async_training else 'this round'} {len(infos)} | "
+            f"total critic {c.critic_updates} actor {c.actor_updates} | pending {learner.pending_updates()}"
+            + (" (training in the background)" if config.async_training else "")
         ),
     ]
     if infos:
@@ -169,10 +177,23 @@ def main() -> None:
     env = env_protocol.RemoteEnv(host, int(port), state_dim=space.state_dim, action_dim=space.action_dim)
     collector = _collector.Collector(env, extractor, learner, logger=logger, dump_dir=dump_dir)
     totals = collections.Counter()
+    trainer = _learner.BackgroundTrainer(learner).start() if rl.async_training else None
 
     def save() -> None:
         _learner.save_round(learner, rl_dir, {"binding": binding})
 
+    def train() -> list[dict]:
+        """This round's updates: run them now, or collect what the background thread finished."""
+        if trainer is None:
+            first_update = learner.counters.critic_updates
+            updates = list(enumerate(learner.train(), start=first_update + 1))
+        else:
+            updates = trainer.drain()
+        for index, info in updates:
+            logger.log("update", index, info)
+        return [info for _, info in updates]
+
+    finished = False
     try:
         while learner.counters.rounds < rl.total_rounds:
             try:
@@ -183,14 +204,14 @@ def main() -> None:
             learner.commit(result["rows"])
             learner.counters.phases += len(result["phase_steps"])
             learner.counters.phase_steps += sum(result["phase_steps"])
-            env.status(
-                f"Round {learner.counters.rounds + 1}: +{len(result['rows'])} transitions; "
-                f"training {learner.pending_updates()} updates (the robot idles)..."
-            )
-            first_update = learner.counters.critic_updates
-            infos = learner.train()
-            for index, info in enumerate(infos, start=first_update + 1):
-                logger.log("update", index, info)
+            if trainer is None:
+                env.status(
+                    f"Round {learner.counters.rounds + 1}: +{len(result['rows'])} transitions; "
+                    f"training {learner.pending_updates()} updates (the robot idles)..."
+                )
+            else:
+                trainer.notify()
+            infos = train()
             learner.counters.rounds += 1
             if dump_dir is not None and infos:
                 # The weights right after this round's training, to replay the actor at any point.
@@ -213,6 +234,7 @@ def main() -> None:
                     **{f"total_{key}": value for key, value in totals.items()},
                     **dataclasses.asdict(learner.counters),
                     "replay_size": len(learner.replay),
+                    "replay_evicted": learner.replay.evicted,
                     "warmed_up": learner.warmed_up,
                     "pending_updates": learner.pending_updates(),
                     **{
@@ -226,7 +248,18 @@ def main() -> None:
             env.status(summary)
             if learner.counters.rounds % rl.save_interval == 0:
                 save()
+        finished = True
     finally:
+        if trainer is not None:
+            # A finished run spends the last rounds' earned updates; an interrupted one stops now
+            # (a resume picks the backlog up from the counters).
+            if finished:
+                env.status(f"Finishing {learner.pending_updates()} earned updates before the final save...")
+            trainer.stop(finish_backlog=finished)
+            try:
+                train()
+            except RuntimeError:
+                logging.exception("Background trainer failed; saving the last consistent state.")
         save()
         env.close()
         wandb.finish()

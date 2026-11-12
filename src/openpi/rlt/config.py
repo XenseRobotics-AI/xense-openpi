@@ -52,6 +52,10 @@ class RLTModelConfig:
     dtype: Literal["bfloat16", "float32"] = "bfloat16"
     # Rematerialize each block in the backward pass (trades compute for memory).
     remat: bool = False
+    # Mask out the task-instruction tokens of the prompt (RLT paper, footnote 1: each task has a
+    # fixed instruction). pi05's discretized state in the prompt is kept; see ``rlt.prompt_tokens``.
+    # Applied when the prefix cache is built and when online features are extracted.
+    drop_task_tokens: bool = True
 
     def create(self, input_dim: int, rngs: nnx.Rngs):
         from openpi.rlt.token_model import RLTTokenTransformer
@@ -100,12 +104,14 @@ class TokenTrainingConfig:
 class RLConfig:
     """Phase two: online chunked-TD actor-critic on top of the frozen RL token.
 
-    Defaults are TacXense's tuned real-robot values (its ``rlt_fast`` config).
-    State and action widths are not configured: they come from the VLA's norm stats.
+    Defaults are TacXense's tuned real-robot values (its ``rlt_fast`` config), except where noted
+    as following the RLT paper. State and action widths are not configured: they come from the
+    VLA's norm stats.
     """
 
     # Actor chunk length C: executed steps per transition, and the TD bootstrap horizon.
-    num_action_chunks: int = 20
+    # C=10 as in the RLT paper (App. B); TacXense used 20.
+    num_action_chunks: int = 10
     # Length of the frozen VLA's reference chunk fed to the actor (only the first C steps are used).
     ref_num_action_chunks: int = 50
 
@@ -137,14 +143,21 @@ class RLConfig:
     critic_actor_ratio: int = 2
 
     batch_size: int = 256
-    # Replay capacity in transitions (one transition = one C-step window).
-    buffer_size: int = 6000
+    # Replay capacity in transitions (one transition = one C-step window). The RLT paper keeps
+    # warm-up, RL and intervention data together in one buffer over 15 min - 5 h of robot data.
+    # At 30 Hz with replay_stride 2 a labeled second yields 15 transitions, so 100k holds ~1.85 h
+    # of critical-phase data (~25 KB per row: ~2.5 GB in RAM and in each RL checkpoint).
+    # TacXense used 6000 (~7 min), which evicted the warm-up and early interventions.
+    buffer_size: int = 100_000
     # Labeled critical phases are cut into C-step windows starting every `replay_stride` env steps.
     replay_stride: int = 2
     # Training (and actor execution) starts once replay holds this many transitions.
     warm_up: int = 250
     # Critic updates earned per committed transition.
     utd: int = 5
+    # Spend the earned updates on a background thread while the robot collects, as in the RLT
+    # paper; false trains between rounds while the robot idles.
+    async_training: bool = True
 
     # Online collection.
     # Phase-one token checkpoint (step dir or token/ run dir); None = this run's own token/ dir.
@@ -182,6 +195,7 @@ class RLConfig:
             "save_interval",
             "keep_period",
             "dump_transitions",
+            "async_training",
         }
     )
 

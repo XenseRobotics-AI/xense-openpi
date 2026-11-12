@@ -1,0 +1,48 @@
+# Full fine-tune on 8xH100 of the G1 clean-plates UMI data, re-based onto the
+# forward-04 Flexiv start TCPs so the policy can see the absolute TCP state.
+# Build the dataset first (offline teleop, one anchor per Unity session and arm):
+#   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.rebase_umi_dataset \
+#       --left-home x y z qw qx qy qz --right-home x y z qw qx qy qz
+# It is 20D (hands only, headset pose dropped) and already in the Flexiv TCP
+# convention, so deploy with examples/xtac_umi_bi_flexiv_rizon4_rt --args.run fwd04-rebased
+# (which turns off align_gripper_frames).
+# Same model/training settings as pi05_base_bi_flexiv_umi_g1_clean_plates_1011_h100, so the
+# two differ only in the state/action interface (absolute state + delta TCP vs gripper-only
+# state + inv(T_t) @ T_t+k).
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
+model:
+  type: Pi0Config
+  pi05: true
+  batch_image_views: true
+  max_token_len: 128
+  discrete_state_input: true
+  enable_training_time_rtc: false
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+data:
+  type: LeRobotXtacUmiDataConfig
+  repo_id: Xense/xtac-umi-g1-clean-plates-with-a-sponge-fwd04
+  # The robot has no view matching the moving headset eyes; base_0_rgb is masked out.
+  use_head_camera: false
+  use_delta_cartesian_actions: true
+  use_relative_pose_actions: false
+  base_config:
+    tactile: false
+    prompt_from_task: true
+  default_prompt: Take the plates from the rack, clean their surfaces using a sponge, and return them to their original positions on the rack.
+ema_decay: null
+batch_size: 256
+num_workers: 64
+fsdp_devices: 8
+num_train_steps: 60000
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false
+project_name: xense-openpi-hubo

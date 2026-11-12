@@ -2,10 +2,14 @@
 
 Update cadence (TacXense's tuned schedule): nothing trains until replay holds
 ``warm_up`` transitions; from then on every committed transition earns ``utd``
-critic updates, and each ``train`` call spends the whole earned backlog - a
-real robot has no separate phase to catch a deficit up later. The actor updates
-after every ``critic_actor_ratio``-th critic update, and the target critic
-soft-updates after every critic update.
+critic updates. The actor updates after every ``critic_actor_ratio``-th critic
+update, and the target critic soft-updates after every critic update.
+
+The earned budget is spent either synchronously (``train`` between rounds, the
+robot idles) or, as in the RLT paper, concurrently with collection by a
+``BackgroundTrainer`` thread. A single lock guards weights, replay, the RNG and
+the update counters, so collection always acts with a complete set of weights
+and checkpoints never see half an update.
 
 The checkpoint holds everything a resumed run needs: weights, optimizer states,
 counters, and the replay buffer with its sampling RNG.
@@ -18,6 +22,7 @@ import logging
 import pathlib
 import pickle
 import shutil
+import threading
 
 import flax.nnx as nnx
 import jax
@@ -77,6 +82,10 @@ class Learner:
         self._critic_step = jax.jit(self._critic_step_impl)
         self._actor_step = jax.jit(self._actor_step_impl)
         self._act = jax.jit(self._act_impl)
+        # Guards weights, optimizer states, replay, the RNG and update counters (see module doc).
+        self._lock = threading.RLock()
+        # Set by a failed BackgroundTrainer; acting re-raises it so collection does not run on stale weights.
+        self._background_error: BaseException | None = None
 
     # ----- acting -----
 
@@ -85,13 +94,23 @@ class Learner:
 
     def act(self, features: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
         """Collection action: a sampled normalized chunk ``(C, A)`` and its absolute robot actions."""
-        self._rng, rng = jax.random.split(self._rng)
-        normalized, absolute = jax.device_get(self._act(self.actor, _obs(features), rng))
+        self.check_background()
+        with self._lock:
+            self._rng, rng = jax.random.split(self._rng)
+            actor = self.actor
+        normalized, absolute = jax.device_get(self._act(actor, _obs(features), rng))
         return normalized, absolute
 
     def mean(self, features: dict[str, np.ndarray]) -> np.ndarray:
         """The actor's deterministic normalized chunk (logging only; draws no randomness)."""
-        return np.asarray(self._act(self.actor, _obs(features), None)[0])
+        self.check_background()
+        with self._lock:
+            actor = self.actor
+        return np.asarray(self._act(actor, _obs(features), None)[0])
+
+    def check_background(self) -> None:
+        if self._background_error is not None:
+            raise RuntimeError("The background trainer failed.") from self._background_error
 
     def _act_impl(self, actor_state, obs, rng):
         normalized = nnx.merge(self._actor_def, actor_state)(obs, noise_rng=rng)
@@ -105,36 +124,62 @@ class Learner:
         return len(self.replay) >= self.config.warm_up
 
     def pending_updates(self) -> int:
-        if not self.warmed_up:
-            return 0
-        return max(self.counters.transitions * self.config.utd - self.counters.critic_updates, 0)
+        with self._lock:
+            if not self.warmed_up:
+                return 0
+            return max(self.counters.transitions * self.config.utd - self.counters.critic_updates, 0)
 
     def commit(self, rows: list[dict]) -> None:
         """Add a round's transitions; all rows are validated before any is stored."""
         for row in rows:
             self.replay.prepare(row)
-        for row in rows:
-            self.replay.add(row)
-        self.counters.transitions += len(rows)
+        with self._lock:
+            evicted = self.replay.evicted
+            for row in rows:
+                self.replay.add(row)
+            self.counters.transitions += len(rows)
+            if self.replay.evicted and not evicted:
+                logging.warning(
+                    "Replay is full (%d transitions): the oldest rows are now being overwritten. "
+                    "Raise rl.buffer_size to keep the whole run.",
+                    self.replay.capacity,
+                )
 
     def train(self) -> list[dict[str, float]]:
         """Spend the whole earned update backlog; returns per-update metrics."""
         infos = []
-        for _ in range(self.pending_updates()):
+        while (update := self.train_step()) is not None:
+            infos.append(update[1])
+        return infos
+
+    def train_step(self) -> tuple[int, dict[str, float]] | None:
+        """One earned critic update (plus the actor's, when due): ``(critic update index, metrics)``.
+
+        ``None`` when no update is earned. The gradient steps run outside the lock, so acting and
+        committing are never blocked behind them; only one thread may call this at a time.
+        """
+        with self._lock:
+            if self.pending_updates() == 0:
+                return None
             batch = jax.tree.map(jax.numpy.asarray, self.replay.sample(self.config.batch_size))
             self._rng, critic_rng, actor_rng = jax.random.split(self._rng, 3)
-            self.critic, self.target_critic, self.critic_opt, info = self._critic_step(
-                self.critic, self.target_critic, self.critic_opt, self.actor, batch, critic_rng
-            )
-            self.counters.critic_updates += 1
-            if self.counters.critic_updates % self.config.critic_actor_ratio == 0:
-                self.actor, self.actor_opt, actor_info = self._actor_step(
-                    self.actor, self.actor_opt, self.critic, batch, actor_rng
-                )
+            index = self.counters.critic_updates + 1
+            actor, actor_opt = self.actor, self.actor_opt
+        critic, target, critic_opt, info = self._critic_step(
+            self.critic, self.target_critic, self.critic_opt, actor, batch, critic_rng
+        )
+        update_actor = index % self.config.critic_actor_ratio == 0
+        if update_actor:
+            actor, actor_opt, actor_info = self._actor_step(actor, actor_opt, critic, batch, actor_rng)
+            info = {**info, **actor_info}
+        info = {key: float(value) for key, value in jax.device_get(info).items()}
+        with self._lock:
+            self.critic, self.target_critic, self.critic_opt = critic, target, critic_opt
+            self.counters.critic_updates = index
+            if update_actor:
+                self.actor, self.actor_opt = actor, actor_opt
                 self.counters.actor_updates += 1
-                info = {**info, **actor_info}
-            infos.append({key: float(value) for key, value in jax.device_get(info).items()})
-        return infos
+        return index, info
 
     def _critic_step_impl(self, critic, target, opt, actor, batch, rng):
         def loss_fn(critic):
@@ -195,14 +240,18 @@ class Learner:
 
     def snapshot(self, path: pathlib.Path, extra: dict | None = None) -> None:
         """Weights only (actor, critic, target critic) plus counters and config, loadable by ``load_actor``."""
-        state = {
+        with self._lock:
+            state = self._snapshot_state(extra)
+        with open(path, "wb") as f:
+            pickle.dump(state, f)
+
+    def _snapshot_state(self, extra: dict | None) -> dict:
+        return {
             **(extra or {}),
             **jax.device_get({k: v for k, v in self._state().items() if k in ("actor", "critic", "target_critic")}),
             "counters": dataclasses.asdict(self.counters),
             "config": dataclasses.asdict(self.config),
         }
-        with open(path, "wb") as f:
-            pickle.dump(state, f)
 
     def _state(self) -> dict:
         return {
@@ -219,13 +268,14 @@ class Learner:
         tmp = directory.with_name(directory.name + ".tmp")
         shutil.rmtree(tmp, ignore_errors=True)
         tmp.mkdir(parents=True)
-        state = {
-            **jax.device_get(self._state()),
-            "counters": dataclasses.asdict(self.counters),
-            "replay": self.replay.state_dict(),
-            "config": dataclasses.asdict(self.config),
-            **(extra or {}),
-        }
+        with self._lock:
+            state = {
+                **jax.device_get(self._state()),
+                "counters": dataclasses.asdict(self.counters),
+                "replay": self.replay.state_dict(),
+                "config": dataclasses.asdict(self.config),
+                **(extra or {}),
+            }
         with open(tmp / "learner.pkl", "wb") as f:
             pickle.dump(state, f)
         shutil.rmtree(directory, ignore_errors=True)
@@ -247,6 +297,66 @@ class Learner:
         self.counters = Counters(**state["counters"])
         self.replay.load_state_dict(state["replay"])
         return state
+
+
+class BackgroundTrainer:
+    """Spends the learner's earned update budget on a worker thread, concurrently with collection.
+
+    The RLT paper's asynchronous learner: the robot keeps collecting while the actor and critic
+    train, and every chunk acts with the latest weights. Rows still reach replay once per round
+    (``Learner.commit``), so a discard never has to be undone; the budget they earn is spent as
+    fast as the GPU allows. A failure stops the thread and is re-raised by the next ``act``/``mean``
+    and by ``drain``.
+    """
+
+    def __init__(self, learner: Learner, *, idle_poll_s: float = 0.5):
+        self.learner = learner
+        self._idle_poll_s = idle_poll_s
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+        self._finish_backlog = False
+        self._results: list[tuple[int, dict[str, float]]] = []
+        self._results_lock = threading.Lock()
+        self._thread = threading.Thread(target=self._run, name="rlt-background-trainer", daemon=True)
+
+    def start(self) -> BackgroundTrainer:
+        self._thread.start()
+        return self
+
+    def notify(self) -> None:
+        """New budget was committed: stop idling."""
+        self._wake.set()
+
+    def drain(self) -> list[tuple[int, dict[str, float]]]:
+        """The ``(critic update index, metrics)`` of every update finished since the last drain."""
+        self.learner.check_background()
+        with self._results_lock:
+            results, self._results = self._results, []
+        return results
+
+    def stop(self, *, finish_backlog: bool) -> None:
+        """Stop the thread; with ``finish_backlog``, after it has spent the whole earned budget."""
+        self._finish_backlog = finish_backlog
+        self._stop.set()
+        self._wake.set()
+        if self._thread.is_alive():
+            self._thread.join()
+
+    def _run(self) -> None:
+        try:
+            while not (self._stop.is_set() and not self._finish_backlog):
+                self._wake.clear()
+                update = self.learner.train_step()
+                if update is None:
+                    if self._stop.is_set():
+                        return
+                    self._wake.wait(self._idle_poll_s)
+                    continue
+                with self._results_lock:
+                    self._results.append(update)
+        except BaseException as exc:
+            logging.exception("Background trainer failed")
+            self.learner._background_error = exc
 
 
 def _check_contract(saved: dict, config: _rlt_config.RLConfig, directory: pathlib.Path) -> None:

@@ -1,0 +1,10 @@
+# Robot connects; configured startup and exit resets still move the arms.
+# Only policy actions are suppressed. RTC requests and camera reads run normally.
+robot_recipe: dm-taccap00-09
+dry_run: true
+rtc_enabled: true
+host: localhost
+port: 8000
+runtime_hz: 30.0
+num_episodes: 1
+max_episode_steps: 200

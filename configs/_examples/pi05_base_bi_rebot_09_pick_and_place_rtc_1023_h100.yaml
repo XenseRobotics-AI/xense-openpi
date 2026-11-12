@@ -1,0 +1,44 @@
+# Rebot B601 platform 09, based on the earbuds RTC 8xH100 training config.
+# Compute this dataset's normalization stats before training:
+#   python scripts/compute_norm_stats.py --config-name=pi05_base_bi_rebot_09_pick_and_place_rtc_1023_h100
+# Train on 8xH100:
+#   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 python scripts/train.py \
+#     pi05_base_bi_rebot_09_pick_and_place_rtc_1023_h100 --exp-name=<experiment-name>
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
+model:
+  type: Pi0Config
+  # Keep the pi0.5 default budget; the earbuds-specific 128-token scan does not
+  # establish a safe limit for this dataset's task and state prompts.
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+  batch_image_views: true
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotBiRebotB601DataConfig
+  repo_id: Xense/bi_rebot_09_pick_and_place_1023
+  # TCP dimensions 0:9 and 10:19 are relative; grippers 9 and 19 stay absolute.
+  use_delta_cartesian_actions: true
+  base_config:
+    prompt_from_task: true
+    tactile: false
+  # Matches meta/tasks.parquet; task-derived prompts take precedence.
+  default_prompt: Pick up the red, blue, and yellow rectangular wooden blocks and place each block into the box with the matching color
+batch_size: 256
+num_workers: 64
+num_train_steps: 40000
+log_interval: 100
+save_interval: 10000
+keep_period: 10000
+fsdp_devices: 8
+strict_batch_order: false
+project_name: xense-openpi-hubo

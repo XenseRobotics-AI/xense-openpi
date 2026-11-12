@@ -1,0 +1,169 @@
+# Platform 09: copied from lerobot-xense record/bi_rebot_b601_rt/dm-taccap00-09.yaml.
+# Uses the SDK bundled DM_TacCap00/urdf/rebot_b601_dm_taccap_v1_gripper.urdf
+# and matching joint-offset file, selected by motor_family=dm + taccap_follower.
+# Preserve this model, TCP frame, gains, reset poses and raw wrist images for the checkpoint.
+# USB bridges: plug RIGHT first, then LEFT (auto:first / auto:second).
+# Only tactile capture is disabled; the policy consumes head + two wrist cameras.
+robot:
+  type: bi_rebot_b601_rt
+  id: bi_rebot_dm_taccap00_09
+  cameras:
+    head:
+      type: intelrealsense
+      serial_number_or_name: '249322063436'
+      fps: 30
+      width: 640
+      height: 480
+      warmup_s: 1
+      use_depth: false
+  reset_on_exit: true
+  left_arm_config:
+    motor_family: dm
+    end_frame: taccap_eef_link
+    channel: auto:second
+    dm_serial_baud: 921600
+    reset_position_rad:
+    - 0
+    - -0.8
+    - -0.8
+    - 0.5
+    - 0
+    - 0
+    cameras: {}
+    control_mode: mit
+    motor_configs:
+    - kp: 60.0
+      kd: 5.0
+    - kp: 60.0
+      kd: 5.0
+    - kp: 80.0
+      kd: 5.0
+    - kp: 12.0
+      kd: 1.2
+    - kp: 12.0
+      kd: 1.2
+    - kp: 12.0
+      kd: 1.2
+    - {}
+    interpolate_cartesian_targets: true
+    coordinate_cartesian_speed: true
+    max_cartesian_linear_speed: 1.0
+    max_cartesian_angular_speed: 6.28
+    mit_velocity_feedforward: false
+    max_joint_speeds:
+    - 1.5
+    - 1.5
+    - 1.5
+    - 1.5
+    - 1.5
+    - 1.5
+    trace_joint_tracking: false
+    trace_joint_tracking_hz: 2.0
+    gravity_compensation_scale: 1.0
+    gravity_torque_limits_nm:
+    - 1.0
+    - 22.0
+    - 12.0
+    - 4.0
+    - 2.0
+    - 1.0
+    gravity_slew_rate_nm_s: 5.0
+    gravity_vector:
+    - 0.0
+    - 0.0
+    - -9.80665
+    gravity_use_joint_offsets: true
+    reset_joint_speed: 0.5
+    reset_tolerance_rad: 0.06
+    exit_reset_tolerance_rad: 0.03
+    has_gripper: false
+    gripper:
+      type: taccap_follower
+      side: left
+      controller: force_position
+      motor_stream_hz: 100
+      print_status: false
+      status_print_hz: 5.0
+      close_speed_radps: 3.0
+      status_timeout_ms: 350
+      auto_discover_cameras: true
+      enable_tactile: false
+      undistort_wrist: false
+      require_calibrated: true
+      init_open: true
+    use_joint_observation: false
+  right_arm_config:
+    motor_family: dm
+    end_frame: taccap_eef_link
+    channel: auto:first
+    dm_serial_baud: 921600
+    reset_position_rad:
+    - 0
+    - -0.8
+    - -0.8
+    - 0.5
+    - 0
+    - 0
+    cameras: {}
+    control_mode: mit
+    motor_configs:
+    - kp: 60.0
+      kd: 5.0
+    - kp: 60.0
+      kd: 5.0
+    - kp: 80.0
+      kd: 5.0
+    - kp: 12.0
+      kd: 1.2
+    - kp: 12.0
+      kd: 1.2
+    - kp: 12.0
+      kd: 1.2
+    - {}
+    interpolate_cartesian_targets: true
+    coordinate_cartesian_speed: true
+    max_cartesian_linear_speed: 1.0
+    max_cartesian_angular_speed: 6.28
+    mit_velocity_feedforward: false
+    max_joint_speeds:
+    - 1.5
+    - 1.5
+    - 1.5
+    - 1.5
+    - 1.5
+    - 1.5
+    trace_joint_tracking: false
+    trace_joint_tracking_hz: 2.0
+    gravity_compensation_scale: 1.0
+    gravity_torque_limits_nm:
+    - 1.0
+    - 22.0
+    - 12.0
+    - 4.0
+    - 2.0
+    - 1.0
+    gravity_slew_rate_nm_s: 5.0
+    gravity_vector:
+    - 0.0
+    - 0.0
+    - -9.80665
+    gravity_use_joint_offsets: true
+    reset_joint_speed: 0.5
+    reset_tolerance_rad: 0.06
+    exit_reset_tolerance_rad: 0.03
+    has_gripper: false
+    gripper:
+      type: taccap_follower
+      side: right
+      controller: force_position
+      motor_stream_hz: 100
+      print_status: false
+      status_print_hz: 5.0
+      close_speed_radps: 3.0
+      status_timeout_ms: 350
+      auto_discover_cameras: true
+      enable_tactile: false
+      undistort_wrist: false
+      require_calibrated: true
+      init_open: true
+    use_joint_observation: false

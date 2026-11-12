@@ -39,13 +39,9 @@ dependencies = [
     #
     # These bounds also decide which cuDNN JAX loads, because torch pins
     # nvidia-cudnn-cu12 exactly (2.10 -> ==9.10.2.21) while jax-cuda12-plugin only asks
-    # >=9.1,<10. JAX needs >=9.5 for the head_dim=256 GQA this model runs -- below that
-    # fused_attention_stablehlo caps H_max at 128 and the fused path raises -- and
-    # 9.10.2 clears it. A newer cuDNN is not required: the 9.14 NaN q-gradients are
-    # handled in gemma._stop_gradient_for_fully_masked_queries, and the bf16 divergence
-    # is a kernel-precision issue the float16 custom VJP addresses, not a version issue.
-    # What actually broke was a mixed-source stack; scripts/check_cuda_stack.py is the
-    # check for that. See docs/training-optimization.md.
+    # >=9.1,<10. Keep CUDA/cuDNN library sources consistent; mixed dispatcher/engine
+    # libraries have caused failures. scripts/check_cuda_stack.py checks the loaded
+    # sources and versions. See docs/training-optimization.md.
     "torch>=2.6,<2.11.0",
     "torchcodec>=0.2.1,<0.11.0; sys_platform != 'win32' and (sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64' and platform_machine != 'armv7l')) and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
     "torchvision>=0.21.0,<0.26.0",

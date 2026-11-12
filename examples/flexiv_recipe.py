@@ -1,6 +1,6 @@
 """Decode a lerobot bench recipe into a robot config.
 
-Shared by the Flexiv examples; each binds its own ``recipes/`` directory and
+Shared by the Flexiv and Elite examples; each binds its own ``recipes/`` directory and
 config class in a thin ``recipe.py`` beside it.
 
 Bench hardware (arm SNs, start/home poses, camera SNs, gripper backend) is no

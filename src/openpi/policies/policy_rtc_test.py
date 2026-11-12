@@ -1,7 +1,9 @@
 import numpy as np
+import pytest
 
 from openpi import transforms as _transforms
 from openpi.models import model as _model
+from openpi.policies import bi_elite_policy
 from openpi.policies import bi_flexiv_policy
 from openpi.policies import policy as _policy
 
@@ -20,9 +22,14 @@ class _CaptureModel(_model.BaseModel):
         return np.zeros((batch, self.action_horizon, self.action_dim), dtype=np.float32)
 
 
-def test_rtc_prev_chunk_left_over_uses_training_action_space():
+@pytest.mark.parametrize("per_side_grouped", [False, True], ids=["bi_flexiv", "bi_rebot_b601"])
+def test_rtc_prev_chunk_left_over_uses_training_action_space(per_side_grouped, monkeypatch):
+    # Capture the sampler arguments directly: module_jit runs on a reconstructed
+    # model, so Python-side writes do not update this test's model instance.
+    monkeypatch.setattr(_policy.nnx_utils, "module_jit", lambda fn: fn)
     model = _CaptureModel()
-    delta_mask = _transforms.make_bool_mask(18, -1, -1)
+    # Rebot reuses the Elite transforms: grippers are at 9 and 19, not 18 and 19.
+    delta_mask = bi_elite_policy.DELTA_ACTION_MASK if per_side_grouped else _transforms.make_bool_mask(18, -1, -1)
     norm_stats = {
         "state": _transforms.NormStats(
             mean=np.zeros(20, dtype=np.float32),
@@ -40,7 +47,7 @@ def test_rtc_prev_chunk_left_over_uses_training_action_space():
     policy = _policy.Policy(
         model,
         transforms=[
-            bi_flexiv_policy.BiFlexivInputs(),
+            bi_elite_policy.BiEliteInputs() if per_side_grouped else bi_flexiv_policy.BiFlexivInputs(),
             _transforms.DeltaActions(delta_mask),
             _transforms.Normalize(norm_stats),
         ],
@@ -53,7 +60,8 @@ def test_rtc_prev_chunk_left_over_uses_training_action_space():
             "left_wrist": np.zeros((3, 4, 4), dtype=np.uint8),
             "right_wrist": np.zeros((3, 4, 4), dtype=np.uint8),
         },
-        "prompt": "test",
+        # This test isolates action transforms; no tokenizer runs, so there
+        # must be no raw string left when Policy converts inputs to JAX arrays.
     }
     prev_chunk_abs = np.stack(
         [
@@ -70,7 +78,11 @@ def test_rtc_prev_chunk_left_over_uses_training_action_space():
     assert transformed.shape == (1, 2, 20)
 
     expected = prev_chunk_abs.copy()
-    expected[:, :18] -= obs["state"][:18]
+    if per_side_grouped:
+        expected[:, :9] -= obs["state"][:9]
+        expected[:, 10:19] -= obs["state"][10:19]
+    else:
+        expected[:, :18] -= obs["state"][:18]
     expected = (expected - 10.0) / 2.000001
 
     np.testing.assert_allclose(np.asarray(transformed[0]), expected, rtol=1e-5, atol=1e-5)

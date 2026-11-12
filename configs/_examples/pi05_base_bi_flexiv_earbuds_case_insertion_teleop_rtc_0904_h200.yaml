@@ -1,3 +1,9 @@
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
 model:
   type: Pi0Config
   max_token_len: 200
@@ -5,14 +11,13 @@ model:
   discrete_state_input: true
   enable_training_time_rtc: true
   batch_image_views: true
-  use_cudnn_attention: true
 weight_loader:
   type: CheckpointWeightLoader
   params_path: gs://openpi-assets/checkpoints/pi05_base/params
 ema_decay: null
 data:
   type: LeRobotBiFlexivDataConfig
-  repo_id: Xense/earbud_case_insertion_teleop_0515_left_right
+  repo_id: Xense/earbud_case_insertion_teleop_0515
   base_config:
     prompt_from_task: true
     # 这个数据集有 7 路视频流，其中 4 路触觉流被 repack 直接丢弃。
@@ -29,3 +34,7 @@ fsdp_devices: 8
 # 去掉 epoch 边界重建迭代器的停顿。详见 docs/training-optimization.md。
 # 代价：batch 的交付顺序不再逐次可复现（每个 index 每轮仍恰好出现一次）。
 strict_batch_order: false
+project_name: openpi
+save_interval: 10000
+keep_period: 10000
+log_interval: 100

@@ -1,18 +1,8 @@
-# Production launch (8xH100, hb-openpi env). XLA_FLAGS must be set before Python/JAX
-# starts and therefore cannot be injected by a TrainConfig YAML. The flags below measured
-# -3.5% step time on 2026-09-04 (FSDP collective combining + pipelined collectives); see
-# docs/training-optimization.md for the performance results and numerical validation.
+# Production launch (8xH100, hb-openpi env). Do not set XLA_FLAGS: the retired collective
+# combining/pipelining flags corrupted FSDP gradients; see docs/training-optimization.md.
 #   env -u LD_LIBRARY_PATH python scripts/check_cuda_stack.py
-#   env -u LD_LIBRARY_PATH \
-#   XLA_FLAGS="--xla_gpu_enable_latency_hiding_scheduler=true \
-#     --xla_gpu_all_gather_combine_threshold_bytes=1073741824 \
-#     --xla_gpu_reduce_scatter_combine_threshold_bytes=1073741824 \
-#     --xla_gpu_all_reduce_combine_threshold_bytes=1073741824 \
-#     --xla_gpu_enable_pipelined_all_gather=true \
-#     --xla_gpu_enable_pipelined_reduce_scatter=true \
-#     --xla_gpu_enable_while_loop_double_buffering=true" \
-#   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
-#   python scripts/train.py pi05_base_bi_flexiv_earbuds_case_insertion_teleop_rtc_0904_h100 \
+#   env -u LD_LIBRARY_PATH XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+#   python scripts/train.py pi05_base_bi_flexiv_insert_ethernet_0928_h100 \
 #     --exp-name=<experiment-name>
 model:
   type: Pi0Config
@@ -26,9 +16,6 @@ model:
   enable_training_time_rtc: false
   # Encode all three visual views in one SigLIP call.
   batch_image_views: true
-  # Run all 18 Gemma layers through the validated FP16 cuDNN custom VJP.
-  use_cudnn_attention: true
-  cudnn_attention_dtype: float16
 weight_loader:
   type: CheckpointWeightLoader
   params_path: gs://openpi-assets/checkpoints/pi05_base/params

@@ -27,7 +27,7 @@ token_training:
   # insert_ethernet uses the policy-server checkpoint on xense-inference.
   vla_checkpoint: /home/li/hubo/xense-openpi/checkpoints/59999
   prefix_cache_dir: /data/rlt_cache/strap_tape_1010 # ~3.6 MB per cached frame; use fast local disk
-  repo_id: null # inherits Xense/strap-tape-taccap-0929 from the VLA config
+  repo_id: null # inherits Xense/strap-tape-taccap-1015 from the VLA config
   frame_stride: 1
 
   batch_size: 256 # global, split across all local GPUs
@@ -48,7 +48,7 @@ token_training:
 rl:
   # TODO: this run's own token/ dir (null) or a phase-one token step dir.
   token_checkpoint: /home/li/tmp/xense-openpi/checkpoints/60000
-  num_action_chunks: 20 # C: executed steps per chunk and TD bootstrap horizon
+  num_action_chunks: 10 # C: executed steps per chunk and TD bootstrap horizon (RLT paper App. B)
   ref_num_action_chunks: 50 # VLA reference length; the actor consumes the first C steps
 
   actor_lr: 3.0e-4
@@ -61,7 +61,7 @@ rl:
   fixed_std: 0.002 # Gaussian exploration in normalized action space
 
   batch_size: 256
-  buffer_size: 6000 # replay transitions, not executed steps
+  buffer_size: 100000 # replay transitions, not executed steps (~1.85 h of labeled data at 30 Hz, stride 2)
   replay_stride: 2 # sliding anchors every 2 execution steps; must divide C
   # At 30 executed steps/s, a 4-5 s labeled phase yields 51-66 overlapping rows
   # (C=20, stride=2): 600 rows correspond to about 9-12 phases.

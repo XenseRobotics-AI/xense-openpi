@@ -8,10 +8,10 @@ from typing import Any
 
 import jax.numpy as jnp
 
-from openpi.models import pi0_config
 import openpi.models.model as _model
 from openpi.rlt import config as _rlt_config
 from openpi.rlt import prefix_cache
+from openpi.rlt import prompt_tokens as _prompt_tokens
 from openpi.shared import download
 import openpi.training.checkpoints as _checkpoints
 import openpi.training.config as _config
@@ -28,9 +28,6 @@ class FrozenVLA:
     def load_model(self) -> _model.BaseModel:
         """Load the VLA for inference, as ``policy_config.create_trained_policy`` does."""
         model_config = self.train_config.model
-        if isinstance(model_config, pi0_config.Pi0Config) and model_config.use_cudnn_attention:
-            # A training-only optimization that JAX 0.5.3 only supports on Hopper; params are unaffected.
-            model_config = dataclasses.replace(model_config, use_cudnn_attention=False)
         return model_config.load(_model.restore_params(self.checkpoint_dir / "params", dtype=jnp.bfloat16))
 
     def input_transforms(self, default_prompt: str | None = None) -> _transforms.DataTransformFn:
@@ -81,9 +78,30 @@ class FrozenVLA:
             ),
         }
 
-    def cache_identity(self, token_training: _rlt_config.TokenTrainingConfig) -> dict[str, Any]:
+    def cache_identity(self, config: _rlt_config.RLTConfig) -> dict[str, Any]:
         """What a prefix cache must have been built from to serve this config."""
-        return {**self.vla_identity(), "repo_id": self.data_config.repo_id, "frame_stride": token_training.frame_stride}
+        return {
+            **self.vla_identity(),
+            "repo_id": self.data_config.repo_id,
+            "frame_stride": config.token_training.frame_stride,
+            "drop_task_tokens": config.model.drop_task_tokens,
+        }
+
+    @property
+    def state_in_prompt(self) -> bool:
+        """pi05's discrete state input renders the normalized state into the prompt."""
+        return bool(getattr(self.train_config.model, "discrete_state_input", False))
+
+    def prefix_mask(self, mask, observation: _model.Observation, *, drop_task_tokens: bool):
+        """The prefix mask the RL token consumes (see ``rlt.prompt_tokens``)."""
+        if not drop_task_tokens:
+            return mask
+        return _prompt_tokens.drop_task_tokens(
+            mask,
+            observation.tokenized_prompt,
+            observation.tokenized_prompt_mask,
+            state_in_prompt=self.state_in_prompt,
+        )
 
 
 def resolve(token_training: _rlt_config.TokenTrainingConfig) -> FrozenVLA:

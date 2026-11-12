@@ -264,3 +264,27 @@ def test_snapshot(tmp_path):
     assert binding == {"vla": "v"}
     features = collector.extractor.extract({"state": np.zeros(20), "t": 0})
     np.testing.assert_allclose(learner.mean(features), actor(_learner._obs(features))[0], atol=1e-6)
+
+
+def test_rounds_collect_while_the_background_trainer_trains():
+    """train_rl's async loop: commit each round, keep collecting while updates run, finish the backlog."""
+    rounds = 4
+    collector, robot, learner = _setup(_PLAN * rounds)
+    trainer = _learner.BackgroundTrainer(learner, idle_poll_s=0.01).start()
+    updates = []
+    actor_chunks = 0
+    for _ in range(rounds):
+        result = collector.run_round()
+        actor_chunks += result["metrics"].get("actor_chunks", 0)
+        learner.commit(result["rows"])
+        trainer.notify()
+        updates += trainer.drain()
+    trainer.stop(finish_backlog=True)
+    updates += trainer.drain()
+
+    assert learner.counters.transitions == 4 * rounds
+    assert [index for index, _ in updates] == list(range(1, learner.counters.transitions * _CONFIG.utd + 1))
+    assert learner.pending_updates() == 0
+    # Replay warms up after the first round, so later rounds' windows run the actor.
+    assert actor_chunks > 0
+    assert not robot.plan

@@ -66,10 +66,16 @@ class ReplayBuffer:
         self._storage = {key: np.zeros((capacity, *shape), dtype) for key, (shape, dtype) in self._fields.items()}
         self._size = 0
         self._cursor = 0
+        # Rows ever added; ``added - len(self)`` were overwritten (FIFO eviction).
+        self.added = 0
         self._rng = np.random.default_rng(seed)
 
     def __len__(self) -> int:
         return self._size
+
+    @property
+    def evicted(self) -> int:
+        return self.added - self._size
 
     def prepare(self, row: dict) -> dict[str, np.ndarray]:
         """Validate and convert a row without touching the buffer (so a round commits all-or-nothing)."""
@@ -97,6 +103,7 @@ class ReplayBuffer:
             self._storage[key][self._cursor] = value
         self._cursor = (self._cursor + 1) % self.capacity
         self._size = min(self._size + 1, self.capacity)
+        self.added += 1
 
     def sample(self, batch_size: int) -> dict:
         """``min(batch_size, len(self))`` rows as ``{"curr_obs": {...}, "next_obs": {...}, <fields>}``."""
@@ -117,6 +124,7 @@ class ReplayBuffer:
             "capacity": self.capacity,
             "size": self._size,
             "cursor": self._cursor,
+            "added": self.added,
             "storage": {key: value[: self._size].copy() for key, value in self._storage.items()},
             "rng": copy.deepcopy(self._rng.bit_generator.state),
         }
@@ -131,5 +139,7 @@ class ReplayBuffer:
                 raise ValueError(f"Replay field {key!r} differs from the checkpoint layout.")
             target[:size] = value
         self._size, self._cursor = size, state["cursor"]
+        # Checkpoints from before eviction tracking: only what is still stored is known.
+        self.added = state.get("added", size)
         self._rng = np.random.default_rng()
         self._rng.bit_generator.state = copy.deepcopy(state["rng"])
