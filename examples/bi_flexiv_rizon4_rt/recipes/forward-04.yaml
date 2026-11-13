@@ -33,14 +33,18 @@ robot:
   # ── Gripper ── One block for both arms; `side` is stamped per arm at build time.
   # Both grippers use the serial gripper interface (matched pair, single switch).
   gripper:
-    type: serial
-    gripper_v_max: 100.0    # mm/s
-    gripper_f_max: 30.0     # N
-    gripper_min_pos: 0.0    # mm — fully closed
-    gripper_max_pos: 85.0   # mm — fully open
-    serial_timeout: 1.0
+    type: taccap_follower
+    auto_discover_cameras: true
+    enable_tactile: true
+    # ── Wrist fisheye rectification ── the intrinsics live in THIS gripper's MCU
+    # flash, so the switch travels with the gripper. Needs auto_discover_cameras
+    # on (it is applied to the wrist camera as it is discovered); a recipe that
+    # pins cameras by hand sets `undistort:` on the wrist camera block instead.
+    # An uncalibrated unit falls back to the SDK's shared reference intrinsics
+    # with a warning — close, but not this unit's.
+    undistort_wrist: false
+    # fisheye_balance: 0.0                # 0 = calibrated focal length; 1 = 0.70x, widest FOV
+    require_calibrated: true
     init_open: true
-    auto_discover_cameras: true   # sniff wrist + tactile off this gripper's USB hub
-    enable_tactile: false
   left_use_gripper: true
   right_use_gripper: true

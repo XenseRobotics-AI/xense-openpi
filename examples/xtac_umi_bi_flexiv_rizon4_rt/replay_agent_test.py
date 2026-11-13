@@ -196,3 +196,19 @@ def test_agent_rejects_targets_too_far_from_home():
     states = _moved(_umi_start(), [0.80, 0.0, 0.0], np.eye(3), steps=40)
     with pytest.raises(ValueError, match="from home"):
         replay_agent.UmiReplayAgent(_episode(states)).warmup({"state": _home()})
+
+
+def test_agent_saves_plan_and_measured_states(tmp_path):
+    states = _moved(_umi_start(), [0.10, 0.0, 0.0], np.eye(3), steps=3)
+    home = _home()
+    agent = replay_agent.UmiReplayAgent(_episode(states))
+    agent.warmup({"state": home})
+    for _ in range(2):
+        agent.get_action({"state": home})
+    agent.save_trajectory(tmp_path / "logs" / "run.npz")
+
+    saved = np.load(tmp_path / "logs" / "run.npz")
+    assert saved["plan"].shape == (3, 20)
+    assert saved["states"].shape == (2, 20)
+    assert saved["times"].shape == (2,)
+    np.testing.assert_allclose(saved["home"], home)

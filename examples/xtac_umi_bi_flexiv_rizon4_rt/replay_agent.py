@@ -30,6 +30,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import time
 from typing import override
 
 from lerobot.utils.robot_utils import get_logger
@@ -54,6 +55,8 @@ _UMI_FINGERTIP_AXIS = 0
 _FLEXIV_FINGERTIP_AXIS = 2
 # Above this elevation the fingertip's horizontal heading is too ill-conditioned to align on.
 _MAX_FINGERTIP_ELEVATION_DEG = 60.0
+# A gripper target crossing this opening is logged as a grasp/release event.
+_GRIPPER_EVENT_THRESHOLD = 0.6
 
 
 @dataclasses.dataclass(frozen=True)
@@ -211,6 +214,10 @@ class UmiReplayAgent(_agent.Agent):
         self._plan: np.ndarray | None = None
         self._cursor = 0
         self._tracking_errors: list[np.ndarray] = []
+        self._home: np.ndarray | None = None
+        self._yaw: float = 0.0
+        self._states: list[np.ndarray] = []
+        self._times: list[float] = []
 
     @property
     def done(self) -> bool:
@@ -222,6 +229,9 @@ class UmiReplayAgent(_agent.Agent):
         self._plan = None
         self._cursor = 0
         self._tracking_errors = []
+        self._home = None
+        self._states = []
+        self._times = []
 
     @override
     def warmup(self, observation: dict) -> None:
@@ -238,9 +248,55 @@ class UmiReplayAgent(_agent.Agent):
                 np.array([np.linalg.norm(state[tcp][:3] - previous[tcp][:3]) for _, tcp in _SIDES])
             )
         # Past the end, hold the last target.
-        target = self._plan[min(self._cursor, len(self._plan) - 1)]
+        index = min(self._cursor, len(self._plan) - 1)
+        target = self._plan[index]
+        self._states.append(state)
+        self._times.append(time.time())
+        self._log_gripper_events(index, state)
         self._cursor += 1
         return {"actions": target.astype(np.float32)}
+
+    def _log_gripper_events(self, index: int, state: np.ndarray) -> None:
+        """Log where each arm is, relative to its home, when its gripper target closes or opens.
+
+        These are the moments the TCP should be at an object, so they are the points to
+        compare against the scene when the replay lands off target.
+        """
+        if index == 0 or self._home is None:
+            return
+        for (side, tcp), dim in zip(_SIDES, _GRIPPER_DIMS, strict=True):
+            before = self._plan[index - 1, dim] < _GRIPPER_EVENT_THRESHOLD
+            after = self._plan[index, dim] < _GRIPPER_EVENT_THRESHOLD
+            if before == after:
+                continue
+            planned = self._plan[index, tcp][:3] - self._home[tcp][:3]
+            measured = state[tcp][:3] - self._home[tcp][:3]
+            logger.info(
+                f"{side} gripper {'CLOSE' if after else 'OPEN'} at step {index}: offset from home "
+                f"planned {planned.round(3).tolist()} m, measured {measured.round(3).tolist()} m"
+            )
+
+    def save_trajectory(self, path: pathlib.Path) -> None:
+        """Write what was planned and what the arms did to an ``.npz`` for offline analysis.
+
+        ``states[k]`` is the robot state read just before ``plan[k]`` was sent, so
+        ``states[k + 1]`` is the response to ``plan[k]``.
+        """
+        if self._plan is None or self._home is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(
+            path,
+            plan=self._plan,
+            states=np.stack(self._states) if self._states else np.zeros((0, HAND_DIM)),
+            times=np.asarray(self._times),
+            home=self._home,
+            yaw_deg=np.degrees(self._yaw),
+            speed_scale=self._speed_scale,
+            fps=self._episode.fps,
+            umi_start=self._episode.states[0],
+        )
+        logger.info(f"Trajectory saved to {path} ({len(self._states)} of {len(self._plan)} steps executed)")
 
     def tracking_summary(self) -> str:
         """Distance between each sent target and the TCP one step later (includes the servo lag)."""
@@ -289,6 +345,12 @@ class UmiReplayAgent(_agent.Agent):
             yaw = estimate.mean
             logger.info(f"Using the mean yaw {np.degrees(yaw):+.1f} deg")
 
+        self._home, self._yaw = home, float(yaw)
+        logger.info(
+            "Home TCP (m): "
+            + ", ".join(f"{side} {home[tcp][:3].round(4).tolist()}" for side, tcp in _SIDES)
+            + f"; TCP-to-TCP distance at the UMI start {np.linalg.norm(episode.states[0][rebase.LEFT_TCP][:3] - episode.states[0][rebase.RIGHT_TCP][:3]):.3f} m"
+        )
         plan = build_plan(episode, home, yaw, self._speed_scale)
         for side, tcp in _SIDES:
             offsets = plan[:, tcp][:, :3] - home[tcp][:3]

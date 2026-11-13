@@ -26,6 +26,7 @@ Example::
 from dataclasses import dataclass
 import pathlib
 import signal
+import time
 from typing import override
 
 from lerobot.utils.robot_utils import get_logger
@@ -121,6 +122,9 @@ class Args:
     interpolate_cmds: bool = True
     log_level: str = "INFO"
 
+    # Where each run's planned and measured trajectory is written (.npz); None disables it.
+    trajectory_dir: pathlib.Path | None = pathlib.Path("replay_logs")
+
     # Build and report the plan without sending any target. Pass --args.no-dry-run to move.
     dry_run: bool = True
 
@@ -199,6 +203,9 @@ def main(args: Args) -> None:
             environment.disconnect()
         except Exception as error:
             logger.warning(f"Error while disconnecting: {error}")
+        if args.trajectory_dir is not None:
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            agent.save_trajectory(args.trajectory_dir / f"episode{args.episode}_{stamp}.npz")
 
 
 if __name__ == "__main__":
