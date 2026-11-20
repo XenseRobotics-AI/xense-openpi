@@ -717,23 +717,23 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     (`use_head_camera`). Without one, the model's base_0_rgb slot is a black
     image with image_mask=False - see xtac_umi_policy.XtacUmiInputs.
 
-    For 29D xtac_umi_g1 recordings, set drop_head_pose=True to train only the
-    hands. With use_head_camera=True, head_camera_key selects one headset eye
+    The model sees the absolute 20D TCP state, so the poses must already be in the
+    robot's frame: the dataset has to be re-based onto the arms' start TCPs first
+    (examples/xtac_umi_bi_flexiv_rizon4_rt/rebase_umi_dataset.py; its output is 20D
+    and in the Flexiv TCP convention). A raw recording, whose poses are relative to
+    the headset at record start, is rejected - see xtac_umi_policy.XtacUmiStateActions.
+
+    With use_head_camera=True, head_camera_key selects one headset eye
     (e.g. observation.images.head_left) for base_0_rgb.
     """
 
+    # Delta-encode the TCP dims against the current state; the gripper dims stay absolute.
     use_delta_cartesian_actions: bool = True
-    # UMI policy interface: TCP actions as SE(3) poses relative to the current gripper frame
-    # (inv(T_t) @ T_{t+k}) and a gripper-only model state. Frame-independent, so handheld
-    # Pico4-world data deploys on a robot base frame. Requires use_delta_cartesian_actions=False.
-    use_relative_pose_actions: bool = False
     # If True, the dataset must have the head_camera_key column, which fills
     # the base_0_rgb slot (image_mask=True). Default False: base_0_rgb is masked out.
     use_head_camera: bool = False
     # G1 datasets have separate head_left/head_right streams; select one for base_0_rgb.
     head_camera_key: str = "observation.images.head"
-    # G1 appends 9D headset pose to state/action. Explicitly discard it when training only the hands.
-    drop_head_pose: bool = False
     # If provided, will be injected into the input data if the "prompt" key is not present.
     default_prompt: str | None = None
 
@@ -744,19 +744,11 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
             inputs=[
-                xtac_umi_policy.XtacUmiStateActions(drop_head_pose=self.drop_head_pose),
+                xtac_umi_policy.XtacUmiStateActions(),
                 xtac_umi_policy.XtacUmiInputs(use_head_camera=self.use_head_camera),
             ],
             outputs=[xtac_umi_policy.XtacUmiOutputs()],
         )
-
-        if self.use_delta_cartesian_actions and self.use_relative_pose_actions:
-            raise ValueError("use_relative_pose_actions replaces use_delta_cartesian_actions; set the latter to false.")
-        if self.use_relative_pose_actions:
-            data_transforms = data_transforms.push(
-                inputs=[xtac_umi_policy.XtacUmiRelativeActions()],
-                outputs=[xtac_umi_policy.XtacUmiAbsoluteActions()],
-            )
 
         if self.use_delta_cartesian_actions:
             # Per-side-grouped: TCP dims (0-8, 10-18) become deltas w.r.t. the current

@@ -13,6 +13,9 @@ from openpi.policies import xtac_umi_policy
 from openpi.training import config as _config
 import openpi.transforms as _transforms
 
+# The shipped absolute-state config: trained on data re-based onto the arms' start TCPs.
+_REBASED_EXAMPLE_CONFIG = "pi05_base_xtac_umi_g1_clean_plates_fwd04_rebased_1014_h100"
+
 
 def _example(*, with_head: bool = False, with_actions: bool = False) -> dict:
     example = xtac_umi_policy.make_xtac_umi_example()
@@ -109,21 +112,23 @@ def test_delta_mask_matches_the_per_side_grouped_layout():
 
 def test_data_config_wires_the_xtac_umi_transforms():
     """The shipped example config must resolve to these transforms, not BiFlexiv's."""
-    train_config = _config.get_config("pi05_base_xtac_umi_pick_up_cube_0807_h200")
+    train_config = _config.get_config(_REBASED_EXAMPLE_CONFIG)
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)
 
     input_types = [type(t) for t in data_config.data_transforms.inputs]
     output_types = [type(t) for t in data_config.data_transforms.outputs]
+    # The 20D layout check runs first, before anything can train on a raw recording.
+    assert input_types[0] is xtac_umi_policy.XtacUmiStateActions
     assert xtac_umi_policy.XtacUmiInputs in input_types
     assert xtac_umi_policy.XtacUmiOutputs in output_types
-    # use_delta_cartesian_actions defaults on, so the delta pair must be wired too.
+    # The re-based config trains the absolute TCP state, so the delta pair must be wired too.
     assert _transforms.DeltaActions in input_types
     assert _transforms.AbsoluteActions in output_types
 
 
 def test_data_config_repack_tracks_use_head_camera():
     """The head column is requested only when the flag asks for it."""
-    train_config = _config.get_config("pi05_base_xtac_umi_pick_up_cube_0807_h200")
+    train_config = _config.get_config(_REBASED_EXAMPLE_CONFIG)
 
     def repack_images(*, use_head_camera: bool) -> dict:
         data = _config.LeRobotXtacUmiDataConfig(repo_id=train_config.data.repo_id, use_head_camera=use_head_camera)
@@ -134,25 +139,27 @@ def test_data_config_repack_tracks_use_head_camera():
     assert set(repack_images(use_head_camera=True)) == {"head", "left_wrist", "right_wrist"}
 
 
-def test_g1_hand_only_pipeline_round_trip_and_stats_match(tmp_path, monkeypatch):
-    """29D targets must be sliced before deltas, including in parquet normalization."""
+def test_rebased_pipeline_round_trip_and_stats_match(tmp_path, monkeypatch):
+    """Re-based 20D data: training deltas, parquet normalization and the output inverse agree."""
     from scripts import compute_norm_stats
 
     monkeypatch.setattr(_config.ModelTransformFactory, "__call__", lambda self, model: _transforms.Group())
     factory = _config.LeRobotXtacUmiDataConfig(
-        drop_head_pose=True,
         use_head_camera=True,
         head_camera_key="observation.images.head_left",
     )
     config = factory.create(tmp_path, _config.pi0_config.Pi0Config(pi05=True))
     assert config.repack_transforms.inputs[0].structure["images"]["head"] == "observation.images.head_left"
-    state = np.arange(29, dtype=np.float32)
+    state = np.arange(20, dtype=np.float32)
     actions = np.stack([state + 1, state + 2])
     sample = _example(with_head=True)
     sample.update(state=state, actions=actions)
     trained = _transforms.compose(config.data_transforms.inputs)(sample)
     assert trained["state"].shape == (20,)
     assert trained["actions"].shape == (2, 20)
+    # TCP dims are deltas against the current state; the two gripper dims stay absolute.
+    np.testing.assert_array_equal(trained["actions"][0, xtac_umi_policy.LEFT_TCP], np.ones(9))
+    np.testing.assert_array_equal(trained["actions"][1, xtac_umi_policy.RIGHT_TCP], np.full(9, 2.0))
     np.testing.assert_array_equal(trained["actions"][:, [9, 19]], actions[:, [9, 19]])
     stats_batch = _transforms.compose(compute_norm_stats._state_action_transforms(config.data_transforms.inputs))(
         {"state": state[None], "actions": actions[None]}
@@ -160,138 +167,33 @@ def test_g1_hand_only_pipeline_round_trip_and_stats_match(tmp_path, monkeypatch)
     np.testing.assert_array_equal(stats_batch["state"][0], trained["state"])
     np.testing.assert_array_equal(stats_batch["actions"][0], trained["actions"])
     restored = _transforms.compose(config.data_transforms.outputs)(trained)
-    np.testing.assert_allclose(restored["actions"], actions[:, :20])
-    # Delta transforms must not mutate the caller's unsliced recording.
+    np.testing.assert_allclose(restored["actions"], actions)
+    # Delta transforms must not mutate the caller's recording.
     np.testing.assert_array_equal(sample["actions"], actions)
 
 
-@pytest.mark.parametrize(("dims", "drop_head_pose"), [(29, False), (28, True)])
-def test_state_actions_reject_unexpected_recording_layout(dims, drop_head_pose):
-    with pytest.raises(ValueError, match="XTac-UMI state must have"):
-        xtac_umi_policy.XtacUmiStateActions(drop_head_pose=drop_head_pose)({"state": np.zeros(dims)})
+def test_raw_29d_recording_is_rejected_with_a_rebase_hint():
+    """A raw G1 recording's poses are not in the robot's frame; it must be re-based first."""
+    state_actions = xtac_umi_policy.XtacUmiStateActions()
+
+    with pytest.raises(ValueError, match="rebase_umi_dataset"):
+        state_actions({"state": np.zeros(29)})
+    with pytest.raises(ValueError, match="rebase_umi_dataset"):
+        state_actions({"state": np.zeros(20), "actions": np.zeros((4, 29))})
 
 
-def test_g1_hand_only_config_accepts_20d_state_at_inference():
-    sample = {"state": np.arange(20, dtype=np.float32)}
-    result = xtac_umi_policy.XtacUmiStateActions(drop_head_pose=True)(sample)
+@pytest.mark.parametrize("dims", [19, 21, 28])
+def test_state_actions_reject_unexpected_recording_layout(dims):
+    with pytest.raises(ValueError, match="must be 20D"):
+        xtac_umi_policy.XtacUmiStateActions()({"state": np.zeros(dims)})
+
+
+def test_state_actions_pass_20d_through_as_a_copy():
+    sample = {"state": np.arange(20, dtype=np.float32), "actions": np.ones((3, 20), dtype=np.float32)}
+    result = xtac_umi_policy.XtacUmiStateActions()(sample)
+
     np.testing.assert_array_equal(result["state"], sample["state"])
-
-
-def _random_pose9(rng: np.random.Generator, shape: tuple[int, ...]) -> np.ndarray:
-    rotation = np.linalg.qr(rng.normal(size=(*shape, 3, 3)))[0]
-    return np.concatenate((rng.normal(size=(*shape, 3)), rotation[..., :, 0], rotation[..., :, 1]), axis=-1)
-
-
-def _random_hands(rng: np.random.Generator, shape: tuple[int, ...]) -> np.ndarray:
-    grippers = rng.uniform(size=(*shape, 2))
-    return np.concatenate(
-        (_random_pose9(rng, shape), grippers[..., :1], _random_pose9(rng, shape), grippers[..., 1:]), axis=-1
-    )
-
-
-def _transform_hands(world_from_old: np.ndarray, hands: np.ndarray) -> np.ndarray:
-    """Re-express both TCP poses in another world frame: T -> W @ T."""
-    out = hands.copy()
-    for tcp in (xtac_umi_policy.LEFT_TCP, xtac_umi_policy.RIGHT_TCP):
-        pose = hands[..., tcp]
-        rotation = world_from_old[:3, :3]
-        out[..., tcp] = np.concatenate(
-            (
-                pose[..., :3] @ rotation.T + world_from_old[:3, 3],
-                pose[..., 3:6] @ rotation.T,
-                pose[..., 6:9] @ rotation.T,
-            ),
-            axis=-1,
-        )
-    return out
-
-
-def test_relative_actions_examples():
-    """Pushing 3 cm along the fingertips and yawing 90 deg left read the same in any frame."""
-    # Fingertips (gripper x) along world +y, gripper y along world -x.
-    state = np.zeros(20)
-    state[xtac_umi_policy.LEFT_TCP] = [0.5, 0.2, 0.3, 0, 1, 0, -1, 0, 0]
-    state[xtac_umi_policy.RIGHT_TCP] = [0.5, -0.2, 0.3, 0, 1, 0, -1, 0, 0]
-    actions = np.repeat(state[None], 2, axis=0)
-    actions[0, 1] += 0.03  # Left: 3 cm along world +y, i.e. along its own fingertips.
-    actions[1, 13:19] = [-1, 0, 0, 0, -1, 0]  # Right: fingertips now along world -x.
-
-    relative = xtac_umi_policy.XtacUmiRelativeActions()({"state": state, "actions": actions})["actions"]
-
-    np.testing.assert_allclose(relative[0, xtac_umi_policy.LEFT_TCP], [0.03, 0, 0, 1, 0, 0, 0, 1, 0], atol=1e-6)
-    np.testing.assert_allclose(relative[1, xtac_umi_policy.RIGHT_TCP], [0, 0, 0, 0, 1, 0, -1, 0, 0], atol=1e-6)
-
-
-def test_relative_actions_are_world_frame_invariant_and_state_is_grippers():
-    rng = np.random.default_rng(0)
-    state = _random_hands(rng, ())
-    actions = _random_hands(rng, (5,))
-    world_from_old = np.eye(4)
-    world_from_old[:3, :3] = np.linalg.qr(rng.normal(size=(3, 3)))[0] * np.array([1, 1, -1])
-    if np.linalg.det(world_from_old[:3, :3]) < 0:
-        world_from_old[:3, 0] *= -1
-    world_from_old[:3, 3] = rng.normal(size=3)
-
-    transform = xtac_umi_policy.XtacUmiRelativeActions()
-    original = transform({"state": state, "actions": actions})
-    moved = transform(
-        {"state": _transform_hands(world_from_old, state), "actions": _transform_hands(world_from_old, actions)}
-    )
-
-    np.testing.assert_allclose(original["actions"], moved["actions"], atol=1e-6)
-    np.testing.assert_array_equal(original["state"], state[[9, 19]])
-    assert _transforms.INFERENCE_CONTEXT_KEY not in original
-
-
-def test_relative_actions_round_trip_through_inference_context():
-    rng = np.random.default_rng(1)
-    state = _random_hands(rng, ())
-    actions = _random_hands(rng, (4,))
-    relative = xtac_umi_policy.XtacUmiRelativeActions()({"state": state, "actions": actions})["actions"]
-
-    inference = xtac_umi_policy.XtacUmiRelativeActions()({"state": state})
-    assert inference["state"].shape == (2,)
-    # The model emits padded actions; padding must survive untouched.
-    padded = np.concatenate((relative, np.zeros((4, 12))), axis=-1)
-    outputs = xtac_umi_policy.XtacUmiAbsoluteActions()(
-        {"actions": padded, _transforms.INFERENCE_CONTEXT_KEY: inference[_transforms.INFERENCE_CONTEXT_KEY]}
-    )
-
-    np.testing.assert_allclose(outputs["actions"][:, :20], actions, atol=1e-6)
-    assert _transforms.INFERENCE_CONTEXT_KEY not in outputs
-
-
-def test_relative_config_pipeline_and_norm_stats_match(tmp_path, monkeypatch):
-    from scripts import compute_norm_stats
-
-    monkeypatch.setattr(_config.ModelTransformFactory, "__call__", lambda self, model: _transforms.Group())
-    factory = _config.LeRobotXtacUmiDataConfig(
-        drop_head_pose=True, use_delta_cartesian_actions=False, use_relative_pose_actions=True
-    )
-    config = factory.create(tmp_path, _config.pi0_config.Pi0Config(pi05=True))
-    rng = np.random.default_rng(2)
-    head = rng.normal(size=9)
-    state = np.concatenate((_random_hands(rng, ()), head))
-    actions = np.concatenate((_random_hands(rng, (3,)), np.tile(head, (3, 1))), axis=-1)
-    sample = _example()
-    sample.update(state=state, actions=actions)
-
-    trained = _transforms.compose(config.data_transforms.inputs)(sample)
-    stats_batch = _transforms.compose(compute_norm_stats._state_action_transforms(config.data_transforms.inputs))(
-        {"state": state[None], "actions": actions[None]}
-    )
-    np.testing.assert_allclose(stats_batch["state"][0], trained["state"])
-    np.testing.assert_allclose(stats_batch["actions"][0], trained["actions"])
-    assert trained["state"].shape == (2,)
-
-    inference = _transforms.compose(config.data_transforms.inputs)({**_example(), "state": state})
-    restored = _transforms.compose(config.data_transforms.outputs)(
-        {"actions": trained["actions"], _transforms.INFERENCE_CONTEXT_KEY: inference[_transforms.INFERENCE_CONTEXT_KEY]}
-    )
-    np.testing.assert_allclose(restored["actions"], actions[:, :20], atol=1e-6)
-
-
-def test_relative_and_delta_actions_are_exclusive(tmp_path):
-    factory = _config.LeRobotXtacUmiDataConfig(use_relative_pose_actions=True)
-    with pytest.raises(ValueError, match="use_relative_pose_actions replaces"):
-        factory.create(tmp_path, _config.pi0_config.Pi0Config(pi05=True))
+    np.testing.assert_array_equal(result["actions"], sample["actions"])
+    # Later delta transforms write in place; the caller's arrays must not be touched.
+    assert result["state"] is not sample["state"]
+    assert result["actions"] is not sample["actions"]

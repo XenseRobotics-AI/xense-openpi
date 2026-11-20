@@ -5,10 +5,9 @@ State/action format (20D, XTac-UMI per-side-grouped order — see ``real_env.py`
     [left_tcp.x/y/z/r1-r6 (0-8), left_gripper.pos (9),
      right_tcp.x/y/z/r1-r6 (10-18), right_gripper.pos (19)]
 
-This layer is in the same dim order as the policy, so it does no conversion at
-all. The only remaining conversion — the gripper end-frame change of basis —
-lives in ``policy_adapter.XtacUmiPolicyAdapter``, right at the websocket
-boundary.
+This layer is in the same dim order as the policy, and checkpoints are trained on
+data re-based into the Flexiv base frames, so nothing is converted between the
+robot and the policy server.
 """
 
 from typing import override

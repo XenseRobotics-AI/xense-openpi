@@ -23,37 +23,39 @@ columns of the rotation matrix.
 
 ## Coordinate frames
 
-There is **no world/base frame conversion**. XTac-UMI poses are recorded in the
-Pico4 gravity-aligned world frame and the Flexiv reports base-frame poses; the
-policy bridges that gap through `use_delta_cartesian_actions` (TCP dims are
-delta-encoded against the current state at train and inference time), not through
-an extrinsic calibration or a per-episode re-basing.
-
-The one conversion that does happen is the **gripper end-frame change of basis**
-(`gripper_frame.py`): the Flexiv driver reports TCP orientations with z along the
-fingertips (y right, x up) while the training data uses x along the fingertips
-(y left, z up). The change of basis is a constant, self-inverse rotation applied
-at the websocket boundary; translation is untouched.
-
-That axis claim is a hardware/CAD fact this repo cannot verify. If a bench's
-driver already reports UMI-convention poses, turn it off:
+Checkpoints are trained on **re-based** data. `rebase_umi_dataset.py` composes
+each handheld episode onto the arms' start TCPs, the offline equivalent of
+teleoperating the arms with the hands. Its output state and actions are Flexiv
+base-frame poses in the Flexiv TCP convention, so **the client converts nothing**:
+the 20D state the driver reports goes to the server as is, and the actions come
+back executable.
 
 ```bash
---args.no-align-gripper-frames
+python -m examples.xtac_umi_bi_flexiv_rizon4_rt.rebase_umi_dataset \
+    --src-repo-id Xense/<recording> --dst-repo-id Xense/<recording>-fwd04 \
+    --left-home  x y z qw qx qy qz \
+    --right-home x y z qw qx qy qz
 ```
+
+The homes are the Flexiv `tcp_pose` of each arm at the recipe's start joints. Keep
+`go_to_start` on so an episode begins where the training data does.
+
+A raw recording cannot be trained directly: its poses are relative to the headset
+at record start, not to the robot. `LeRobotXtacUmiDataConfig` accepts only the 20D
+re-based layout and rejects the raw 29D one.
 
 ## Start the policy server
 
 ```bash
 python scripts/serve_policy.py policy:checkpoint \
-    --policy.config=pi05_base_xtac_umi_pick_up_cube_0807_h200 \
+    --policy.config=pi05_base_xtac_umi_g1_clean_plates_fwd04_rebased_1014_h100 \
     --policy.dir=<checkpoint_dir> \
     --port=8000
 ```
 
-The checkpoint must have been trained with the current XTac-UMI conventions:
-`base_0_rgb` black and masked out, left wrist in the left slot, right wrist in
-the right slot, 20D per-side-grouped state/action.
+The checkpoint must have been trained on re-based data with the current XTac-UMI
+conventions: `base_0_rgb` black and masked out, left wrist in the left slot, right
+wrist in the right slot, 20D per-side-grouped state/action.
 
 ## Run the client
 

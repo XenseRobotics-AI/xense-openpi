@@ -120,14 +120,13 @@ data:
   # Example: pi05_base_tron2rt_pnp_0918.yaml
 
   # ---- LeRobotXtacUmiDataConfig-specific (uncomment when used) ----
-  # drop_head_pose: true            # 29D G1 recordings: keep only the first 20D hands
   # head_camera_key: observation.images.head_left  # with use_head_camera: true
   # Handheld bi_taccap_gripper rig. 20D state/action in the rig's own per-side-
   # grouped order: [left_tcp(0-8), left_gripper(9), right_tcp(10-18), right_gripper(19)]
   # -- note this is NOT the LeRobotBiFlexivDataConfig order.
-  # use_delta_cartesian_actions: true  # delta-encode TCP dims 0-8 & 10-18, keep grippers (9, 19) absolute
-  # use_relative_pose_actions: false  # UMI interface: SE(3) inv(T_t)@T_t+k TCP actions + gripper-only state;
-  #                                  # needs use_delta_cartesian_actions: false
+  # use_delta_cartesian_actions: true  # absolute TCP state; delta-encode TCP dims 0-8 & 10-18, keep grippers
+  #                                    # (9, 19) absolute. Needs a dataset re-based with
+  #                                    # examples/xtac_umi_bi_flexiv_rizon4_rt/rebase_umi_dataset.py
   # use_head_camera: false             # true = head fills base_0_rgb (mask on); false = base black + masked out
   # default_prompt: "..."
   # action_sequence_keys: [action]

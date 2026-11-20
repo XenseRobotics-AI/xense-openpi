@@ -8,8 +8,8 @@ headset was when the Unity app started. This script replays them the way
     R_arm(t) = Rz · R_umi(t) · R_anchorᵀ · Rzᵀ · R_home
 
 Each arm uses its own home pose, in its own World frame, so no extrinsic between the two arm bases is needed.
-``R_home`` is in the Flexiv TCP convention, so the output already is too. Deploy it
-with ``--args.no-align-gripper-frames``; ``gripper_frame.py`` must not run on top.
+``R_home`` is in the Flexiv TCP convention, so the output already is too: the
+deployment client sends the robot state and executes the actions unchanged.
 
 The anchor is per *session*, not per episode. Within one Unity session the Pico
 frame is fixed to the scene: the table-contact height repeats to ~4 mm. So one anchor
@@ -17,6 +17,11 @@ keeps each episode's real start offset relative to the scene. Re-anchoring every
 episode would erase that offset and twist each episode by its own start-orientation
 error. The anchor of each session and each hand is the mean start pose of that session.
 Sessions are split where the episode start jumps, which is where the Unity origin moved.
+
+``--anchor-per-episode`` anchors every episode on its own first frame instead, so each
+episode starts exactly at the homes and only its motion relative to that start is kept.
+Use it for recordings whose origin is reset per episode (backpack export), which have no
+session to share an anchor.
 
 ``Rz`` removes the session's mean headset yaw at episode start (29D G1 recordings
 only). After that, "forward for the operator" maps to the arm's +x.
@@ -72,6 +77,9 @@ class Args:
     # Explicit session start episodes (e.g. 0 15); sorted and deduplicated, must cover the first episode.
     # Default: detect from start-position jumps.
     session_starts: tuple[int, ...] | None = None
+    # Anchor every episode on its own first frame (each episode starts exactly at the homes)
+    # instead of on its session's mean start. Excludes session_starts.
+    anchor_per_episode: bool = False
     # A new session starts where the hands' mean start position moves more than this (m).
     session_jump_m: float = 0.15
     # Undo the session's mean headset yaw (needs the 29D headset pose).
@@ -182,6 +190,8 @@ def _link_tree(src: pathlib.Path, dst: pathlib.Path) -> None:
 def main(args: Args) -> None:
     if args.left_home is None or args.right_home is None:
         raise SystemExit("--left-home and --right-home are required (Flexiv tcp_pose: x y z qw qx qy qz).")
+    if args.anchor_per_episode and args.session_starts is not None:
+        raise SystemExit("--anchor-per-episode and --session-starts are mutually exclusive.")
     home_root = args.lerobot_home or pathlib.Path(
         os.environ.get("HF_LEROBOT_HOME", pathlib.Path.home() / ".cache/huggingface/lerobot")
     )
@@ -220,7 +230,9 @@ def main(args: Args) -> None:
 
     # Sessions are detected over all episodes: a dropped one still sits in the recording order.
     starts = np.stack([states[rows[e][0]] for e in episode_ids])
-    if session_starts is not None:
+    if args.anchor_per_episode:
+        session_of = np.arange(len(episode_ids))
+    elif session_starts is not None:
         session_of = np.searchsorted(session_starts, episode_ids, side="right") - 1
     else:
         midpoints = (starts[:, LEFT_TCP][:, :3] + starts[:, RIGHT_TCP][:, :3]) / 2
@@ -325,7 +337,8 @@ def main(args: Args) -> None:
     provenance = {
         "source": args.src_repo_id,
         "formula": "p = p_home + Rz(p_umi - p_anchor); R = Rz R_umi R_anchor^T Rz^T R_home (per session, per arm)",
-        "output_tcp_convention": "flexiv (from R_home); deploy with --args.no-align-gripper-frames",
+        "anchor": "episode first frame" if args.anchor_per_episode else "session mean start",
+        "output_tcp_convention": "flexiv (from R_home)",
         "homes_flexiv_tcp_pose": {"left": list(args.left_home), "right": list(args.right_home)},
         "sessions": sessions,
         "dropped_episodes": dropped,

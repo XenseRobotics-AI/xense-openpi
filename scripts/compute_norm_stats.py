@@ -51,7 +51,6 @@ logger = logging.getLogger(__name__)
 # silently truncates them to the model-facing dims.
 _STATE_ACTION_TRANSFORM_TYPES = (
     xtac_umi_policy.XtacUmiStateActions,
-    xtac_umi_policy.XtacUmiRelativeActions,
     transforms.DeltaActions,
     transforms.SubsampleActions,
 )

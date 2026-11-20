@@ -4,11 +4,8 @@
 #   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.rebase_umi_dataset \
 #       --left-home x y z qw qx qy qz --right-home x y z qw qx qy qz
 # It is 20D (hands only, headset pose dropped) and already in the Flexiv TCP
-# convention, so deploy with examples/xtac_umi_bi_flexiv_rizon4_rt --args.run fwd04-rebased
-# (which turns off align_gripper_frames).
-# Same model/training settings as pi05_base_bi_flexiv_umi_g1_clean_plates_1011_h100, so the
-# two differ only in the state/action interface (absolute state + delta TCP vs gripper-only
-# state + inv(T_t) @ T_t+k).
+# convention, so deploy with examples/xtac_umi_bi_flexiv_rizon4_rt --args.run fwd04-rebased;
+# the client converts nothing. The model sees the absolute TCP state and predicts delta TCP actions.
 lr_schedule:
   type: CosineDecaySchedule
   warmup_steps: 1000
@@ -31,7 +28,6 @@ data:
   # The robot has no view matching the moving headset eyes; base_0_rgb is masked out.
   use_head_camera: false
   use_delta_cartesian_actions: true
-  use_relative_pose_actions: false
   base_config:
     tactile: false
     prompt_from_task: true

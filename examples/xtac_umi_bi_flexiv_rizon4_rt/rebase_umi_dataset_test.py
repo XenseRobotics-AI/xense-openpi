@@ -33,6 +33,11 @@ def _pose9(matrix: np.ndarray) -> np.ndarray:
     return gripper_frame.matrix_to_pose9(matrix)
 
 
+def _world_step(step: np.ndarray, pose: np.ndarray) -> np.ndarray:
+    """Translate ``pose`` by the step's translation and rotate it about the world axes by its rotation."""
+    return _transform(step[:3, :3] @ pose[:3, :3], pose[:3, 3] + step[:3, 3])
+
+
 def test_anchor_maps_to_home():
     rng = np.random.default_rng(0)
     anchor = _transform(_random_rotation(rng), rng.standard_normal(3))
@@ -230,3 +235,70 @@ def test_invalid_session_starts_preserves_destination(tmp_path, session_starts):
             )
         )
     assert sentinel.read_text() == "keep existing dataset"
+
+
+def test_anchor_per_episode_starts_every_episode_at_home(tmp_path):
+    """Each episode's first frame lands on the homes; its motion from there is kept as is."""
+    rng = np.random.default_rng(3)
+
+    def episode(left_start, right_start, turn):
+        states = []
+        for t in range(5):
+            step = _transform(rebase.rot_z(turn * t), [0.02 * t, -0.01 * t, 0.005 * t])
+            states.append(_hand(_world_step(step, left_start), 1.0) + _hand(_world_step(step, right_start), 0.5))
+        return np.array(states)
+
+    starts = [
+        (
+            _transform(_random_rotation(rng), rng.standard_normal(3)),
+            _transform(_random_rotation(rng), rng.standard_normal(3)),
+        )
+        for _ in range(3)
+    ]
+    src = tmp_path / "Xense/src"
+    _write_source(src, [episode(left, right, 0.1 * (i + 1)) for i, (left, right) in enumerate(starts)])
+    left_home = (0.7, 0.185, 0.15, 0.5, 0.5, 0.5, 0.5)
+    right_home = (0.7, -0.185, 0.15, 1.0, 0.0, 0.0, 0.0)
+    rebase.main(
+        rebase.Args(
+            src_repo_id="Xense/src",
+            dst_repo_id="Xense/dst",
+            left_home=left_home,
+            right_home=right_home,
+            lerobot_home=tmp_path,
+            anchor_per_episode=True,
+            yaw_from_head=False,
+            max_step_m=1.0,
+            max_step_deg=180.0,
+        )
+    )
+
+    dst = tmp_path / "Xense/dst"
+    provenance = json.loads((dst / "meta/rebase.json").read_text())
+    assert provenance["anchor"] == "episode first frame"
+    assert [s["episodes"] for s in provenance["sessions"].values()] == [[0], [1], [2]]
+    out = pd.read_parquet(dst / "data/chunk-000/file-000.parquet")
+    states = np.stack(out["observation.state"].to_numpy()).astype(np.float64)
+    frames, episodes = out["frame_index"].to_numpy(), out["episode_index"].to_numpy()
+    for tcp, home in ((rebase.LEFT_TCP, left_home), (rebase.RIGHT_TCP, right_home)):
+        home_matrix = rebase.home_to_matrix(home)
+        poses = gripper_frame.pose9_to_matrix(states[:, tcp])
+        np.testing.assert_allclose(poses[frames == 0], np.tile(home_matrix, (3, 1, 1)), atol=1e-6)
+        for e in range(3):
+            for t in range(5):
+                step = _transform(rebase.rot_z(0.1 * (e + 1) * t), [0.02 * t, -0.01 * t, 0.005 * t])
+                got = poses[(episodes == e) & (frames == t)][0]
+                np.testing.assert_allclose(got, _world_step(step, home_matrix), atol=1e-6)
+
+
+def test_anchor_per_episode_excludes_session_starts(tmp_path):
+    with pytest.raises(SystemExit, match="mutually exclusive"):
+        rebase.main(
+            rebase.Args(
+                left_home=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+                right_home=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
+                lerobot_home=tmp_path,
+                anchor_per_episode=True,
+                session_starts=(0,),
+            )
+        )

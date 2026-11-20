@@ -4,8 +4,12 @@
 Pipeline (everything client-side stays in the Flexiv gripper frame)::
 
     env (20D XTac-UMI-ordered obs) -> broker (Flexiv-frame action queue)
-        -> XtacUmiPolicyAdapter (gripper end-frame change of basis)
+        -> XtacUmiPolicyAdapter (shapes the request, converts nothing)
         -> WebsocketClientPolicy -> XTac-UMI policy server
+
+Checkpoints are trained on re-based data (``rebase_umi_dataset.py``), whose state and
+actions are already Flexiv base-frame poses in the Flexiv TCP convention, so the
+numbers go to the server and back unchanged.
 
 The dim order is the policy's on both sides — ``real_env.py`` assembles the state
 per-side-grouped from the driver's named keys — so nothing regroups dims anywhere.
@@ -30,13 +34,11 @@ Example::
         --args.robot-recipe forward-04 \\
         --args.host 192.168.204.87 \\
         --args.port 8000 \\
-        --args.no-align-gripper-frames \\
         --args.runtime-hz 30 \\
         --args.dry-run
 
     # --args.robot-recipe：选择 forward-04 台位的机器人、起始关节和夹爪配置。
     # --args.host / --args.port：策略服务器的 IP 和 WebSocket 端口。
-    # --args.no-align-gripper-frames：关闭末端坐标轴转换；rebased 数据已采用 Flexiv TCP 约定。
     # --args.runtime-hz：控制循环最高频率为 30 Hz，与训练数据帧率一致。
     # --args.dry-run：只打印策略动作；连接、reset 和退出回 home 仍可能移动机器人。
 
@@ -84,8 +86,8 @@ _TRAINING_HZ = 30.0
 class DryRunEnvironmentWrapper(_environment.Environment):
     """Intercepts policy actions and prints them without executing on the robot.
 
-    What is printed is exactly what the robot would execute — the adapter has
-    already converted it back to the Flexiv gripper frame.
+    What is printed is exactly what the robot would execute: the policy's actions
+    are already Flexiv base-frame poses.
     """
 
     def __init__(self, wrapped: XtacUmiBiFlexivRizon4RTEnvironment) -> None:
@@ -153,12 +155,6 @@ class Args:
     interpolate_cmds: bool = True
     log_level: str = "INFO"
 
-    # Gripper end-frame change of basis. On by default: the Flexiv driver reports
-    # TCP orientations in the Flexiv gripper frame (z forward, y right, x up) and
-    # the training data uses the XTac-UMI one (x forward, y left, z up). Disable
-    # with --args.no-align-gripper-frames if a bench already reports UMI poses.
-    align_gripper_frames: bool = True
-
     # Image rendering
     render_height: int = 224
     render_width: int = 224
@@ -214,13 +210,8 @@ def main(args: Args) -> None:
 
     websocket_policy = _websocket_client_policy.WebsocketClientPolicy(host=args.host, port=args.port)
     logger.info(f"Server metadata: {websocket_policy.get_server_metadata()}")
-    # Conversion boundary: brokers and queues below this adapter stay in the Flexiv
-    # gripper frame; only websocket requests/responses are in XTac-UMI space.
-    converted_policy = XtacUmiPolicyAdapter(
-        websocket_policy,
-        align_gripper_frames=args.align_gripper_frames,
-        prompt=args.prompt,
-    )
+    # Everything on both sides of this adapter is in the Flexiv gripper frame.
+    converted_policy = XtacUmiPolicyAdapter(websocket_policy, prompt=args.prompt)
 
     base_environment = XtacUmiBiFlexivRizon4RTEnvironment(
         robot_config,

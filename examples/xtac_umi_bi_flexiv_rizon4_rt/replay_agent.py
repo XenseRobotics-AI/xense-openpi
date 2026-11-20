@@ -13,7 +13,7 @@ arms), with the episode's own first frame as the anchor::
 so the first target is the pose the arm is already at. ``home`` is read from the
 robot (the first observation after the reset), each arm in its own World frame.
 The rotation delta is applied in the world frame, so the UMI/Flexiv gripper axis
-conventions cancel and ``gripper_frame.align_gripper_frames`` must not run on top.
+conventions cancel and the targets are already in the Flexiv TCP convention.
 
 ``Rz`` is the only unknown between the gravity-aligned Pico world and the arm
 World frames (both z up; the two arm frames are assumed parallel). It is estimated
@@ -50,7 +50,7 @@ _SIDES = (("left", rebase.LEFT_TCP), ("right", rebase.RIGHT_TCP))
 _GRIPPER_DIMS = (9, 19)
 
 # Which axis of each end frame runs along the fingertips: x for XTac-UMI data,
-# z for the Flexiv driver (see gripper_frame.py).
+# z for the Flexiv driver.
 _UMI_FINGERTIP_AXIS = 0
 _FLEXIV_FINGERTIP_AXIS = 2
 # Above this elevation the fingertip's horizontal heading is too ill-conditioned to align on.

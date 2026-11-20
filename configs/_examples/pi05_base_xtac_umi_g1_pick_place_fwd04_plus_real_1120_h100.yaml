@@ -1,0 +1,53 @@
+# Full fine-tune on 8xH100 of the G1 pick-place UMI data mixed with 11 real forward-04 episodes of
+# the same task. The UMI part is anchored per episode on its first frame, so it starts exactly at the
+# forward-04 start TCPs and only its motion from there is kept:
+#   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.rebase_umi_dataset \
+#       --src-repo-id Xense/xtac-umi-g1-pick-place-261119 \
+#       --dst-repo-id Xense/xtac-umi-g1-pick-place-261119-fwd04 \
+#       --left-home  1.091146  0.022579 -0.217388 0.177119 -0.390323 0.718442 -0.547831 \
+#       --right-home 1.113798 -0.050039 -0.216088 0.306165  0.299568 0.760697  0.487711 \
+#       --anchor-per-episode --no-yaw-from-head
+# The homes are the Flexiv tcp_pose of each arm at the forward-04 recipe's start joints.
+# Then the real-robot recording is regrouped per side and appended:
+#   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.merge_robot_dataset \
+#       --umi-repo-id Xense/xtac-umi-g1-pick-place-261119-fwd04 \
+#       --robot-repo-id Xense/pick-place-1119 \
+#       --dst-repo-id Xense/xtac-umi-g1-pick-place-261119-fwd04-plus-real-1119
+# Same model/training settings as pi05_base_xtac_umi_g1_pick_place_fwd04_1120_h100,
+# so the two differ only in the 11 real-robot episodes.
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
+model:
+  type: Pi0Config
+  pi05: true
+  batch_image_views: true
+  max_token_len: 128
+  discrete_state_input: true
+  enable_training_time_rtc: false
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+data:
+  type: LeRobotXtacUmiDataConfig
+  repo_id: Xense/xtac-umi-g1-pick-place-261119-fwd04-plus-real-1119
+  # The robot has no view matching the moving headset eyes; base_0_rgb is masked out.
+  use_head_camera: false
+  use_delta_cartesian_actions: true
+  base_config:
+    tactile: false
+    prompt_from_task: true
+  default_prompt: put the yellow cube and the purple cube into the box.
+ema_decay: null
+batch_size: 256
+num_workers: 64
+fsdp_devices: 8
+num_train_steps: 60000
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false
+project_name: xense-openpi-hubo
