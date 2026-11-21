@@ -1,6 +1,6 @@
 # Full fine-tune on 8xH100 of the G1 clean-plates UMI data, re-based onto the
 # forward-04 Flexiv start TCPs so the policy can see the absolute TCP state.
-# Build the dataset first (offline teleop, one anchor per Unity session and arm):
+# Build the dataset first (offline teleop, each episode anchored on its own first frame):
 #   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.rebase_umi_dataset \
 #       --left-home x y z qw qx qy qz --right-home x y z qw qx qy qz
 # It is 20D (hands only, headset pose dropped) and already in the Flexiv TCP

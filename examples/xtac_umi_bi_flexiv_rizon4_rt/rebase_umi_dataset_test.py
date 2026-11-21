@@ -67,18 +67,6 @@ def test_yaw_maps_operator_forward_to_arm_x():
     np.testing.assert_allclose(out[:3], [0.8, 0.2, 0.1], atol=1e-9)
 
 
-def test_detect_sessions_splits_on_jump():
-    points = np.array([[0, 0, 0], [0.02, 0, 0], [0.5, 0, 0.3], [0.51, 0, 0.3]])
-    np.testing.assert_array_equal(rebase.detect_sessions(points, 0.15), [0, 0, 1, 1])
-
-
-def test_mean_rotation_of_symmetric_spread_is_center():
-    rng = np.random.default_rng(2)
-    center = _random_rotation(rng)
-    spread = [center @ rebase.rot_z(a) for a in (-0.2, 0.2)]
-    np.testing.assert_allclose(rebase.mean_rotation(np.stack(spread)), center, atol=1e-9)
-
-
 def test_max_frame_steps_catches_relocalization():
     track = np.stack([_pose9(_transform(np.eye(3), [0.001 * t, 0, 0])) for t in range(5)])
     track[3:, 0] += 0.4
@@ -127,11 +115,10 @@ def _write_source(root, episodes):
 
 
 @pytest.mark.parametrize("dim", [20, 29])
-@pytest.mark.parametrize("session_starts", [None, (3, 0, 3)])
-def test_end_to_end_sessions_anchor_and_drop(tmp_path, dim, session_starts):
+def test_end_to_end_anchor_and_drop(tmp_path, dim):
     left0 = _transform(np.eye(3), [0.3, 0.15, -0.3])
     right0 = _transform(np.eye(3), [0.3, -0.15, -0.3])
-    session_shift = np.array([-0.17, 0.24, 0.36])  # Unity origin moved between sessions
+    origin_shift = np.array([-0.17, 0.24, 0.36])  # the Pico origin differs between episodes
 
     def episode(shift, wiggle, jump=False):
         states = []
@@ -157,8 +144,8 @@ def test_end_to_end_sessions_anchor_and_drop(tmp_path, dim, session_starts):
             episode(zero, -0.01),
             episode(zero, 0.01),
             episode(zero, 0.0, jump=True),
-            episode(session_shift, -0.01),
-            episode(session_shift, 0.01),
+            episode(origin_shift, -0.01),
+            episode(origin_shift, 0.01),
         ],
     )
     left_home = (0.7, 0.185, 0.15, 1.0, 0.0, 0.0, 0.0)
@@ -170,24 +157,27 @@ def test_end_to_end_sessions_anchor_and_drop(tmp_path, dim, session_starts):
             left_home=left_home,
             right_home=right_home,
             lerobot_home=tmp_path,
-            session_starts=session_starts,
         )
     )
 
     dst = tmp_path / "Xense/dst"
     provenance = json.loads((dst / "meta/rebase.json").read_text())
     assert list(provenance["dropped_episodes"]) == ["2"]
-    assert [s["episodes"] for s in provenance["sessions"].values()] == [[0, 1], [3, 4]]
+    assert provenance["anchor"] == "episode first frame"
+    # Keyed by the source episode index; the dropped episode has no anchor.
+    assert list(provenance["episodes"]) == ["0", "1", "3", "4"]
+    assert provenance["episode_renumbering"] == {"0": 0, "1": 1, "3": 2, "4": 3}
 
     out = pd.read_parquet(dst / "data/chunk-000/file-000.parquet")
     assert sorted(out["episode_index"].unique()) == [0, 1, 2, 3]
     np.testing.assert_array_equal(out["index"], np.arange(len(out)))
     states = np.stack(out["observation.state"].to_numpy())
-    starts = states[out["frame_index"].to_numpy() == 0]
-    # Each session's anchor is its mean start, so starts keep their real +-1 cm spread around home.
-    np.testing.assert_allclose(starts[:, :3].mean(0), left_home[:3], atol=1e-6)
-    np.testing.assert_allclose(starts[:, 0], [0.69, 0.71, 0.69, 0.71], atol=1e-6)
-    np.testing.assert_allclose(starts[:, 10:13].mean(0), right_home[:3], atol=1e-6)
+    frames = out["frame_index"].to_numpy()
+    # Every episode starts exactly at the homes, whatever its own start or origin was...
+    np.testing.assert_allclose(states[frames == 0][:, :3], np.tile(left_home[:3], (4, 1)), atol=1e-6)
+    np.testing.assert_allclose(states[frames == 0][:, 10:13], np.tile(right_home[:3], (4, 1)), atol=1e-6)
+    # ...and keeps its motion from there: 1 cm along +x per frame.
+    np.testing.assert_allclose(states[frames == 5][:, 0], np.full(4, left_home[0] + 0.05), atol=1e-6)
     np.testing.assert_allclose(states[:, [9, 19]], np.tile([1.0, 0.5], (len(states), 1)))
 
     info = json.loads((dst / "meta/info.json").read_text())
@@ -214,15 +204,14 @@ def test_end_to_end_sessions_anchor_and_drop(tmp_path, dim, session_starts):
     assert "stats/head/min" in episodes
 
 
-@pytest.mark.parametrize("session_starts", [(), (5,), (15, 5)])
-def test_invalid_session_starts_preserves_destination(tmp_path, session_starts):
-    state = np.array(_hand(np.eye(4), 1.0) + _hand(np.eye(4), 0.5))
-    _write_source(tmp_path / "Xense/src", [np.tile(state, (2, 1))])
+def test_invalid_source_preserves_destination(tmp_path):
+    """A source that cannot be re-based must not cost the dataset already at the destination."""
+    _write_source(tmp_path / "Xense/src", [np.zeros((2, 14))])
     dst = tmp_path / "Xense/dst"
     dst.mkdir()
     sentinel = dst / "existing.txt"
     sentinel.write_text("keep existing dataset")
-    with pytest.raises(SystemExit, match="--session-starts must be nonempty and start at or before episode 0"):
+    with pytest.raises(SystemExit, match="Expected 20D or 29D"):
         rebase.main(
             rebase.Args(
                 src_repo_id="Xense/src",
@@ -230,14 +219,48 @@ def test_invalid_session_starts_preserves_destination(tmp_path, session_starts):
                 left_home=(0.7, 0.2, 0.1, 1.0, 0.0, 0.0, 0.0),
                 right_home=(0.7, -0.2, 0.1, 1.0, 0.0, 0.0, 0.0),
                 lerobot_home=tmp_path,
-                session_starts=session_starts,
                 overwrite=True,
             )
         )
     assert sentinel.read_text() == "keep existing dataset"
 
 
-def test_anchor_per_episode_starts_every_episode_at_home(tmp_path):
+@pytest.mark.parametrize("yaw_from_head", [True, False])
+def test_headset_yaw_is_removed_per_episode(tmp_path, yaw_from_head):
+    """Each episode uses its own first-frame headset yaw: operator-forward becomes +x on the arm."""
+
+    def episode(head_yaw):
+        forward = rebase.rot_z(head_yaw) @ np.array([0.05, 0.0, 0.0])
+        head = _pose9(_transform(rebase.rot_z(head_yaw), np.zeros(3)))
+        states = []
+        for t in range(2):
+            hand = _transform(np.eye(3), forward * t)
+            states.append([*_hand(hand, 1.0), *_hand(hand, 0.5), *head])
+        return np.array(states)
+
+    _write_source(tmp_path / "Xense/src", [episode(0.0), episode(np.pi / 2)])
+    home = (0.7, 0.2, 0.1, 1.0, 0.0, 0.0, 0.0)
+    rebase.main(
+        rebase.Args(
+            src_repo_id="Xense/src",
+            dst_repo_id="Xense/dst",
+            left_home=home,
+            right_home=home,
+            lerobot_home=tmp_path,
+            yaw_from_head=yaw_from_head,
+        )
+    )
+
+    dst = tmp_path / "Xense/dst"
+    out = pd.read_parquet(dst / "data/chunk-000/file-000.parquet")
+    last = np.stack(out["observation.state"].to_numpy())[out["frame_index"].to_numpy() == 1]
+    second_episode_step = [0.05, 0.0, 0.0] if yaw_from_head else [0.0, 0.05, 0.0]
+    np.testing.assert_allclose(last[:, :3] - home[:3], [[0.05, 0.0, 0.0], second_episode_step], atol=1e-6)
+    yaws = [e["yaw_deg"] for e in json.loads((dst / "meta/rebase.json").read_text())["episodes"].values()]
+    np.testing.assert_allclose(yaws, [0.0, 90.0] if yaw_from_head else [0.0, 0.0], atol=1e-4)
+
+
+def test_every_episode_starts_at_home_and_keeps_its_motion(tmp_path):
     """Each episode's first frame lands on the homes; its motion from there is kept as is."""
     rng = np.random.default_rng(3)
 
@@ -266,7 +289,6 @@ def test_anchor_per_episode_starts_every_episode_at_home(tmp_path):
             left_home=left_home,
             right_home=right_home,
             lerobot_home=tmp_path,
-            anchor_per_episode=True,
             yaw_from_head=False,
             max_step_m=1.0,
             max_step_deg=180.0,
@@ -275,8 +297,7 @@ def test_anchor_per_episode_starts_every_episode_at_home(tmp_path):
 
     dst = tmp_path / "Xense/dst"
     provenance = json.loads((dst / "meta/rebase.json").read_text())
-    assert provenance["anchor"] == "episode first frame"
-    assert [s["episodes"] for s in provenance["sessions"].values()] == [[0], [1], [2]]
+    assert list(provenance["episodes"]) == ["0", "1", "2"]
     out = pd.read_parquet(dst / "data/chunk-000/file-000.parquet")
     states = np.stack(out["observation.state"].to_numpy()).astype(np.float64)
     frames, episodes = out["frame_index"].to_numpy(), out["episode_index"].to_numpy()
@@ -289,16 +310,3 @@ def test_anchor_per_episode_starts_every_episode_at_home(tmp_path):
                 step = _transform(rebase.rot_z(0.1 * (e + 1) * t), [0.02 * t, -0.01 * t, 0.005 * t])
                 got = poses[(episodes == e) & (frames == t)][0]
                 np.testing.assert_allclose(got, _world_step(step, home_matrix), atol=1e-6)
-
-
-def test_anchor_per_episode_excludes_session_starts(tmp_path):
-    with pytest.raises(SystemExit, match="mutually exclusive"):
-        rebase.main(
-            rebase.Args(
-                left_home=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
-                right_home=(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
-                lerobot_home=tmp_path,
-                anchor_per_episode=True,
-                session_starts=(0,),
-            )
-        )

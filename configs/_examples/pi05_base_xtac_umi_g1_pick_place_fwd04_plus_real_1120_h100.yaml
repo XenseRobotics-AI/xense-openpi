@@ -6,7 +6,7 @@
 #       --dst-repo-id Xense/xtac-umi-g1-pick-place-261119-fwd04 \
 #       --left-home  1.091146  0.022579 -0.217388 0.177119 -0.390323 0.718442 -0.547831 \
 #       --right-home 1.113798 -0.050039 -0.216088 0.306165  0.299568 0.760697  0.487711 \
-#       --anchor-per-episode --no-yaw-from-head
+#       --no-yaw-from-head
 # The homes are the Flexiv tcp_pose of each arm at the forward-04 recipe's start joints.
 # Then the real-robot recording is regrouped per side and appended:
 #   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.merge_robot_dataset \
@@ -45,7 +45,7 @@ ema_decay: null
 batch_size: 256
 num_workers: 64
 fsdp_devices: 8
-num_train_steps: 60000
+num_train_steps: 30000
 save_interval: 10000
 keep_period: 10000
 log_interval: 100
