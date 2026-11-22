@@ -9,6 +9,14 @@ This layer is in the same dim order as the policy, so it does no conversion at
 all. The only remaining conversion — the gripper end-frame change of basis —
 lives in ``policy_adapter.XtacUmiPolicyAdapter``, right at the websocket
 boundary.
+
+With ``send_previous_state`` the observation's state is ``[2, 20]``: the previous
+control step's state, then the current one. Checkpoints trained with
+``use_frame_relative_poses`` need it (the model sees the motion between the two);
+it is assembled here, on every control step, because brokers only call the policy
+every few steps (and RTC from a background thread), so the policy side never sees
+consecutive frames. After ``reset()`` the first observation pairs the state with
+itself, as training does at an episode's first frame.
 """
 
 from typing import override
@@ -51,14 +59,18 @@ class XtacUmiBiFlexivRizon4RTEnvironment(_environment.Environment):
         render_height: int = 224,
         render_width: int = 224,
         setup_robot: bool = True,
+        send_previous_state: bool = False,
     ) -> None:
         self._env = XtacUmiBiFlexivRizon4RTRealEnv(robot_config, setup_robot=setup_robot)
         self._render_height = render_height
         self._render_width = render_width
+        self._send_previous_state = send_previous_state
+        self._previous_state: np.ndarray | None = None
 
     @override
     def reset(self) -> None:
         self._env.reset()
+        self._previous_state = None
 
     @override
     def is_episode_complete(self) -> bool:
@@ -85,6 +97,10 @@ class XtacUmiBiFlexivRizon4RTEnvironment(_environment.Environment):
         state = np.asarray(raw_obs["qpos"], dtype=np.float32)
         if state.shape != (len(STATE_KEYS),) or not np.all(np.isfinite(state)):
             raise RuntimeError(f"Invalid state: shape={state.shape}, finite={np.all(np.isfinite(state))}")
+        if self._send_previous_state:
+            previous = state if self._previous_state is None else self._previous_state
+            self._previous_state = state
+            state = np.stack((previous, state))
         return {"state": state, "images": images}
 
     @override

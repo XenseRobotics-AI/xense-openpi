@@ -1,0 +1,56 @@
+# Full fine-tune on 8xH100 of the raw G1 clean-plates recording, frame-relative.
+#
+# The recording stays in the Pico world frame (fixed at record start: z up against
+# gravity, x forward, y left from the headset); nothing is re-based onto a robot.
+# use_frame_relative_poses gives the model only per-frame SE(3) motion,
+# inv(T_{t-1}) @ T_t, for both TCPs, in state and actions (actions as a chain, each
+# step relative to the one before). Gripper openings stay absolute. The headset pose
+# is dropped: the robot has none to supply at deployment, and no headset view either,
+# so base_0_rgb is masked out.
+#
+# Deploy with examples/xtac_umi_bi_flexiv_rizon4_rt/runs/frame-relative.yaml.
+#
+#   uv run scripts/compute_norm_stats.py --config-name pi05_base_xtac_umi_g1_clean_plates_frame_relative_h100
+#   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py \
+#     pi05_base_xtac_umi_g1_clean_plates_frame_relative_h100 --exp-name=<experiment-name>
+#
+# Set OPENPI_LEROBOT_DATASET_ROOT (or data.base_config.dataset_root) to load a local copy.
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
+model:
+  type: Pi0Config
+  pi05: true
+  batch_image_views: true
+  # 20 discretized state values are ~80 tokens on top of ~33 for the task prompt.
+  max_token_len: 128
+  discrete_state_input: true
+  enable_training_time_rtc: false
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+data:
+  type: LeRobotXtacUmiDataConfig
+  repo_id: Xense/xtac-umi-g1-clean-plates-with-a-sponge
+  drop_head_pose: true
+  use_head_camera: false
+  use_delta_cartesian_actions: false
+  use_relative_pose_actions: false
+  use_frame_relative_poses: true
+  base_config:
+    tactile: false
+    prompt_from_task: true
+  default_prompt: Take the plates from the rack, clean their surfaces using a sponge, and return them to their original positions on the rack.
+ema_decay: null
+batch_size: 256
+num_workers: 64
+fsdp_devices: 8
+num_train_steps: 30000
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false
+project_name: xense-openpi-hubo

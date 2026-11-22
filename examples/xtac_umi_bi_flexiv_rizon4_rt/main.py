@@ -159,6 +159,13 @@ class Args:
     # with --args.no-align-gripper-frames if a bench already reports UMI poses.
     align_gripper_frames: bool = True
 
+    # Checkpoints trained with use_frame_relative_poses: send the previous and the
+    # current state ([2, 20]) on every request. The model sees only per-frame motion,
+    # which the server chains back onto the robot's current TCP, so the robot TCP
+    # frames must already be axis-aligned with the XTac-UMI gripper frame:
+    # align_gripper_frames has to be off.
+    frame_relative_poses: bool = False
+
     # Image rendering
     render_height: int = 224
     render_width: int = 224
@@ -181,8 +188,18 @@ class Args:
     default_delay: int = 4
 
 
+def check_args(args: Args) -> None:
+    """Refuse flag combinations that would run the policy in the wrong frame."""
+    if args.frame_relative_poses and args.align_gripper_frames:
+        raise SystemExit(
+            "--args.frame-relative-poses needs --args.no-align-gripper-frames: the robot TCP frames must "
+            "already match the XTac-UMI gripper frame, and the relative actions are chained onto them as is."
+        )
+
+
 def main(args: Args) -> None:
     logger.info(_run_config.describe(args, Args, RUNS_DIR))
+    check_args(args)
     if args.robot_recipe is None:
         raise SystemExit(
             f"No bench selected. Pass --args.robot-recipe <name>. Recipes: {', '.join(_recipe.available_recipes())}."
@@ -227,6 +244,7 @@ def main(args: Args) -> None:
         render_height=args.render_height,
         render_width=args.render_width,
         setup_robot=True,
+        send_previous_state=args.frame_relative_poses,
     )
     environment: _environment.Environment
     if args.dry_run:

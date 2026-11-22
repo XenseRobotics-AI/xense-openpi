@@ -1,0 +1,30 @@
+# Checkpoint trained with use_frame_relative_poses (e.g.
+# pi05_base_xtac_umi_g1_clean_plates_frame_relative_h100), on forward-04. Starts as a
+# dry run; add --args.no-dry-run once the printed actions look right.
+#   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.main --args.run frame-relative --args.host <server>
+#
+# The client sends the previous and the current state ([2, 20]); the server turns
+# them into per-frame motion and chains the predicted motion back onto the arms'
+# current TCPs. The robot TCP frames are already axis-aligned with the XTac-UMI
+# gripper frame, so no change of basis runs on top.
+#
+# Only per-frame motion reaches the model, so the start pose is not part of the
+# input; go_to_start just gives every run the same, safe starting point.
+#
+# The chained actions drift with the horizon (a step's error carries into every
+# later step), so replan well before the 50-step chunk runs out.
+
+robot_recipe: forward-04
+dry_run: true
+align_gripper_frames: false
+frame_relative_poses: true
+go_to_start: true
+
+host: localhost
+port: 8000
+
+runtime_hz: 30.0
+num_episodes: 1
+log_level: INFO
+
+action_horizon: 15
