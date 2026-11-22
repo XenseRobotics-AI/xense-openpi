@@ -1,5 +1,5 @@
 # Checkpoint trained with use_frame_relative_poses (e.g.
-# pi05_base_xtac_umi_g1_clean_plates_frame_relative_h100), on forward-04. Starts as a
+# pi05_base_xtac_umi_g1_pick_place_frame_relative_h100), on forward-04. Starts as a
 # dry run; add --args.no-dry-run once the printed actions look right.
 #   python -m examples.xtac_umi_bi_flexiv_rizon4_rt.main --args.run frame-relative --args.host <server>
 #

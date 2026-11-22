@@ -1,4 +1,4 @@
-# Full fine-tune on 8xH100 of the raw G1 clean-plates recording, frame-relative.
+# Full fine-tune on 8xH100 of a raw G1 UMI recording, frame-relative.
 #
 # The recording stays in the Pico world frame (fixed at record start: z up against
 # gravity, x forward, y left from the headset); nothing is re-based onto a robot.
@@ -37,7 +37,7 @@ weight_loader:
   params_path: gs://openpi-assets/checkpoints/pi05_base/params
 data:
   type: LeRobotXtacUmiDataConfig
-  repo_id: Xense/xtac-umi-g1-clean-plates-with-a-sponge
+  repo_id: Xense/xtac-umi-g1-pick-place-261119
   use_head_pose: false
   use_head_camera: false
   use_delta_cartesian_actions: false
@@ -46,7 +46,7 @@ data:
   base_config:
     tactile: false
     prompt_from_task: true
-  default_prompt: Take the plates from the rack, clean their surfaces using a sponge, and return them to their original positions on the rack.
+  # No default_prompt: prompt_from_task takes each episode's own task text.
 ema_decay: null
 batch_size: 256
 num_workers: 64
