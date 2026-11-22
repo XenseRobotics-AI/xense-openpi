@@ -24,7 +24,7 @@ transforms pass rotations through untouched.
 """
 
 import dataclasses
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import einops
 import numpy as np
@@ -88,32 +88,44 @@ def _pose_slices(dim: int) -> tuple[slice, ...]:
 
 @dataclasses.dataclass(frozen=True)
 class XtacUmiFrameRelativePoses(transforms.DataTransformFn):
-    """Every pose as its motion since the previous frame: ``inv(T_{t-1}) @ T_t``.
+    """Frame-relative poses: the model sees SE(3) motion, never the Pico world frame.
 
-    Recordings are absolute poses in the Pico world frame (fixed when recording starts:
-    z up against gravity, x forward, y left from the headset). That frame has nothing to
-    do with a robot base, so the model only sees per-frame SE(3) motion, expressed in the
-    moving frame itself: left TCP, right TCP and, in 29D G1 data, the head. Gripper
-    openings stay absolute in both state and actions.
+    Recordings are absolute poses in the Pico world frame, whose origin is reset when
+    recording starts and which has nothing to do with a robot base. The state and the
+    actions are therefore rewritten relative to an anchor, ``inv(T_anchor) @ T``:
 
-    - ``state`` must be ``[..., 2, D]``: the previous and the current absolute frame
-      (``DataConfig.previous_state_keys`` makes the data loader supply it). The model's
-      state is the current frame relative to the previous one. At an episode's first
-      frame the loader clamps "previous" to the frame itself, so the motion is identity.
+    - ``state_anchor="previous_frame"``: the anchor is the frame 1/30 s earlier, so the
+      state is that step's motion. A pose target the model cannot tell forward from
+      backward, and pi05's discretized state input carries almost no signal (it repeats
+      the same near-identity numbers every frame).
+    - ``state_anchor="episode_start"``: the anchor is the episode's first frame, so the
+      state says how far the hand has moved and turned since the episode began. Still
+      frame-independent (any Pico origin and heading cancels), and it gives the model
+      the progress and the absolute position within the episode that the frame-relative
+      form cannot.
+
+    Either way the actions are chained relative to the frame before each one,
+    ``inv(T_t) @ A_0``, ``inv(A_0) @ A_1``, ..., which keeps every step the same size.
+
+    - ``state`` must be ``[..., 2, D]``: the anchor and the current absolute frame.
+      ``DataConfig.previous_state_keys`` supplies the pair (the frame before, or the
+      episode's first frame; the loader clamps at the episode start).
     - ``actions`` ``[..., H, D]`` are absolute next-frame poses (``action[t]`` is the pose
-      at ``t + 1``), so each becomes relative to the one before it, the first to the
-      current state: ``inv(T_t) @ A_0``, ``inv(A_0) @ A_1``, ...
+      at ``t + 1``).
     - Without actions (inference), the current absolute state is stashed under
       ``transforms.INFERENCE_CONTEXT_KEY`` for `XtacUmiFrameAbsolutePoses`.
 
-    Works on individual samples and on batches used to compute normalization stats.
+    Gripper openings stay absolute in both state and actions. Works on individual
+    samples and on batches used to compute normalization stats.
     """
+
+    state_anchor: Literal["previous_frame", "episode_start"] = "previous_frame"
 
     def __call__(self, data: dict) -> dict:
         state = np.asarray(data["state"])
         if state.ndim < 2 or state.shape[-2] != 2:
             raise ValueError(
-                f"Frame-relative poses need the previous and current state, [..., 2, D]; got {state.shape}. "
+                f"Frame-relative poses need the anchor and current state, [..., 2, D]; got {state.shape}. "
                 "Set previous_state_keys on the data config (training) or send both frames (inference)."
             )
         poses = _pose_slices(state.shape[-1])

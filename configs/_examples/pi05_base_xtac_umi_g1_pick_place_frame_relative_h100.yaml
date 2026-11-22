@@ -43,6 +43,11 @@ data:
   use_delta_cartesian_actions: false
   use_relative_pose_actions: false
   use_frame_relative_poses: true
+  # The model's state is the pose since the episode's first frame (inv(T_0) @ T_t): it
+  # carries how far the hand has moved and turned since the episode began, which the
+  # per-frame form cannot (its numbers barely change, so pi05's discretized state input
+  # says nothing). Coordinates still cancel: no Pico origin, no robot base.
+  state_anchor: episode_start
   base_config:
     tactile: false
     prompt_from_task: true

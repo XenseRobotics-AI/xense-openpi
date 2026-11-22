@@ -165,6 +165,10 @@ class Args:
     # frames must already be axis-aligned with the XTac-UMI gripper frame:
     # align_gripper_frames has to be off.
     frame_relative_poses: bool = False
+    # What the model's state is relative to, matching the checkpoint's data config:
+    # "previous_frame" sends the previous control step, "episode_start" the state right
+    # after the reset.
+    state_anchor: str = "previous_frame"
 
     # Image rendering
     render_height: int = 224
@@ -190,6 +194,10 @@ class Args:
 
 def check_args(args: Args) -> None:
     """Refuse flag combinations that would run the policy in the wrong frame."""
+    if args.state_anchor not in ("previous_frame", "episode_start"):
+        raise SystemExit(f"--args.state-anchor must be previous_frame or episode_start, got {args.state_anchor!r}")
+    if args.state_anchor != "previous_frame" and not args.frame_relative_poses:
+        raise SystemExit("--args.state-anchor needs --args.frame-relative-poses.")
     if args.frame_relative_poses and args.align_gripper_frames:
         raise SystemExit(
             "--args.frame-relative-poses needs --args.no-align-gripper-frames: the robot TCP frames must "
@@ -245,6 +253,7 @@ def main(args: Args) -> None:
         render_width=args.render_width,
         setup_robot=True,
         send_previous_state=args.frame_relative_poses,
+        state_anchor=args.state_anchor,
     )
     environment: _environment.Environment
     if args.dry_run:

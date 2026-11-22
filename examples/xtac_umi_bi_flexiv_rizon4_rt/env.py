@@ -10,8 +10,10 @@ all. The only remaining conversion — the gripper end-frame change of basis —
 lives in ``policy_adapter.XtacUmiPolicyAdapter``, right at the websocket
 boundary.
 
-With ``send_previous_state`` the observation's state is ``[2, 20]``: the previous
-control step's state, then the current one. Checkpoints trained with
+With ``send_previous_state`` the observation's state is ``[2, 20]``: an anchor frame,
+then the current one. The anchor is the previous control step (``state_anchor="previous_frame"``)
+or the state right after the reset (``state_anchor="episode_start"``, the robot's episode
+start, fixed for the whole episode). Checkpoints trained with
 ``use_frame_relative_poses`` need it (the model sees the motion between the two);
 it is assembled here, on every control step, because brokers only call the policy
 every few steps (and RTC from a background thread), so the policy side never sees
@@ -19,7 +21,7 @@ consecutive frames. After ``reset()`` the first observation pairs the state with
 itself, as training does at an episode's first frame.
 """
 
-from typing import override
+from typing import Literal, override
 
 import einops
 from lerobot.robots.bi_flexiv_rizon4_rt.config_bi_flexiv_rizon4_rt import BiFlexivRizon4RTConfig
@@ -60,11 +62,13 @@ class XtacUmiBiFlexivRizon4RTEnvironment(_environment.Environment):
         render_width: int = 224,
         setup_robot: bool = True,
         send_previous_state: bool = False,
+        state_anchor: Literal["previous_frame", "episode_start"] = "previous_frame",
     ) -> None:
         self._env = XtacUmiBiFlexivRizon4RTRealEnv(robot_config, setup_robot=setup_robot)
         self._render_height = render_height
         self._render_width = render_width
         self._send_previous_state = send_previous_state
+        self._state_anchor = state_anchor
         self._previous_state: np.ndarray | None = None
 
     @override
@@ -98,8 +102,14 @@ class XtacUmiBiFlexivRizon4RTEnvironment(_environment.Environment):
         if state.shape != (len(STATE_KEYS),) or not np.all(np.isfinite(state)):
             raise RuntimeError(f"Invalid state: shape={state.shape}, finite={np.all(np.isfinite(state))}")
         if self._send_previous_state:
-            previous = state if self._previous_state is None else self._previous_state
-            self._previous_state = state
+            if self._state_anchor == "episode_start":
+                # The training anchor is the episode's first frame, so hold this one.
+                if self._previous_state is None:
+                    self._previous_state = state
+                previous = self._previous_state
+            else:
+                previous = state if self._previous_state is None else self._previous_state
+                self._previous_state = state
             state = np.stack((previous, state))
         return {"state": state, "images": images}
 

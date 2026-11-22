@@ -504,3 +504,61 @@ def test_frame_relative_pipeline_and_norm_stats_match(tmp_path, monkeypatch):
     for start in (0, lengths[0]):
         for pose in xtac_umi_policy._pose_slices(29):
             np.testing.assert_allclose(batch["state"][start, pose], _IDENTITY9, atol=1e-5)
+
+
+# ---- episode-start anchor ----------------------------------------------------
+
+
+def test_episode_start_anchor_state_is_pose_since_the_first_frame():
+    rng = np.random.default_rng(11)
+    start = _random_g1(rng, ())
+    current = _random_g1(rng, ())
+    transform = xtac_umi_policy.XtacUmiFrameRelativePoses(state_anchor="episode_start")
+    out = transform({"state": np.stack((start, current))})
+
+    for pose in xtac_umi_policy._pose_slices(29):
+        np.testing.assert_allclose(
+            out["state"][pose], xtac_umi_policy._relative_pose9(start[pose], current[pose]), atol=1e-9
+        )
+    np.testing.assert_array_equal(out["state"][[9, 19]], current[[9, 19]])
+
+
+def test_episode_start_anchor_is_identity_at_the_first_frame():
+    rng = np.random.default_rng(12)
+    first = _random_g1(rng, ())
+    out = xtac_umi_policy.XtacUmiFrameRelativePoses(state_anchor="episode_start")(
+        {"state": np.stack((first, first))}
+    )
+    for pose in xtac_umi_policy._pose_slices(29):
+        np.testing.assert_allclose(out["state"][pose], _IDENTITY9, atol=1e-9)
+
+
+def test_episode_start_anchor_grows_with_progress_and_cancels_the_world_frame():
+    """Unlike the per-frame form, the state distinguishes where in the episode we are."""
+    rng = np.random.default_rng(13)
+    start = _random_g1(rng, ())
+    later = start.copy()
+    later[1] += 0.25  # left hand 25 cm along world +z
+
+    per_frame = xtac_umi_policy.XtacUmiFrameRelativePoses()({"state": np.stack((start, start))})
+    from_start = xtac_umi_policy.XtacUmiFrameRelativePoses(state_anchor="episode_start")(
+        {"state": np.stack((start, later))}
+    )
+    # Per-frame motion at rest is the identity; the episode-start form carries 25 cm.
+    assert np.linalg.norm(per_frame["state"][:3]) < 1e-9
+    assert np.linalg.norm(from_start["state"][:3]) > 0.2
+
+    world = _random_rigid(rng)
+    moved = xtac_umi_policy.XtacUmiFrameRelativePoses(state_anchor="episode_start")(
+        {"state": np.stack((_transform_poses(world, start), _transform_poses(world, later)))}
+    )
+    np.testing.assert_allclose(moved["state"], from_start["state"], atol=1e-9)
+
+
+def test_episode_start_anchor_config_wiring(tmp_path):
+    config = _config.LeRobotXtacUmiDataConfig(
+        use_delta_cartesian_actions=False, use_frame_relative_poses=True, state_anchor="episode_start"
+    ).create(tmp_path, _config.pi0_config.Pi0Config(pi05=True))
+    assert config.state_anchor == "episode_start"
+    relative = [t for t in config.data_transforms.inputs if isinstance(t, xtac_umi_policy.XtacUmiFrameRelativePoses)]
+    assert [t.state_anchor for t in relative] == ["episode_start"]

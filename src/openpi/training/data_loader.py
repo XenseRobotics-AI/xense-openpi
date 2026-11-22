@@ -279,6 +279,48 @@ def _resolve_decode_video_keys(data_config: _config.DataConfig, video_keys: Sequ
     return decode_keys & required_video_keys if required_video_keys else decode_keys
 
 
+class FirstFrameAnchor:
+    """Dataset wrapper that fills a ``[2, D]`` state's anchor slot with the episode's first frame.
+
+    ``state_anchor="episode_start"``: every sample's state is ``[T_0, T_t]``, so the
+    transforms can express the state as the pose since the episode began. The episode's
+    first frame comes from rows already loaded by LeRobot (episode boundaries are where
+    ``episode_index`` changes), so no extra query or video decode is needed.
+    """
+
+    def __init__(self, dataset: Dataset, state_key: str = "observation.state"):
+        self._dataset = dataset
+        self._state_key = state_key
+        try:
+            episode_index = dataset.hf_dataset["episode_index"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                "state_anchor='episode_start' needs the dataset's episode_index column; the configured "
+                "repack_transforms must keep it."
+            ) from exc
+        self._episode_index = torch.as_tensor(episode_index).long()
+        first = torch.ones_like(self._episode_index, dtype=torch.bool)
+        first[1:] = self._episode_index[1:] != self._episode_index[:-1]
+        self._first_rows = torch.nonzero(first).flatten()
+        self._episode_of_starts = self._episode_index[self._first_rows]
+
+    def __len__(self) -> int:
+        return len(self._dataset)
+
+    def __getitem__(self, index: SupportsIndex) -> dict:
+        row = int(index)
+        sample = dict(self._dataset[row])
+        # The loader asks for one frame of this key (lerobot_delta_timestamps), so the pair
+        # is built here: [episode's first frame, this frame].
+        current = torch.as_tensor(sample[self._state_key])
+        position = int(torch.searchsorted(self._episode_of_starts, self._episode_index[row]))
+        first_state = torch.as_tensor(self._dataset[int(self._first_rows[position])][self._state_key])
+        if current.ndim >= 2 and current.shape[-2] == 2:  # already paired
+            current = current[..., 1, :]
+        sample[self._state_key] = torch.stack((first_state, current))
+        return sample
+
+
 def lerobot_delta_timestamps(
     data_config: _config.DataConfig, action_horizon: int, fps: float
 ) -> dict[str, list[float]]:
@@ -288,7 +330,10 @@ def lerobot_delta_timestamps(
     for key in data_config.previous_state_keys:
         if key in delta_timestamps:
             raise ValueError(f"{key!r} is both an action sequence key and a previous-state key.")
-        delta_timestamps[key] = [-1 / fps, 0.0]
+        if data_config.state_anchor == "previous_frame":
+            delta_timestamps[key] = [-1 / fps, 0.0]
+        # "episode_start" needs no delta timestamp: XtacUmiEpisodeStartState fills the
+        # anchor slot with the episode's first frame after the sample is loaded.
     return delta_timestamps
 
 
@@ -317,6 +362,10 @@ def create_torch_dataset(
         tolerance_s=1e-2,
     )
     dataset.decode_video_keys = _resolve_decode_video_keys(data_config, dataset_meta.video_keys)
+
+    if data_config.state_anchor == "episode_start" and data_config.previous_state_keys:
+        # Runs before prompt_from_task so the wrapped dataset is the one training iterates.
+        dataset = FirstFrameAnchor(dataset, state_key=data_config.previous_state_keys[0])
 
     if data_config.prompt_from_task:
         # Convert v3.0 tasks DataFrame to v2.1 compatible dict format

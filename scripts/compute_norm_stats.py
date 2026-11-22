@@ -239,6 +239,7 @@ def create_parquet_dataloader(
     # As the training loader does (data_loader.lerobot_delta_timestamps): [t - 1, t],
     # with t - 1 clamped to the episode's first frame.
     previous_state = state_col in data_config.previous_state_keys
+    from_episode_start = previous_state and data_config.state_anchor == "episode_start"
     if set(data_config.previous_state_keys) - {state_col}:
         raise ValueError(
             f"The parquet path supplies a previous frame for the state column only; "
@@ -287,7 +288,11 @@ def create_parquet_dataloader(
             ep_len = ep_e - ep_s
             ep_states = states_all[ep_s:ep_e]
             if previous_state:
-                prev_idx = np.maximum(np.arange(ep_len) - 1, 0)
+                # episode_start: the anchor is this episode's own first frame; previous_frame:
+                # the frame before, clamped at the episode start.
+                prev_idx = (
+                    np.zeros(ep_len, dtype=np.int64) if from_episode_start else np.maximum(np.arange(ep_len) - 1, 0)
+                )
                 ep_states = np.stack((ep_states[prev_idx], ep_states), axis=1)
             ep_actions_flat = actions_all[ep_s:ep_e]
 

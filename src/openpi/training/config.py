@@ -101,6 +101,11 @@ class DataConfig:
     # need the previous observation (e.g. xtac_umi_policy.XtacUmiFrameRelativePoses). At an
     # episode's first frame LeRobot clamps t - 1 to the frame itself.
     previous_state_keys: Sequence[str] = ()
+    # What the extra frame of previous_state_keys is. "previous_frame": 1/fps earlier,
+    # clamped to the episode's first frame (frame-relative motion). "episode_start": the
+    # episode's own first frame (state relative to where the episode began). Video is not
+    # requested for the latter: only the state parquet column is needed.
+    state_anchor: Literal["previous_frame", "episode_start"] = "previous_frame"
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
@@ -733,6 +738,11 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     # the Pico world frame reaches the model. Requires use_delta_cartesian_actions=False and
     # use_relative_pose_actions=False. See xtac_umi_policy.XtacUmiFrameRelativePoses.
     use_frame_relative_poses: bool = False
+    # What the model's state is relative to: the previous frame (per-step motion) or the
+    # episode's first frame (progress and position since the episode began). The latter
+    # gives the model absolute-within-episode information the per-step form cannot, while
+    # still cancelling the Pico world origin. Actions are chained either way.
+    state_anchor: Literal["previous_frame", "episode_start"] = "previous_frame"
     # UMI policy interface: TCP actions as SE(3) poses relative to the current gripper frame
     # (inv(T_t) @ T_{t+k}) and a gripper-only model state. Frame-independent, so handheld
     # Pico4-world data deploys on a robot base frame. Requires use_delta_cartesian_actions=False.
@@ -770,7 +780,7 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
             )
         if self.use_frame_relative_poses:
             data_transforms = data_transforms.push(
-                inputs=[xtac_umi_policy.XtacUmiFrameRelativePoses()],
+                inputs=[xtac_umi_policy.XtacUmiFrameRelativePoses(state_anchor=self.state_anchor)],
                 outputs=[xtac_umi_policy.XtacUmiFrameAbsolutePoses()],
             )
         if self.use_relative_pose_actions:
@@ -815,6 +825,7 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,
             previous_state_keys=("observation.state",) if self.use_frame_relative_poses else (),
+            state_anchor=self.state_anchor,
         )
 
 

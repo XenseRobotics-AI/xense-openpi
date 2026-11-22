@@ -18,6 +18,7 @@ robot_recipe: forward-04
 dry_run: true
 align_gripper_frames: false
 frame_relative_poses: true
+state_anchor: episode_start
 go_to_start: true
 
 host: localhost

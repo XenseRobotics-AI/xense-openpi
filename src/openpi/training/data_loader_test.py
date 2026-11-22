@@ -411,3 +411,42 @@ def test_previous_state_keys_load_the_previous_and_current_frame():
     assert "observation.state" not in lerobot_delta_timestamps(
         _config.DataConfig(action_sequence_keys=("action",)), 3, 30.0
     )
+
+
+def test_episode_start_anchor_requests_no_extra_video_frames():
+    from openpi.training.data_loader import lerobot_delta_timestamps
+
+    config = _config.DataConfig(
+        action_sequence_keys=("action",), previous_state_keys=("observation.state",), state_anchor="episode_start"
+    )
+    assert lerobot_delta_timestamps(config, 3, 30.0) == {"action": [0.0, 1 / 30, 2 / 30]}
+
+
+def test_first_frame_anchor_fills_the_anchor_slot_from_the_episode_start():
+    import torch
+
+    from openpi.training.data_loader import FirstFrameAnchor
+
+    # Two episodes of 3 and 2 frames; state is [2, D] as previous_state_keys would give it.
+    # Row i's (single-frame) state is (2i, 2i+1); the wrapper must build the [2, 2] pair.
+    states = torch.arange(10, dtype=torch.float32).reshape(5, 2)
+    samples = [{"observation.state": s, "episode_index": e} for s, e in zip(states, [0, 0, 0, 1, 1], strict=True)]
+
+    class _Dataset:
+        def __init__(self):
+            self.hf_dataset = {"episode_index": torch.tensor([0, 0, 0, 1, 1])}
+
+        def __len__(self):
+            return len(samples)
+
+        def __getitem__(self, i):
+            return samples[i]
+
+    anchored = FirstFrameAnchor(_Dataset())
+    assert len(anchored) == 5
+    for i, first_row in ((0, 0), (2, 0), (3, 3), (4, 3)):
+        sample = anchored[i]
+        # Anchor slot: the episode's first frame, for every row of that episode.
+        assert sample["observation.state"][0].tolist() == states[first_row].tolist()
+        # The current frame is untouched.
+        assert sample["observation.state"][1].tolist() == states[i].tolist()
