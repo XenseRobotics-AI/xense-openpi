@@ -10,9 +10,9 @@
 #
 # Deploy with examples/xtac_umi_bi_flexiv_rizon4_rt/runs/frame-relative.yaml.
 #
-#   uv run scripts/compute_norm_stats.py --config-name pi05_base_xtac_umi_g1_clean_plates_frame_relative_h100
+#   uv run scripts/compute_norm_stats.py --config-name pi05_base_xtac_umi_g1_pick_place_frame_relative_h100
 #   XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 uv run scripts/train.py \
-#     pi05_base_xtac_umi_g1_clean_plates_frame_relative_h100 --exp-name=<experiment-name>
+#     pi05_base_xtac_umi_g1_pick_place_frame_relative_h100 --exp-name=<experiment-name>
 #
 # Set OPENPI_LEROBOT_DATASET_ROOT (or data.base_config.dataset_root) to load a local copy.
 lr_schedule:
