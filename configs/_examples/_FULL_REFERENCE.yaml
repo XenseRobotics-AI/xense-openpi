@@ -120,7 +120,7 @@ data:
   # Example: pi05_base_tron2rt_pnp_0918.yaml
 
   # ---- LeRobotXtacUmiDataConfig-specific (uncomment when used) ----
-  # drop_head_pose: true            # 29D G1 recordings: keep only the first 20D hands
+  # use_head_pose: false            # 29D G1 recordings: false = the first 20D hands only, true = keep the headset pose
   # head_camera_key: observation.images.head_left  # with use_head_camera: true
   # Handheld bi_taccap_gripper rig. 20D state/action in the rig's own per-side-
   # grouped order: [left_tcp(0-8), left_gripper(9), right_tcp(10-18), right_gripper(19)]

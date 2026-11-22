@@ -27,4 +27,4 @@ runtime_hz: 30.0
 num_episodes: 1
 log_level: INFO
 
-action_horizon: 15
+action_horizon: 20

@@ -140,7 +140,7 @@ def test_g1_hand_only_pipeline_round_trip_and_stats_match(tmp_path, monkeypatch)
 
     monkeypatch.setattr(_config.ModelTransformFactory, "__call__", lambda self, model: _transforms.Group())
     factory = _config.LeRobotXtacUmiDataConfig(
-        drop_head_pose=True,
+        use_head_pose=False,
         use_head_camera=True,
         head_camera_key="observation.images.head_left",
     )
@@ -165,15 +165,15 @@ def test_g1_hand_only_pipeline_round_trip_and_stats_match(tmp_path, monkeypatch)
     np.testing.assert_array_equal(sample["actions"], actions)
 
 
-@pytest.mark.parametrize(("dims", "drop_head_pose"), [(29, False), (28, True)])
-def test_state_actions_reject_unexpected_recording_layout(dims, drop_head_pose):
+@pytest.mark.parametrize(("dims", "use_head_pose"), [(20, True), (28, False), (28, True)])
+def test_state_actions_reject_unexpected_recording_layout(dims, use_head_pose):
     with pytest.raises(ValueError, match="XTac-UMI state must have"):
-        xtac_umi_policy.XtacUmiStateActions(drop_head_pose=drop_head_pose)({"state": np.zeros(dims)})
+        xtac_umi_policy.XtacUmiStateActions(use_head_pose=use_head_pose)({"state": np.zeros(dims)})
 
 
 def test_g1_hand_only_config_accepts_20d_state_at_inference():
     sample = {"state": np.arange(20, dtype=np.float32)}
-    result = xtac_umi_policy.XtacUmiStateActions(drop_head_pose=True)(sample)
+    result = xtac_umi_policy.XtacUmiStateActions(use_head_pose=False)(sample)
     np.testing.assert_array_equal(result["state"], sample["state"])
 
 
@@ -266,7 +266,7 @@ def test_relative_config_pipeline_and_norm_stats_match(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_config.ModelTransformFactory, "__call__", lambda self, model: _transforms.Group())
     factory = _config.LeRobotXtacUmiDataConfig(
-        drop_head_pose=True, use_delta_cartesian_actions=False, use_relative_pose_actions=True
+        use_head_pose=False, use_delta_cartesian_actions=False, use_relative_pose_actions=True
     )
     config = factory.create(tmp_path, _config.pi0_config.Pi0Config(pi05=True))
     rng = np.random.default_rng(2)
@@ -423,20 +423,15 @@ def test_frame_relative_requires_two_state_frames():
         xtac_umi_policy.XtacUmiFrameRelativePoses()({"state": np.zeros(20)})
 
 
-def test_keep_and_drop_head_pose_are_exclusive():
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        xtac_umi_policy.XtacUmiStateActions(drop_head_pose=True, keep_head_pose=True)
-
-
-def test_keep_head_pose_requires_29d():
-    with pytest.raises(ValueError, match="keep_head_pose=True"):
-        xtac_umi_policy.XtacUmiStateActions(keep_head_pose=True)({"state": np.zeros(20)})
+def test_use_head_pose_requires_29d():
+    with pytest.raises(ValueError, match="use_head_pose=True"):
+        xtac_umi_policy.XtacUmiStateActions(use_head_pose=True)({"state": np.zeros(20)})
 
 
 def test_frame_relative_config_wiring(tmp_path):
     model = _config.pi0_config.Pi0Config(pi05=True)
     config = _config.LeRobotXtacUmiDataConfig(
-        keep_head_pose=True, use_delta_cartesian_actions=False, use_frame_relative_poses=True
+        use_head_pose=True, use_delta_cartesian_actions=False, use_frame_relative_poses=True
     ).create(tmp_path, model)
     assert tuple(config.previous_state_keys) == ("observation.state",)
     assert any(isinstance(t, xtac_umi_policy.XtacUmiFrameRelativePoses) for t in config.data_transforms.inputs)
@@ -461,7 +456,7 @@ def test_frame_relative_pipeline_and_norm_stats_match(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_config.ModelTransformFactory, "__call__", lambda self, model: _transforms.Group())
     config = _config.LeRobotXtacUmiDataConfig(
-        repo_id="fake_g1", keep_head_pose=True, use_delta_cartesian_actions=False, use_frame_relative_poses=True
+        repo_id="fake_g1", use_head_pose=True, use_delta_cartesian_actions=False, use_frame_relative_poses=True
     ).create(tmp_path, _config.pi0_config.Pi0Config(pi05=True))
 
     rng = np.random.default_rng(7)

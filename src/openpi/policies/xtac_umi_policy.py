@@ -48,27 +48,20 @@ class XtacUmiStateActions(transforms.DataTransformFn):
     """Select the two hands from a 29D G1 recording before delta encoding and normalization.
 
     G1 recordings append a 9D headset pose to the original 20D hand layout.
-    Dropping it is explicit so a different recording layout cannot silently train;
-    ``keep_head_pose`` keeps all 29D instead (and then requires them).
+    ``use_head_pose=False`` drops it, accepting either layout so that a hand-only
+    policy still serves on the robot's 20D state. ``use_head_pose=True`` keeps all
+    29D and requires them.
     Works on individual samples and on batches used to compute normalization stats.
     """
 
-    drop_head_pose: bool = False
-    keep_head_pose: bool = False
-
-    def __post_init__(self) -> None:
-        if self.drop_head_pose and self.keep_head_pose:
-            raise ValueError("drop_head_pose and keep_head_pose are mutually exclusive.")
+    use_head_pose: bool = False
 
     def __call__(self, data: dict) -> dict:
         result = dict(data)
-        if self.keep_head_pose:
-            expected_dims, keep = (G1_STATE_DIM,), G1_STATE_DIM
-        elif self.drop_head_pose:
-            # Serving the resulting hand-only policy naturally supplies 20D state.
-            expected_dims, keep = (STATE_DIM, G1_STATE_DIM), STATE_DIM
-        else:
-            expected_dims, keep = (STATE_DIM,), STATE_DIM
+        # Serving a hand-only policy naturally supplies 20D state, so 29D input is
+        # accepted there and sliced rather than refused.
+        expected_dims = (G1_STATE_DIM,) if self.use_head_pose else (STATE_DIM, G1_STATE_DIM)
+        keep = G1_STATE_DIM if self.use_head_pose else STATE_DIM
         for key in ("state", "actions"):
             if key not in data:
                 continue
@@ -76,9 +69,9 @@ class XtacUmiStateActions(transforms.DataTransformFn):
             if value.ndim == 0 or value.shape[-1] not in expected_dims:
                 raise ValueError(
                     f"XTac-UMI {key} must have dimensions in {expected_dims} with "
-                    f"drop_head_pose={self.drop_head_pose}, keep_head_pose={self.keep_head_pose}; "
-                    f"got {value.shape}. For 29D xtac_umi_g1 recordings, set drop_head_pose=True to "
-                    "train only the hands, or keep_head_pose=True to keep the headset pose."
+                    f"use_head_pose={self.use_head_pose}; got {value.shape}. For 29D xtac_umi_g1 "
+                    "recordings, set use_head_pose=False to train the hands only, or True to keep "
+                    "the headset pose."
                 )
             result[key] = value[..., :keep].copy()
         return result

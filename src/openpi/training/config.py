@@ -721,13 +721,14 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     (`use_head_camera`). Without one, the model's base_0_rgb slot is a black
     image with image_mask=False - see xtac_umi_policy.XtacUmiInputs.
 
-    For 29D xtac_umi_g1 recordings, set drop_head_pose=True to train only the
-    hands. With use_head_camera=True, head_camera_key selects one headset eye
-    (e.g. observation.images.head_left) for base_0_rgb.
+    G1 recordings append a 9D headset pose to the 20D hands. use_head_pose keeps it
+    (29D state and actions); off, it is dropped. With use_head_camera=True,
+    head_camera_key selects one headset eye (e.g. observation.images.head_left) for
+    base_0_rgb.
     """
 
     use_delta_cartesian_actions: bool = True
-    # Every pose (both TCPs, and the head with keep_head_pose) as its motion since the previous
+    # Every pose (both TCPs, and the head with use_head_pose) as its motion since the previous
     # frame, inv(T_{t-1}) @ T_t, in state and actions; grippers stay absolute. Nothing about
     # the Pico world frame reaches the model. Requires use_delta_cartesian_actions=False and
     # use_relative_pose_actions=False. See xtac_umi_policy.XtacUmiFrameRelativePoses.
@@ -741,10 +742,9 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     use_head_camera: bool = False
     # G1 datasets have separate head_left/head_right streams; select one for base_0_rgb.
     head_camera_key: str = "observation.images.head"
-    # G1 appends 9D headset pose to state/action. Explicitly discard it when training only the hands.
-    drop_head_pose: bool = False
-    # Or keep it (29D state/action; G1 recordings only).
-    keep_head_pose: bool = False
+    # G1 appends a 9D headset pose to state/action. False (default) trains the hands only,
+    # dropping it; True keeps all 29D (G1 recordings only).
+    use_head_pose: bool = False
     # If provided, will be injected into the input data if the "prompt" key is not present.
     default_prompt: str | None = None
 
@@ -755,9 +755,7 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
             inputs=[
-                xtac_umi_policy.XtacUmiStateActions(
-                    drop_head_pose=self.drop_head_pose, keep_head_pose=self.keep_head_pose
-                ),
+                xtac_umi_policy.XtacUmiStateActions(use_head_pose=self.use_head_pose),
                 xtac_umi_policy.XtacUmiInputs(use_head_camera=self.use_head_camera),
             ],
             outputs=[xtac_umi_policy.XtacUmiOutputs()],

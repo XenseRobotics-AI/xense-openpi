@@ -29,13 +29,16 @@ model:
   max_token_len: 128
   discrete_state_input: true
   enable_training_time_rtc: false
+  # Chain-encoded actions accumulate a step's error, so each chunk is replanned
+  # after 20 of its 50 steps (runs/frame-relative.yaml sets the same horizon).
+  action_horizon: 20
 weight_loader:
   type: CheckpointWeightLoader
   params_path: gs://openpi-assets/checkpoints/pi05_base/params
 data:
   type: LeRobotXtacUmiDataConfig
   repo_id: Xense/xtac-umi-g1-clean-plates-with-a-sponge
-  drop_head_pose: true
+  use_head_pose: false
   use_head_camera: false
   use_delta_cartesian_actions: false
   use_relative_pose_actions: false
@@ -48,7 +51,7 @@ ema_decay: null
 batch_size: 256
 num_workers: 64
 fsdp_devices: 8
-num_train_steps: 30000
+num_train_steps: 40000
 save_interval: 10000
 keep_period: 10000
 log_interval: 100

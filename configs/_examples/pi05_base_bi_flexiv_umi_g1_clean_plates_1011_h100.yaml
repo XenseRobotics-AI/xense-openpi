@@ -27,7 +27,7 @@ weight_loader:
 data:
   type: LeRobotXtacUmiDataConfig
   repo_id: Xense/xtac-umi-g1-clean-plates-with-a-sponge
-  drop_head_pose: true
+  use_head_pose: false
   use_head_camera: true
   head_camera_key: observation.images.head_right
   # UMI policy interface for deploying handheld data on BiFlexiv: each TCP action is the

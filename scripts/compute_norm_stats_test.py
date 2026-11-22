@@ -65,7 +65,7 @@ def test_parquet_stats_use_training_state_action_space(tmp_path: pathlib.Path):
     # Reference: the training-time state/action transforms applied to the first episode.
     idx = np.clip(np.arange(7)[:, None] + np.arange(horizon)[None, :], 0, 6)
     expected = {"state": state[:7], "actions": actions[:7][idx]}
-    expected = xtac_umi_policy.XtacUmiStateActions(drop_head_pose=True)(expected)
+    expected = xtac_umi_policy.XtacUmiStateActions(use_head_pose=False)(expected)
     expected = xtac_umi_policy.XtacUmiRelativeActions()(expected)
 
     assert batch["state"].shape == (12, 2)
