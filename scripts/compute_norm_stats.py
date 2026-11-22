@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 # silently truncates them to the model-facing dims.
 _STATE_ACTION_TRANSFORM_TYPES = (
     xtac_umi_policy.XtacUmiStateActions,
+    xtac_umi_policy.XtacUmiFrameRelativePoses,
     xtac_umi_policy.XtacUmiRelativeActions,
     transforms.DeltaActions,
     transforms.SubsampleActions,
@@ -235,6 +236,14 @@ def create_parquet_dataloader(
             f"(state={state_col!r}, actions={action_col!r}). "
             "Use --use-torch-loader if your repack is non-standard."
         )
+    # As the training loader does (data_loader.lerobot_delta_timestamps): [t - 1, t],
+    # with t - 1 clamped to the episode's first frame.
+    previous_state = state_col in data_config.previous_state_keys
+    if set(data_config.previous_state_keys) - {state_col}:
+        raise ValueError(
+            f"The parquet path supplies a previous frame for the state column only; "
+            f"previous_state_keys={tuple(data_config.previous_state_keys)}. Use --use-torch-loader."
+        )
     logger.info("Parquet columns: state=%r, action=%r", state_col, action_col)
 
     root = ensure_lerobot_meta_and_parquet(
@@ -277,6 +286,9 @@ def create_parquet_dataloader(
 
             ep_len = ep_e - ep_s
             ep_states = states_all[ep_s:ep_e]
+            if previous_state:
+                prev_idx = np.maximum(np.arange(ep_len) - 1, 0)
+                ep_states = np.stack((ep_states[prev_idx], ep_states), axis=1)
             ep_actions_flat = actions_all[ep_s:ep_e]
 
             row_idx = np.arange(ep_len)[:, None] + np.arange(action_horizon)[None, :]

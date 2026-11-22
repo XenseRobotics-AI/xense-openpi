@@ -398,3 +398,16 @@ def test_torch_data_loader_keeps_an_explicit_sampler():
 
     # The PyTorch DDP path passes its own DistributedSampler; we must not override it.
     assert loader.torch_loader.sampler is sampler
+
+
+def test_previous_state_keys_load_the_previous_and_current_frame():
+    from openpi.training.data_loader import lerobot_delta_timestamps
+
+    config = _config.DataConfig(action_sequence_keys=("action",), previous_state_keys=("observation.state",))
+    assert lerobot_delta_timestamps(config, 3, 30.0) == {
+        "action": [0.0, 1 / 30, 2 / 30],
+        "observation.state": [-1 / 30, 0.0],
+    }
+    assert "observation.state" not in lerobot_delta_timestamps(
+        _config.DataConfig(action_sequence_keys=("action",)), 3, 30.0
+    )

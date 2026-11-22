@@ -279,6 +279,19 @@ def _resolve_decode_video_keys(data_config: _config.DataConfig, video_keys: Sequ
     return decode_keys & required_video_keys if required_video_keys else decode_keys
 
 
+def lerobot_delta_timestamps(
+    data_config: _config.DataConfig, action_horizon: int, fps: float
+) -> dict[str, list[float]]:
+    """Frames LeRobot loads per sample: an action horizon for the action keys, and the
+    previous plus the current frame for ``previous_state_keys``."""
+    delta_timestamps = {key: [t / fps for t in range(action_horizon)] for key in data_config.action_sequence_keys}
+    for key in data_config.previous_state_keys:
+        if key in delta_timestamps:
+            raise ValueError(f"{key!r} is both an action sequence key and a previous-state key.")
+        delta_timestamps[key] = [-1 / fps, 0.0]
+    return delta_timestamps
+
+
 def create_torch_dataset(
     data_config: _config.DataConfig,
     action_horizon: int,
@@ -298,9 +311,7 @@ def create_torch_dataset(
         data_config.repo_id,
         root=dataset_root,
         video_backend=data_config.video_backend,
-        delta_timestamps={
-            key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
-        },
+        delta_timestamps=lerobot_delta_timestamps(data_config, action_horizon, dataset_meta.fps),
         # Increase tolerance_s slightly to handle floating-point precision issues in video timestamps.
         # The default 1e-4 can fail when timestamp differences are exactly at the boundary.
         tolerance_s=1e-2,

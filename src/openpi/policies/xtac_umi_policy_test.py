@@ -109,7 +109,7 @@ def test_delta_mask_matches_the_per_side_grouped_layout():
 
 def test_data_config_wires_the_xtac_umi_transforms():
     """The shipped example config must resolve to these transforms, not BiFlexiv's."""
-    train_config = _config.get_config("pi05_base_xtac_umi_pick_up_cube_0807_h200")
+    train_config = _config.get_config("pi05_base_xtac_umi_g1_clean_plates_fwd04_rebased_1014_h100")
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)
 
     input_types = [type(t) for t in data_config.data_transforms.inputs]
@@ -123,7 +123,7 @@ def test_data_config_wires_the_xtac_umi_transforms():
 
 def test_data_config_repack_tracks_use_head_camera():
     """The head column is requested only when the flag asks for it."""
-    train_config = _config.get_config("pi05_base_xtac_umi_pick_up_cube_0807_h200")
+    train_config = _config.get_config("pi05_base_xtac_umi_g1_clean_plates_fwd04_rebased_1014_h100")
 
     def repack_images(*, use_head_camera: bool) -> dict:
         data = _config.LeRobotXtacUmiDataConfig(repo_id=train_config.data.repo_id, use_head_camera=use_head_camera)
@@ -295,3 +295,217 @@ def test_relative_and_delta_actions_are_exclusive(tmp_path):
     factory = _config.LeRobotXtacUmiDataConfig(use_relative_pose_actions=True)
     with pytest.raises(ValueError, match="use_relative_pose_actions replaces"):
         factory.create(tmp_path, _config.pi0_config.Pi0Config(pi05=True))
+
+
+# ---- frame-relative poses ----------------------------------------------------
+
+
+def _random_g1(rng: np.random.Generator, shape: tuple[int, ...]) -> np.ndarray:
+    return np.concatenate((_random_hands(rng, shape), _random_pose9(rng, shape)), axis=-1)
+
+
+def _transform_poses(world_from_old: np.ndarray, vector: np.ndarray) -> np.ndarray:
+    """Re-express every 9D pose block (hands, and the head when 29D) in another world frame."""
+    out = _transform_hands(world_from_old, vector)
+    if vector.shape[-1] == xtac_umi_policy.G1_STATE_DIM:
+        rotation = world_from_old[:3, :3]
+        head = vector[..., xtac_umi_policy.HEAD_POSE]
+        out[..., xtac_umi_policy.HEAD_POSE] = np.concatenate(
+            (
+                head[..., :3] @ rotation.T + world_from_old[:3, 3],
+                head[..., 3:6] @ rotation.T,
+                head[..., 6:9] @ rotation.T,
+            ),
+            axis=-1,
+        )
+    return out
+
+
+def _random_rigid(rng: np.random.Generator) -> np.ndarray:
+    world_from_old = np.eye(4)
+    rotation = np.linalg.qr(rng.normal(size=(3, 3)))[0]
+    if np.linalg.det(rotation) < 0:
+        rotation[:, 0] *= -1
+    world_from_old[:3, :3] = rotation
+    world_from_old[:3, 3] = rng.normal(size=3)
+    return world_from_old
+
+
+_IDENTITY9 = np.array([0, 0, 0, 1, 0, 0, 0, 1, 0], dtype=float)
+
+
+def test_frame_relative_example_and_grippers_stay_absolute():
+    """3 cm along the fingertips and a 90 deg yaw read as such, in the moving frame."""
+    previous = np.zeros(20)
+    previous[xtac_umi_policy.LEFT_TCP] = [0.5, 0.2, 0.3, 0, 1, 0, -1, 0, 0]  # fingertips along world +y
+    previous[xtac_umi_policy.RIGHT_TCP] = [0.5, -0.2, 0.3, 0, 1, 0, -1, 0, 0]
+    previous[[9, 19]] = [0.8, 0.6]
+    current = previous.copy()
+    current[1] += 0.03  # left: 3 cm along world +y = along its own fingertips
+    current[13:19] = [-1, 0, 0, 0, -1, 0]  # right: yawed 90 deg left
+    current[[9, 19]] = [0.4, 0.3]
+
+    out = xtac_umi_policy.XtacUmiFrameRelativePoses()({"state": np.stack((previous, current))})
+
+    np.testing.assert_allclose(out["state"][xtac_umi_policy.LEFT_TCP], [0.03, 0, 0, 1, 0, 0, 0, 1, 0], atol=1e-9)
+    np.testing.assert_allclose(out["state"][xtac_umi_policy.RIGHT_TCP], [0, 0, 0, 0, 1, 0, -1, 0, 0], atol=1e-9)
+    np.testing.assert_array_equal(out["state"][[9, 19]], [0.4, 0.3])
+    np.testing.assert_array_equal(out[_transforms.INFERENCE_CONTEXT_KEY]["absolute_state"], current)
+
+
+@pytest.mark.parametrize("dim", [20, 29])
+def test_frame_relative_first_frame_is_identity(dim):
+    """At an episode start the loader clamps the previous frame to the frame itself."""
+    rng = np.random.default_rng(3)
+    frame = _random_g1(rng, ())[:dim]
+    out = xtac_umi_policy.XtacUmiFrameRelativePoses()({"state": np.stack((frame, frame))})
+    for pose in xtac_umi_policy._pose_slices(dim):
+        np.testing.assert_allclose(out["state"][pose], _IDENTITY9, atol=1e-9)
+
+
+@pytest.mark.parametrize("dim", [20, 29])
+def test_frame_relative_actions_chain_from_the_current_state(dim):
+    rng = np.random.default_rng(4)
+    state = _random_g1(rng, (2,))[..., :dim]
+    actions = _random_g1(rng, (5,))[..., :dim]
+    out = xtac_umi_policy.XtacUmiFrameRelativePoses()({"state": state, "actions": actions})["actions"]
+
+    before = np.concatenate((state[1:], actions[:-1]))
+    for pose in xtac_umi_policy._pose_slices(dim):
+        np.testing.assert_allclose(
+            out[:, pose], xtac_umi_policy._relative_pose9(before[:, pose], actions[:, pose]), atol=1e-9
+        )
+    np.testing.assert_array_equal(out[:, [9, 19]], actions[:, [9, 19]])
+
+
+@pytest.mark.parametrize("dim", [20, 29])
+def test_frame_relative_is_world_frame_invariant(dim):
+    """Nothing about the Pico world frame (origin, heading) reaches the model."""
+    rng = np.random.default_rng(5)
+    state = _random_g1(rng, (2,))[..., :dim]
+    actions = _random_g1(rng, (6,))[..., :dim]
+    world_from_old = _random_rigid(rng)
+    transform = xtac_umi_policy.XtacUmiFrameRelativePoses()
+
+    original = transform({"state": state, "actions": actions})
+    moved = transform(
+        {"state": _transform_poses(world_from_old, state), "actions": _transform_poses(world_from_old, actions)}
+    )
+
+    np.testing.assert_allclose(moved["state"], original["state"], atol=1e-9)
+    np.testing.assert_allclose(moved["actions"], original["actions"], atol=1e-9)
+
+
+@pytest.mark.parametrize("dim", [20, 29])
+def test_frame_relative_round_trips_through_inference_context(dim):
+    """Chaining the relative actions onto the robot's current pose gives back absolute actions,
+    in whatever frame that pose is in."""
+    rng = np.random.default_rng(6)
+    state = _random_g1(rng, (2,))[..., :dim]
+    actions = _random_g1(rng, (4,))[..., :dim]
+    relative = xtac_umi_policy.XtacUmiFrameRelativePoses()({"state": state, "actions": actions})["actions"]
+
+    robot_from_pico = _random_rigid(rng)
+    robot_state = _transform_poses(robot_from_pico, state)
+    inference = xtac_umi_policy.XtacUmiFrameRelativePoses()({"state": robot_state})
+    padded = np.concatenate((relative, np.zeros((4, 32 - dim))), axis=-1)
+    outputs = xtac_umi_policy.XtacUmiFrameAbsolutePoses()(
+        {"actions": padded, _transforms.INFERENCE_CONTEXT_KEY: inference[_transforms.INFERENCE_CONTEXT_KEY]}
+    )
+
+    assert outputs["actions"].shape == (4, dim)
+    np.testing.assert_allclose(outputs["actions"], _transform_poses(robot_from_pico, actions), atol=1e-6)
+    assert _transforms.INFERENCE_CONTEXT_KEY not in outputs
+
+
+def test_frame_relative_requires_two_state_frames():
+    with pytest.raises(ValueError, match=r"\[\.\.\., 2, D\]"):
+        xtac_umi_policy.XtacUmiFrameRelativePoses()({"state": np.zeros(20)})
+
+
+def test_keep_and_drop_head_pose_are_exclusive():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        xtac_umi_policy.XtacUmiStateActions(drop_head_pose=True, keep_head_pose=True)
+
+
+def test_keep_head_pose_requires_29d():
+    with pytest.raises(ValueError, match="keep_head_pose=True"):
+        xtac_umi_policy.XtacUmiStateActions(keep_head_pose=True)({"state": np.zeros(20)})
+
+
+def test_frame_relative_config_wiring(tmp_path):
+    model = _config.pi0_config.Pi0Config(pi05=True)
+    config = _config.LeRobotXtacUmiDataConfig(
+        keep_head_pose=True, use_delta_cartesian_actions=False, use_frame_relative_poses=True
+    ).create(tmp_path, model)
+    assert tuple(config.previous_state_keys) == ("observation.state",)
+    assert any(isinstance(t, xtac_umi_policy.XtacUmiFrameRelativePoses) for t in config.data_transforms.inputs)
+    assert isinstance(config.data_transforms.outputs[0], xtac_umi_policy.XtacUmiFrameAbsolutePoses)
+    assert not any(isinstance(t, _transforms.DeltaActions) for t in config.data_transforms.inputs)
+
+    default = _config.LeRobotXtacUmiDataConfig().create(tmp_path, model)
+    assert tuple(default.previous_state_keys) == ()
+
+    with pytest.raises(ValueError, match="use_frame_relative_poses replaces"):
+        _config.LeRobotXtacUmiDataConfig(use_frame_relative_poses=True).create(tmp_path, model)
+
+
+def test_frame_relative_pipeline_and_norm_stats_match(tmp_path, monkeypatch):
+    """Training transforms and the parquet norm-stats path agree on a 29D G1 episode."""
+    import pathlib
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from scripts import compute_norm_stats
+
+    monkeypatch.setattr(_config.ModelTransformFactory, "__call__", lambda self, model: _transforms.Group())
+    config = _config.LeRobotXtacUmiDataConfig(
+        repo_id="fake_g1", keep_head_pose=True, use_delta_cartesian_actions=False, use_frame_relative_poses=True
+    ).create(tmp_path, _config.pi0_config.Pi0Config(pi05=True))
+
+    rng = np.random.default_rng(7)
+    lengths, horizon = (6, 4), 3
+    frames = _random_g1(rng, (sum(lengths),)).astype(np.float32)
+    episode = np.repeat(np.arange(len(lengths)), lengths)
+    frame_index = np.concatenate([np.arange(n) for n in lengths])
+    # action[t] is the pose at t + 1 (the last frame repeats itself), as in G1 recordings.
+    actions = frames.copy()
+    for start, n in zip(np.cumsum((0, *lengths[:-1])), lengths, strict=True):
+        actions[start : start + n - 1] = frames[start + 1 : start + n]
+
+    root = pathlib.Path(tmp_path) / "ds"
+    (root / "meta").mkdir(parents=True)
+    (root / "meta" / "info.json").write_text('{"fps": 30}')
+    (root / "data" / "chunk-000").mkdir(parents=True)
+    pq.write_table(
+        pa.table(
+            {
+                "episode_index": episode,
+                "frame_index": frame_index,
+                "observation.state": list(frames),
+                "action": list(actions),
+            }
+        ),
+        root / "data" / "chunk-000" / "file-000.parquet",
+    )
+
+    loader, _ = compute_norm_stats.create_parquet_dataloader(config, horizon, batch_size=1000, dataset_root=root)
+    (batch,) = list(loader)
+    assert batch["state"].shape == (sum(lengths), 29)
+    assert batch["actions"].shape == (sum(lengths), horizon, 29)
+
+    pipeline = _transforms.compose(config.data_transforms.inputs)
+    for i in range(sum(lengths)):
+        start = int(np.flatnonzero(episode == episode[i])[0])
+        end = start + lengths[episode[i]]
+        sample = _example()
+        sample["state"] = np.stack((frames[max(i - 1, start)], frames[i]))
+        sample["actions"] = actions[np.minimum(np.arange(i, i + horizon), end - 1)]
+        trained = pipeline(sample)
+        np.testing.assert_allclose(batch["state"][i], trained["state"], atol=1e-5)
+        np.testing.assert_allclose(batch["actions"][i], trained["actions"], atol=1e-5)
+    # Each episode's first frame has identity motion.
+    for start in (0, lengths[0]):
+        for pose in xtac_umi_policy._pose_slices(29):
+            np.testing.assert_allclose(batch["state"][start, pose], _IDENTITY9, atol=1e-5)

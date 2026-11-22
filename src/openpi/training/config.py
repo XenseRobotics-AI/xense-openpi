@@ -97,6 +97,10 @@ class DataConfig:
     # sequence is defined by the `action_horizon` field in the model config. This should be adjusted if your
     # LeRobot dataset is using different keys to represent the action.
     action_sequence_keys: Sequence[str] = ("actions",)
+    # Dataset keys loaded as two frames, ``[t - 1, t]``, instead of one: for transforms that
+    # need the previous observation (e.g. xtac_umi_policy.XtacUmiFrameRelativePoses). At an
+    # episode's first frame LeRobot clamps t - 1 to the frame itself.
+    previous_state_keys: Sequence[str] = ()
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
@@ -723,6 +727,11 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     """
 
     use_delta_cartesian_actions: bool = True
+    # Every pose (both TCPs, and the head with keep_head_pose) as its motion since the previous
+    # frame, inv(T_{t-1}) @ T_t, in state and actions; grippers stay absolute. Nothing about
+    # the Pico world frame reaches the model. Requires use_delta_cartesian_actions=False and
+    # use_relative_pose_actions=False. See xtac_umi_policy.XtacUmiFrameRelativePoses.
+    use_frame_relative_poses: bool = False
     # UMI policy interface: TCP actions as SE(3) poses relative to the current gripper frame
     # (inv(T_t) @ T_{t+k}) and a gripper-only model state. Frame-independent, so handheld
     # Pico4-world data deploys on a robot base frame. Requires use_delta_cartesian_actions=False.
@@ -734,6 +743,8 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     head_camera_key: str = "observation.images.head"
     # G1 appends 9D headset pose to state/action. Explicitly discard it when training only the hands.
     drop_head_pose: bool = False
+    # Or keep it (29D state/action; G1 recordings only).
+    keep_head_pose: bool = False
     # If provided, will be injected into the input data if the "prompt" key is not present.
     default_prompt: str | None = None
 
@@ -744,7 +755,9 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
             inputs=[
-                xtac_umi_policy.XtacUmiStateActions(drop_head_pose=self.drop_head_pose),
+                xtac_umi_policy.XtacUmiStateActions(
+                    drop_head_pose=self.drop_head_pose, keep_head_pose=self.keep_head_pose
+                ),
                 xtac_umi_policy.XtacUmiInputs(use_head_camera=self.use_head_camera),
             ],
             outputs=[xtac_umi_policy.XtacUmiOutputs()],
@@ -752,6 +765,16 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
 
         if self.use_delta_cartesian_actions and self.use_relative_pose_actions:
             raise ValueError("use_relative_pose_actions replaces use_delta_cartesian_actions; set the latter to false.")
+        if self.use_frame_relative_poses and (self.use_delta_cartesian_actions or self.use_relative_pose_actions):
+            raise ValueError(
+                "use_frame_relative_poses replaces use_delta_cartesian_actions and use_relative_pose_actions; "
+                "set both to false."
+            )
+        if self.use_frame_relative_poses:
+            data_transforms = data_transforms.push(
+                inputs=[xtac_umi_policy.XtacUmiFrameRelativePoses()],
+                outputs=[xtac_umi_policy.XtacUmiFrameAbsolutePoses()],
+            )
         if self.use_relative_pose_actions:
             data_transforms = data_transforms.push(
                 inputs=[xtac_umi_policy.XtacUmiRelativeActions()],
@@ -793,6 +816,7 @@ class LeRobotXtacUmiDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,
+            previous_state_keys=("observation.state",) if self.use_frame_relative_poses else (),
         )
 
 

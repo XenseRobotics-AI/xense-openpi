@@ -36,8 +36,11 @@ LEFT_TCP = slice(0, 9)
 LEFT_GRIPPER = slice(9, 10)
 RIGHT_TCP = slice(10, 19)
 RIGHT_GRIPPER = slice(19, 20)
+# xtac_umi_g1 recordings append the headset pose after the two hands.
+HEAD_POSE = slice(20, 29)
 
 STATE_DIM = 20
+G1_STATE_DIM = STATE_DIM + 9
 
 
 @dataclasses.dataclass(frozen=True)
@@ -45,16 +48,27 @@ class XtacUmiStateActions(transforms.DataTransformFn):
     """Select the two hands from a 29D G1 recording before delta encoding and normalization.
 
     G1 recordings append a 9D headset pose to the original 20D hand layout.
-    Dropping it is explicit so a different recording layout cannot silently train.
+    Dropping it is explicit so a different recording layout cannot silently train;
+    ``keep_head_pose`` keeps all 29D instead (and then requires them).
     Works on individual samples and on batches used to compute normalization stats.
     """
 
     drop_head_pose: bool = False
+    keep_head_pose: bool = False
+
+    def __post_init__(self) -> None:
+        if self.drop_head_pose and self.keep_head_pose:
+            raise ValueError("drop_head_pose and keep_head_pose are mutually exclusive.")
 
     def __call__(self, data: dict) -> dict:
         result = dict(data)
-        # Serving the resulting hand-only policy naturally supplies 20D state.
-        expected_dims = (STATE_DIM, STATE_DIM + 9) if self.drop_head_pose else (STATE_DIM,)
+        if self.keep_head_pose:
+            expected_dims, keep = (G1_STATE_DIM,), G1_STATE_DIM
+        elif self.drop_head_pose:
+            # Serving the resulting hand-only policy naturally supplies 20D state.
+            expected_dims, keep = (STATE_DIM, G1_STATE_DIM), STATE_DIM
+        else:
+            expected_dims, keep = (STATE_DIM,), STATE_DIM
         for key in ("state", "actions"):
             if key not in data:
                 continue
@@ -62,10 +76,103 @@ class XtacUmiStateActions(transforms.DataTransformFn):
             if value.ndim == 0 or value.shape[-1] not in expected_dims:
                 raise ValueError(
                     f"XTac-UMI {key} must have dimensions in {expected_dims} with "
-                    f"drop_head_pose={self.drop_head_pose}; got {value.shape}. "
-                    "For 29D xtac_umi_g1 recordings, set drop_head_pose=True to train only the hands."
+                    f"drop_head_pose={self.drop_head_pose}, keep_head_pose={self.keep_head_pose}; "
+                    f"got {value.shape}. For 29D xtac_umi_g1 recordings, set drop_head_pose=True to "
+                    "train only the hands, or keep_head_pose=True to keep the headset pose."
                 )
-            result[key] = value[..., :STATE_DIM].copy()
+            result[key] = value[..., :keep].copy()
+        return result
+
+
+def _pose_slices(dim: int) -> tuple[slice, ...]:
+    """The 9D pose blocks of a per-side-grouped vector: both hands, plus the head when 29D."""
+    if dim == STATE_DIM:
+        return (LEFT_TCP, RIGHT_TCP)
+    if dim == G1_STATE_DIM:
+        return (LEFT_TCP, RIGHT_TCP, HEAD_POSE)
+    raise ValueError(f"Expected a {STATE_DIM}D or {G1_STATE_DIM}D XTac-UMI vector, got {dim}D")
+
+
+@dataclasses.dataclass(frozen=True)
+class XtacUmiFrameRelativePoses(transforms.DataTransformFn):
+    """Every pose as its motion since the previous frame: ``inv(T_{t-1}) @ T_t``.
+
+    Recordings are absolute poses in the Pico world frame (fixed when recording starts:
+    z up against gravity, x forward, y left from the headset). That frame has nothing to
+    do with a robot base, so the model only sees per-frame SE(3) motion, expressed in the
+    moving frame itself: left TCP, right TCP and, in 29D G1 data, the head. Gripper
+    openings stay absolute in both state and actions.
+
+    - ``state`` must be ``[..., 2, D]``: the previous and the current absolute frame
+      (``DataConfig.previous_state_keys`` makes the data loader supply it). The model's
+      state is the current frame relative to the previous one. At an episode's first
+      frame the loader clamps "previous" to the frame itself, so the motion is identity.
+    - ``actions`` ``[..., H, D]`` are absolute next-frame poses (``action[t]`` is the pose
+      at ``t + 1``), so each becomes relative to the one before it, the first to the
+      current state: ``inv(T_t) @ A_0``, ``inv(A_0) @ A_1``, ...
+    - Without actions (inference), the current absolute state is stashed under
+      ``transforms.INFERENCE_CONTEXT_KEY`` for `XtacUmiFrameAbsolutePoses`.
+
+    Works on individual samples and on batches used to compute normalization stats.
+    """
+
+    def __call__(self, data: dict) -> dict:
+        state = np.asarray(data["state"])
+        if state.ndim < 2 or state.shape[-2] != 2:
+            raise ValueError(
+                f"Frame-relative poses need the previous and current state, [..., 2, D]; got {state.shape}. "
+                "Set previous_state_keys on the data config (training) or send both frames (inference)."
+            )
+        poses = _pose_slices(state.shape[-1])
+        previous, current = state[..., 0, :], state[..., 1, :]
+
+        result = dict(data)
+        relative_state = np.array(current, copy=True)
+        for pose in poses:
+            relative_state[..., pose] = _relative_pose9(previous[..., pose], current[..., pose])
+        result["state"] = relative_state
+
+        if "actions" in data:
+            actions = np.asarray(data["actions"])
+            if actions.shape[-1] != state.shape[-1]:
+                raise ValueError(f"actions are {actions.shape[-1]}D but state is {state.shape[-1]}D")
+            # The frame before each action: the current state, then the action before it.
+            before = np.concatenate((current[..., None, :], actions[..., :-1, :]), axis=-2)
+            relative_actions = np.array(actions, copy=True)
+            for pose in poses:
+                relative_actions[..., pose] = _relative_pose9(before[..., pose], actions[..., pose])
+            result["actions"] = relative_actions
+        else:
+            result[transforms.INFERENCE_CONTEXT_KEY] = {"absolute_state": current}
+        return result
+
+
+@dataclasses.dataclass(frozen=True)
+class XtacUmiFrameAbsolutePoses(transforms.DataTransformFn):
+    """Chain `XtacUmiFrameRelativePoses` actions back onto the current pose.
+
+    ``A_0 = T_t @ dT_0``, ``A_k = A_{k-1} @ dT_k``. Gripper dims pass through. Returns
+    the action dims of the stashed state (20 or 29), dropping the model's padding.
+    """
+
+    def __call__(self, data: dict) -> dict:
+        if "actions" not in data:
+            return data
+        result = dict(data)
+        context = result.pop(transforms.INFERENCE_CONTEXT_KEY, None)
+        if context is None:
+            raise ValueError("Frame-relative actions need the absolute state stashed by XtacUmiFrameRelativePoses")
+        current = np.asarray(context["absolute_state"])
+        dim = current.shape[-1]
+        poses = _pose_slices(dim)
+        relative = np.asarray(data["actions"])[..., :dim]
+        actions = np.array(relative, copy=True)
+        pose_before = current
+        for k in range(relative.shape[-2]):
+            for pose in poses:
+                actions[..., k, pose] = _compose_pose9(pose_before[..., pose], relative[..., k, pose])
+            pose_before = actions[..., k, :]
+        result["actions"] = actions
         return result
 
 
