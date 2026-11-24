@@ -1,0 +1,53 @@
+# Inference recipe — bimanual Flexiv Rizon4 RT, forward mount, bench 05
+# (TacCap followers, tilted start pose).
+#   python -m examples.bi_flexiv_rizon4_rt.main --args.robot-recipe forward-05-taccap-tilt ...
+#
+# Bench hardware only; run tuning stays on the CLI (see recipes/README.md).
+# Hardware synced from lerobot-xense
+# recipes/record/bi_flexiv_rizon4_rt/pack_iphone-taccap.yaml
+# (and recipes/teleop/bi_flexiv_rizon4_rt/forward-05-taccap-tilt.yaml) —
+# keep these in sync.
+
+robot:
+  type: bi_flexiv_rizon4_rt
+
+  # ── Bench hardware (forward-05, TacCap tilted start) ────────────────────────
+  left_robot_sn: Rizon4-063786
+  right_robot_sn: Rizon4R-062096
+  # Joint angles in DEGREES (J1..J7), the units flexiv_rt takes.
+  left_start_position_degree: [53, 90, 11, 105, 106, 60, -65]
+  right_start_position_degree: [53, 90, 11, 105, 106, 60, -65]
+  left_home_position_degree: [53, 90, 11, 105, 106, 60, -65]
+  right_home_position_degree: [53, 90, 11, 105, 106, 60, -65]
+
+  # ── Cameras ─────────────────────────────────────────────────────────────────
+  # Only the head is pinned: the taccap gripper sniffs its own wrist + GSPS
+  # tactile cameras off its USB hub at connect (gripper.auto_discover_cameras).
+  cameras:
+    head:
+      type: intelrealsense
+      serial_number_or_name: "346522071766"
+      fps: 30
+      width: 640
+      height: 480
+      warmup_s: 1
+      use_depth: false
+    # What this bench had pinned before discovery took over, for cross-checking
+    # the first run. The tactile suffix is which jaw the pad sits on, read off
+    # serial parity (odd -> left), not enumeration order:
+    #   left_tactile_left:  OG001359   left_tactile_right:  OG001360   left_wrist:  XC000047
+    #   right_tactile_left: OG001369   right_tactile_right: OG001370   right_wrist: XC000054
+
+  # ── Gripper ── One block for both arms; `side` is stamped per arm at build time.
+  # Both grippers -> xense.taccap FollowerGripper (matched pair, single switch).
+  gripper:
+    type: taccap_follower
+    auto_discover_cameras: true
+    undistort_wrist: false
+    require_calibrated: true
+    init_open: true
+    # Everything else worth tuning, at its default — uncomment to change.
+    # side: left        # stamped automatically per arm — do not set here
+    # mcu_device: null  # explicit MCU path; the arm fills this from discovery
+  left_use_gripper: true
+  right_use_gripper: true

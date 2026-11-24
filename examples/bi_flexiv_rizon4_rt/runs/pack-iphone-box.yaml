@@ -1,0 +1,18 @@
+# Pack an iPhone into its box on bench 05 (TacCap followers, tilted start pose).
+#   python -m examples.bi_flexiv_rizon4_rt.main --args.run pack-iphone-box
+#
+# Policy: pi05_base_bi_flexiv_pack_iphone_box_rtc_1119_h100, trained with
+# training-time RTC, so RTC stays on here. The prompt comes from the config's
+# default_prompt on the server; this client does not send one.
+
+robot_recipe: forward-05-taccap-tilt
+
+# Policy server: xense-infer-03, reached over the wired LAN (enp129s0).
+host: 192.168.200.11
+port: 8000
+
+# Control loop
+runtime_hz: 30.0
+inner_control_hz: 1000
+interpolate_cmds: true
+rtc_enabled: true

@@ -56,6 +56,7 @@ effective defaults *after* the run file is applied.
 | File | What it is |
 |---|---|
 | [`dewu-shoe-insole.yaml`](dewu-shoe-insole.yaml) | Robot host of the three-machine dewu demo: forward-05, RTC on, head camera streamed to the screen PC at 10 Hz |
+| [`pack-iphone-box.yaml`](pack-iphone-box.yaml) | iPhone box packing on forward-05-taccap-tilt, RTC on, policy server xense-infer-03 (192.168.200.11) |
 | [`dry-run.yaml`](dry-run.yaml) | Bench check on forward-05 — connects and runs the policy, prints actions instead of executing them |
 
 The mechanism lives in [`../../run_config.py`](../../run_config.py) and is shared

@@ -94,6 +94,7 @@ drives to a stale start pose.
 | `forward-01.yaml` | taccap_follower | `lerobot-xense/recipes/teleop/bi_flexiv_rizon4_rt/forward-01.yaml` |
 | `forward-04.yaml` | taccap_follower | `…/teleop/bi_flexiv_rizon4_rt/forward-04.yaml` |
 | `forward-05.yaml` | serial (unverified upstream) | `…/teleop/bi_flexiv_rizon4_rt/forward-05.yaml` |
+| `forward-05-taccap-tilt.yaml` | taccap_follower | `…/record/bi_flexiv_rizon4_rt/pack_iphone-taccap.yaml` |
 | `forward-06.yaml` | serial | `…/record/bi_flexiv_rizon4_rt/assemble_box.yaml` |
 | `diagonal-02.yaml` | taccap_follower | `…/teleop/bi_flexiv_rizon4_rt/diagonal-02.yaml` |
 
