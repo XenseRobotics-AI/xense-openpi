@@ -1,0 +1,34 @@
+lr_schedule:
+  type: CosineDecaySchedule
+  warmup_steps: 1000
+  peak_lr: 2.5e-5
+  decay_steps: 30000
+  decay_lr: 2.5e-6
+model:
+  type: Pi0Config
+  batch_image_views: true
+  max_token_len: 200
+  pi05: true
+  discrete_state_input: true
+  enable_training_time_rtc: true
+weight_loader:
+  type: CheckpointWeightLoader
+  params_path: gs://openpi-assets/checkpoints/pi05_base/params
+ema_decay: null
+data:
+  type: LeRobotBiFlexivDataConfig
+  repo_id: Xense/pack_iphone_box_1119
+  base_config:
+    dataset_root: /root/localstorage/hf_cache/lerobot/Xense/pack_iphone_box_1119
+    tactile: false
+    prompt_from_task: true
+  default_prompt: Place the paper insert into the box. Place the iPhone into the box with the camera facing up. Close the box lid.
+batch_size: 256
+num_workers: 64
+num_train_steps: 40000
+fsdp_devices: 8
+project_name: xense-openpi-hubo
+save_interval: 10000
+keep_period: 10000
+log_interval: 100
+strict_batch_order: false
