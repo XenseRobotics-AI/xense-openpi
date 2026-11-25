@@ -46,3 +46,10 @@ keep_period: 10000
 log_interval: 100
 strict_batch_order: false
 project_name: xense-openpi-hubo
+policy_metadata:
+  # Consumed by clients that must not run this checkpoint: the 20D layout is the
+  # rig's per-side-grouped order, not examples/bi_flexiv_rizon4_rt's, so the two
+  # entry points are not interchangeable. bi_flexiv_rizon4_rt refuses to start
+  # when it sees action_space: xtac_umi.
+  action_space: xtac_umi
+  state_layout: [left_tcp, left_gripper, right_tcp, right_gripper]

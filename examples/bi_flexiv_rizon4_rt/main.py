@@ -287,6 +287,29 @@ class Args:
     pico4_ori_sensitivity: float = 1.0
 
 
+def _refuse_foreign_action_space(server_metadata: dict, args: Args) -> None:
+    """Refuse a server whose 20D layout is not this example's.
+
+    This entry point builds ``[left_tcp, right_tcp, left_gripper, right_gripper]``
+    and executes actions in the same order. An XTac-UMI checkpoint
+    (``action_space: xtac_umi``, see its config's ``policy_metadata``) expects the
+    rig's per-side-grouped order instead, so a mismatch would silently drive the
+    grippers with TCP coordinates and the arms with gripper openings. Refusing at
+    startup is the only cheap place to catch that — nothing downstream validates
+    the meaning of a dim.
+    """
+    action_space = server_metadata.get("action_space")
+    if action_space == "xtac_umi":
+        raise SystemExit(
+            "This policy server is an XTac-UMI checkpoint "
+            f"(action_space={action_space!r}), whose 20D layout is [left_tcp, left_gripper, "
+            "right_tcp, right_gripper] — not the one this example builds and executes "
+            "([left_tcp, right_tcp, left_gripper, right_gripper]). Run it with "
+            "`python -m examples.xtac_umi_bi_flexiv_rizon4_rt.main` instead; the two entry "
+            "points are not interchangeable."
+        )
+
+
 def main(args: Args) -> None:
     logger.info(_run_config.describe(args, Args, RUNS_DIR))
     if args.robot_recipe is None:
@@ -340,7 +363,9 @@ def main(args: Args) -> None:
         host=args.host,
         port=args.port,
     )
-    logger.info(f"Server metadata: {ws_client_policy.get_server_metadata()}")
+    server_metadata = ws_client_policy.get_server_metadata()
+    logger.info(f"Server metadata: {server_metadata}")
+    _refuse_foreign_action_space(server_metadata, args)
 
     base_environment = _env.BiFlexivRizon4RTEnvironment(
         robot_config=robot_config,
