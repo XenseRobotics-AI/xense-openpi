@@ -20,11 +20,12 @@ class _FakeRealEnv:
         return {"qpos": np.full(20, self.step, np.float32), "images": {"left_wrist": image, "right_wrist": image}}
 
 
-def _environment(*, send_previous_state):
+def _environment(*, send_previous_state, state_anchor="previous_frame"):
     environment = object.__new__(_env.XtacUmiBiFlexivRizon4RTEnvironment)
     environment._env = _FakeRealEnv()
     environment._render_height = environment._render_width = 32
     environment._send_previous_state = send_previous_state
+    environment._state_anchor = state_anchor
     environment._previous_state = None
     return environment
 
@@ -84,3 +85,38 @@ def test_frame_relative_run_file_is_consistent():
     _main.check_args(args)
     assert args.frame_relative_poses
     assert not args.align_gripper_frames
+
+
+def test_action_hz_must_be_non_negative():
+    main = _main()
+    with pytest.raises(SystemExit, match="must be >= 0"):
+        main.check_args(main.Args(action_hz=-1.0))
+
+
+def test_paced_queue_size_must_be_positive():
+    main = _main()
+    with pytest.raises(SystemExit, match="paced-queue-size must be >= 1"):
+        main.check_args(main.Args(paced_queue_size=0))
+
+
+def test_decoupled_mode_is_off_by_default_and_on_above_zero():
+    main = _main()
+    assert main.Args().action_hz == 0.0  # synchronous runtime unless asked
+    main.check_args(main.Args(action_hz=60.0))
+
+
+def test_episode_start_anchor_holds_the_post_reset_state():
+    """The training anchor is the episode's first frame, so deployment must not follow."""
+    environment = _environment(send_previous_state=True, state_anchor="episode_start")
+    environment.reset()
+    first = environment.get_observation()["state"]
+    second = environment.get_observation()["state"]
+    third = environment.get_observation()["state"]
+
+    # The anchor stays at the first observation for the whole episode...
+    np.testing.assert_array_equal(second[0], first[0])
+    np.testing.assert_array_equal(third[0], first[0])
+    # ...while the current frame keeps advancing (the fake reports the step count).
+    assert first[1, 0] == 1
+    assert second[1, 0] == 2
+    assert third[1, 0] == 3

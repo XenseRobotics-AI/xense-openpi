@@ -15,9 +15,10 @@ per-side-grouped from the driver's named keys — so nothing regroups dims anywh
 bench. The head camera a recipe pins is dropped: XTac-UMI checkpoints mask the
 base_0_rgb slot out.
 
-This is a reduced variant of examples/bi_flexiv_rizon4_rt/main.py: no recording,
-no Pico4 intervention, no decoupled runtime — just the synchronous Runtime with
-optional RTC action chunking.
+This is a reduced variant of examples/bi_flexiv_rizon4_rt/main.py: no recording
+and no Pico4 intervention. It runs the synchronous Runtime by default and the
+pace-decoupled one (obs thread + action thread) with ``--args.action-hz > 0``,
+with optional RTC action chunking in either.
 
 --args.run picks a run YAML from runs/, which presets any of the flags below
 (including the recipe), so a full launch is one line instead of ten. Flags still
@@ -59,8 +60,10 @@ from typing import override
 from lerobot.utils.robot_utils import get_logger
 import numpy as np
 from xense_client import action_chunk_broker
+from xense_client import paced_broker as _paced_broker
 from xense_client import rtc_action_chunk_broker
 from xense_client import websocket_client_policy as _websocket_client_policy
+from xense_client.runtime import decoupled_runtime as _decoupled_runtime
 from xense_client.runtime import environment as _environment
 from xense_client.runtime import runtime as _runtime
 from xense_client.runtime.agents import policy_agent as _policy_agent
@@ -181,6 +184,18 @@ class Args:
     # Dry run mode: connect and read, but never send an action to the arms.
     dry_run: bool = False
 
+    # Pace-decoupled runtime: the action thread pops at action_hz, independently of
+    # the obs loop (pinned to camera FPS). 0 = the synchronous Runtime (legacy).
+    #
+    # action_hz ABOVE the recording rate speeds the robot up: a chunk of N steps is
+    # played in N/action_hz seconds, so 60 Hz runs the 30 Hz demonstrations at twice
+    # their speed. It does not add resolution — the chunk's geometry is unchanged.
+    # Raise action_hz with the chain-relative actions in mind: every step multiplies
+    # onto the previous one, so a shorter, faster chunk also drifts less.
+    action_hz: float = 0.0
+    # Producer/consumer buffer depth. >= action_hz x worst-case inference stall.
+    paced_queue_size: int = 50
+
     # Non-RTC action chunking
     action_horizon: int = 50
 
@@ -198,6 +213,10 @@ def check_args(args: Args) -> None:
         raise SystemExit(f"--args.state-anchor must be previous_frame or episode_start, got {args.state_anchor!r}")
     if args.state_anchor != "previous_frame" and not args.frame_relative_poses:
         raise SystemExit("--args.state-anchor needs --args.frame-relative-poses.")
+    if args.action_hz < 0:
+        raise SystemExit(f"--args.action-hz must be >= 0 (0 = synchronous runtime), got {args.action_hz}")
+    if args.paced_queue_size < 1:
+        raise SystemExit(f"--args.paced-queue-size must be >= 1, got {args.paced_queue_size}")
     if args.frame_relative_poses and args.align_gripper_frames:
         raise SystemExit(
             "--args.frame-relative-poses needs --args.no-align-gripper-frames: the robot TCP frames must "
@@ -262,14 +281,18 @@ def main(args: Args) -> None:
     else:
         environment = base_environment
 
+    # The decoupled runtime pops from the broker at action_hz; the synchronous one
+    # at runtime_hz.
+    effective_broker_hz = args.action_hz if args.action_hz > 0 else args.runtime_hz
     if args.rtc_enabled:
         # The broker's queue holds Flexiv-frame actions (the adapter converts server
         # responses back). prev_chunk_left_over takes the opposite trip through the
-        # adapter. frequency_hz must match the real consumption rate — the
-        # synchronous Runtime pops at runtime_hz.
+        # adapter. frequency_hz must match the real consumption rate: the decoupled
+        # runtime pops at action_hz, the synchronous one at runtime_hz. RTC reads it
+        # to convert its per-step delay into seconds.
         broker = rtc_action_chunk_broker.RTCActionChunkBroker(
             policy=converted_policy,
-            frequency_hz=args.runtime_hz,
+            frequency_hz=effective_broker_hz,
             action_queue_size_to_get_new_actions=args.action_queue_size_to_get_new_actions,
             rtc_enabled=True,
             execution_horizon=args.execution_horizon,
@@ -283,13 +306,43 @@ def main(args: Args) -> None:
             action_horizon=args.action_horizon,
         )
 
-    runtime = _runtime.Runtime(
-        environment=environment,
-        agent=_policy_agent.PolicyAgent(policy=broker),
-        subscribers=[],
-        max_hz=args.runtime_hz,
-        num_episodes=args.num_episodes,
-    )
+    decoupled_mode = args.action_hz > 0
+    if decoupled_mode:
+        # target_hz=action_hz throttles the producer to the consumer's rate: without
+        # it an RTC broker's internal queue is drained faster than its background
+        # inference refills it, which spams "Action queue exhausted" at startup.
+        broker = _paced_broker.PacedBroker(
+            inner=broker,
+            queue_size=args.paced_queue_size,
+            target_hz=args.action_hz,
+        )
+
+    runtime: _runtime.Runtime | _decoupled_runtime.DecoupledRuntime
+    if decoupled_mode:
+        if args.action_hz != _TRAINING_HZ:
+            logger.warning(
+                f"XTac-UMI data was recorded at {_TRAINING_HZ:g} Hz; action_hz {args.action_hz:g} plays the "
+                f"same chunks at {args.action_hz / _TRAINING_HZ:.2f}x their recorded speed"
+            )
+        logger.info(
+            f"Decoupled runtime: obs at ~{args.runtime_hz:g} Hz (camera-bound), action at {args.action_hz:g} Hz"
+        )
+        runtime = _decoupled_runtime.DecoupledRuntime(
+            environment=environment,
+            broker=broker,
+            subscribers=[],
+            obs_hz=args.runtime_hz,
+            action_hz=args.action_hz,
+            num_episodes=args.num_episodes,
+        )
+    else:
+        runtime = _runtime.Runtime(
+            environment=environment,
+            agent=_policy_agent.PolicyAgent(policy=broker),
+            subscribers=[],
+            max_hz=args.runtime_hz,
+            num_episodes=args.num_episodes,
+        )
 
     def disconnect() -> None:
         try:
